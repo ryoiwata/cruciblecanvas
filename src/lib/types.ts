@@ -174,6 +174,8 @@ export const STICKY_NOTE_DEFAULT = {
 
 export const GRID_SIZE = 20;
 
+export const MIN_DRAG_THRESHOLD = 5;
+
 export const ZOOM_MIN = 0.05;
 export const ZOOM_MAX = 5.0;
 

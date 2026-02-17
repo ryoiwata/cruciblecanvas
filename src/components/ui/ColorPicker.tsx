@@ -12,6 +12,7 @@ interface ColorPickerProps {
 
 export default function ColorPicker({ boardId }: ColorPickerProps) {
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const objects = useObjectStore((s) => s.objects);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
@@ -32,6 +33,7 @@ export default function ColorPicker({ boardId }: ColorPickerProps) {
       if (!obj || obj.type === "connector") continue;
       updateObjectLocal(id, { color });
       updateObject(boardId, id, { color }).catch(console.error);
+      setLastUsedColor(obj.type, color);
     }
   };
 

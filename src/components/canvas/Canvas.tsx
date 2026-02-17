@@ -9,13 +9,19 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { setCursor } from "@/lib/firebase/rtdb";
 import { createObject, generateObjectId } from "@/lib/firebase/firestore";
 import { snapToGrid, getCanvasPoint, getUserColor, boundsOverlap } from "@/lib/utils";
+import type { ObjectType } from "@/lib/types";
 import {
   STICKY_NOTE_DEFAULT,
   ZOOM_MIN,
   ZOOM_MAX,
   SHAPE_DEFAULTS,
+  SHAPE_SIZE_LIMITS,
   FRAME_DEFAULTS,
+  FRAME_SIZE_LIMITS,
+  STICKY_NOTE_SIZE_LIMITS,
   CONNECTOR_DEFAULTS,
+  COLOR_LEGEND_DEFAULTS,
+  MIN_DRAG_THRESHOLD,
 } from "@/lib/types";
 import DotGrid from "./DotGrid";
 import BoardObjects from "./BoardObjects";
@@ -23,6 +29,7 @@ import SelectionLayer from "./SelectionLayer";
 import SelectionRect from "./SelectionRect";
 import CursorLayer from "./CursorLayer";
 import TextEditor from "./TextEditor";
+import GhostPreview from "./GhostPreview";
 import { useFrameNesting } from "@/hooks/useFrameNesting";
 
 interface CanvasProps {
@@ -32,11 +39,77 @@ interface CanvasProps {
 const CURSOR_THROTTLE_MS = 33; // ~30 Hz
 const CURSOR_MIN_DISTANCE = 5; // px
 
+// --- Helper: get last-used or default color for a tool ---
+function getColorForTool(
+  tool: ObjectType,
+  lastUsedColors: Record<string, string>
+): string {
+  if (lastUsedColors[tool]) return lastUsedColors[tool];
+  switch (tool) {
+    case "stickyNote":
+      return STICKY_NOTE_DEFAULT.color;
+    case "rectangle":
+      return SHAPE_DEFAULTS.rectangle.color;
+    case "circle":
+      return SHAPE_DEFAULTS.circle.color;
+    case "frame":
+      return FRAME_DEFAULTS.color;
+    case "colorLegend":
+      return COLOR_LEGEND_DEFAULTS.color;
+    default:
+      return "#E3E8EF";
+  }
+}
+
+// --- Helper: get default dimensions for a tool ---
+function getDefaultsForTool(tool: ObjectType): { width: number; height: number } {
+  switch (tool) {
+    case "stickyNote":
+      return { width: STICKY_NOTE_DEFAULT.width, height: STICKY_NOTE_DEFAULT.height };
+    case "rectangle":
+      return { width: SHAPE_DEFAULTS.rectangle.width, height: SHAPE_DEFAULTS.rectangle.height };
+    case "circle":
+      return { width: SHAPE_DEFAULTS.circle.width, height: SHAPE_DEFAULTS.circle.height };
+    case "frame":
+      return { width: FRAME_DEFAULTS.width, height: FRAME_DEFAULTS.height };
+    case "colorLegend":
+      return { width: COLOR_LEGEND_DEFAULTS.width, height: COLOR_LEGEND_DEFAULTS.height };
+    default:
+      return { width: 100, height: 100 };
+  }
+}
+
+// --- Helper: get size limits for a tool ---
+function getSizeLimitsForTool(tool: ObjectType): {
+  min: { width: number; height: number };
+  max: { width: number; height: number };
+} {
+  switch (tool) {
+    case "stickyNote":
+      return STICKY_NOTE_SIZE_LIMITS;
+    case "rectangle":
+    case "circle":
+      return SHAPE_SIZE_LIMITS;
+    case "frame":
+      return FRAME_SIZE_LIMITS;
+    default:
+      return SHAPE_SIZE_LIMITS;
+  }
+}
+
+interface DrawingState {
+  objectId: string;
+  startX: number;
+  startY: number;
+  created: boolean;
+}
+
 export default function Canvas({ boardId }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const lastCursorSend = useRef(0);
   const lastCursorPos = useRef({ x: 0, y: 0 });
   const isPanning = useRef(false);
+  const drawingRef = useRef<DrawingState | null>(null);
 
   // Selection rectangle state
   const [selRect, setSelRect] = useState({
@@ -46,6 +119,9 @@ export default function Canvas({ boardId }: CanvasProps) {
     currentX: 0,
     currentY: 0,
   });
+
+  // Ghost preview position
+  const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
 
   // Hovered object for anchor points
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
@@ -69,14 +145,28 @@ export default function Canvas({ boardId }: CanvasProps) {
   const editingObjectId = useCanvasStore((s) => s.editingObjectId);
   const connectorStart = useCanvasStore((s) => s.connectorStart);
   const setConnectorStart = useCanvasStore((s) => s.setConnectorStart);
+  const lastUsedColors = useCanvasStore((s) => s.lastUsedColors);
 
   const objects = useObjectStore((s) => s.objects);
   const upsertObject = useObjectStore((s) => s.upsertObject);
+  const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
+  const removeObject = useObjectStore((s) => s.removeObject);
 
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
 
   const { checkNesting } = useFrameNesting(boardId);
+
+  // --- Clear ghost + cleanup drawing when mode changes ---
+  useEffect(() => {
+    setGhostPos(null);
+    if (drawingRef.current) {
+      if (drawingRef.current.created) {
+        removeObject(drawingRef.current.objectId);
+      }
+      drawingRef.current = null;
+    }
+  }, [mode, creationTool, removeObject]);
 
   // --- Window dimensions ---
   useEffect(() => {
@@ -216,7 +306,7 @@ export default function Canvas({ boardId }: CanvasProps) {
     [connectorStart, objects, user, boardId, upsertObject, setConnectorStart]
   );
 
-  // --- Click (create object / clear selection) ---
+  // --- Click (connector cancel / select clear only) ---
   const handleClick = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       const stage = stageRef.current;
@@ -225,138 +315,23 @@ export default function Canvas({ boardId }: CanvasProps) {
       // Only handle clicks on empty canvas (not on objects)
       if (e.target !== stage) return;
 
-      if (mode === "create" && creationTool) {
+      if (mode === "create" && creationTool === "connector") {
         // Cancel connector start on empty canvas click
-        if (creationTool === "connector") {
-          setConnectorStart(null);
-          setConnectorEndpoint(null);
-          return;
-        }
+        setConnectorStart(null);
+        setConnectorEndpoint(null);
+        return;
+      }
 
-        const pointer = stage.getPointerPosition();
-        if (!pointer) return;
-
-        const canvasPoint = getCanvasPoint(
-          stageX,
-          stageY,
-          stageScale,
-          pointer.x,
-          pointer.y
-        );
-        const x = snapToGrid(canvasPoint.x);
-        const y = snapToGrid(canvasPoint.y);
-
-        const objectId = generateObjectId(boardId);
-
-        let newObject;
-
-        switch (creationTool) {
-          case "stickyNote":
-            newObject = {
-              id: objectId,
-              type: "stickyNote" as const,
-              x,
-              y,
-              width: STICKY_NOTE_DEFAULT.width,
-              height: STICKY_NOTE_DEFAULT.height,
-              color: STICKY_NOTE_DEFAULT.color,
-              text: "",
-              createdBy: user.uid,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            };
-            break;
-          case "rectangle":
-            newObject = {
-              id: objectId,
-              type: "rectangle" as const,
-              x,
-              y,
-              width: SHAPE_DEFAULTS.rectangle.width,
-              height: SHAPE_DEFAULTS.rectangle.height,
-              color: SHAPE_DEFAULTS.rectangle.color,
-              text: "",
-              createdBy: user.uid,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            };
-            break;
-          case "circle":
-            newObject = {
-              id: objectId,
-              type: "circle" as const,
-              x,
-              y,
-              width: SHAPE_DEFAULTS.circle.width,
-              height: SHAPE_DEFAULTS.circle.height,
-              color: SHAPE_DEFAULTS.circle.color,
-              text: "",
-              createdBy: user.uid,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            };
-            break;
-          case "frame":
-            newObject = {
-              id: objectId,
-              type: "frame" as const,
-              x,
-              y,
-              width: FRAME_DEFAULTS.width,
-              height: FRAME_DEFAULTS.height,
-              color: FRAME_DEFAULTS.color,
-              text: "",
-              createdBy: user.uid,
-              createdAt: Date.now(),
-              updatedAt: Date.now(),
-            };
-            break;
-          default:
-            return;
-        }
-
-        // Optimistic local render
-        upsertObject(newObject);
-
-        // Async Firestore write
-        createObject(
-          boardId,
-          {
-            type: newObject.type,
-            x,
-            y,
-            width: newObject.width,
-            height: newObject.height,
-            color: newObject.color,
-            text: newObject.text,
-            createdBy: user.uid,
-          },
-          objectId
-        ).catch((err) => {
-          console.error("Failed to create object:", err);
-        });
-      } else if (mode === "select") {
+      if (mode === "select") {
         clearSelection();
       }
     },
-    [
-      mode,
-      creationTool,
-      stageX,
-      stageY,
-      stageScale,
-      boardId,
-      user,
-      upsertObject,
-      clearSelection,
-      setConnectorStart,
-    ]
+    [mode, creationTool, user, clearSelection, setConnectorStart]
   );
 
-  // --- Mouse down (start selection rect) ---
+  // --- Mouse down (start drag-to-create or selection rect) ---
   const handleMouseDown = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
-      if (mode !== "select") return;
       if (e.target !== stageRef.current) return; // Only on empty canvas
 
       const stage = stageRef.current;
@@ -367,18 +342,36 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       const canvasPoint = getCanvasPoint(stageX, stageY, stageScale, pointer.x, pointer.y);
 
-      setSelRect({
-        active: true,
-        startX: canvasPoint.x,
-        startY: canvasPoint.y,
-        currentX: canvasPoint.x,
-        currentY: canvasPoint.y,
-      });
+      if (mode === "create" && creationTool && creationTool !== "connector") {
+        // Start drag-to-create
+        const sx = snapToGrid(canvasPoint.x);
+        const sy = snapToGrid(canvasPoint.y);
+        const objectId = generateObjectId(boardId);
+
+        drawingRef.current = {
+          objectId,
+          startX: sx,
+          startY: sy,
+          created: false,
+        };
+        setGhostPos(null); // Hide ghost while drawing
+        return;
+      }
+
+      if (mode === "select") {
+        setSelRect({
+          active: true,
+          startX: canvasPoint.x,
+          startY: canvasPoint.y,
+          currentX: canvasPoint.x,
+          currentY: canvasPoint.y,
+        });
+      }
     },
-    [mode, stageX, stageY, stageScale]
+    [mode, creationTool, stageX, stageY, stageScale, boardId]
   );
 
-  // --- Mouse move (update selection rect + cursor sync + connector temp line) ---
+  // --- Mouse move (drag-to-create / ghost / selection rect / cursor sync / connector) ---
   const handleMouseMove = useCallback(
     (e: Konva.KonvaEventObject<MouseEvent>) => {
       const stage = stageRef.current;
@@ -387,7 +380,83 @@ export default function Canvas({ boardId }: CanvasProps) {
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
 
-      // Track hovered object for anchor points
+      // --- Create mode (non-connector): drag-to-create or ghost ---
+      if (mode === "create" && creationTool && creationTool !== "connector") {
+        const canvasPoint = getCanvasPoint(
+          stage.x(),
+          stage.y(),
+          stage.scaleX(),
+          pointer.x,
+          pointer.y
+        );
+
+        if (drawingRef.current) {
+          // Actively drawing — compute size
+          const freeForm = e.evt.ctrlKey || e.evt.metaKey;
+          const endX = freeForm ? canvasPoint.x : snapToGrid(canvasPoint.x);
+          const endY = freeForm ? canvasPoint.y : snapToGrid(canvasPoint.y);
+
+          let w = Math.abs(endX - drawingRef.current.startX);
+          let h = Math.abs(endY - drawingRef.current.startY);
+
+          // Circle constraint: enforce square
+          if (creationTool === "circle") {
+            const maxDim = Math.max(w, h);
+            w = maxDim;
+            h = maxDim;
+          }
+
+          // Clamp to size limits
+          const limits = getSizeLimitsForTool(creationTool);
+          w = Math.max(limits.min.width, Math.min(limits.max.width, w));
+          h = Math.max(limits.min.height, Math.min(limits.max.height, h));
+
+          // Handle negative drag direction
+          const objX = Math.min(drawingRef.current.startX, endX);
+          const objY = Math.min(drawingRef.current.startY, endY);
+
+          const dist = Math.max(
+            Math.abs(endX - drawingRef.current.startX),
+            Math.abs(endY - drawingRef.current.startY)
+          );
+
+          if (!drawingRef.current.created && dist > MIN_DRAG_THRESHOLD && user) {
+            // First time past threshold — create object
+            const color = getColorForTool(creationTool, lastUsedColors);
+            const newObject = {
+              id: drawingRef.current.objectId,
+              type: creationTool,
+              x: objX,
+              y: objY,
+              width: w,
+              height: h,
+              color,
+              text: "",
+              createdBy: user.uid,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            upsertObject(newObject);
+            drawingRef.current.created = true;
+          } else if (drawingRef.current.created) {
+            // Already created — resize
+            updateObjectLocal(drawingRef.current.objectId, {
+              x: objX,
+              y: objY,
+              width: w,
+              height: h,
+            });
+          }
+        } else {
+          // Not drawing — update ghost preview position
+          setGhostPos({
+            x: snapToGrid(canvasPoint.x),
+            y: snapToGrid(canvasPoint.y),
+          });
+        }
+      }
+
+      // Track hovered object for anchor points (connector mode)
       if (mode === "create" && creationTool === "connector") {
         const target = e.target;
         if (target !== stage) {
@@ -437,7 +506,7 @@ export default function Canvas({ boardId }: CanvasProps) {
       const now = Date.now();
       if (now - lastCursorSend.current < CURSOR_THROTTLE_MS) return;
 
-      const canvasPoint = getCanvasPoint(
+      const cursorCanvasPoint = getCanvasPoint(
         stage.x(),
         stage.y(),
         stage.scaleX(),
@@ -445,16 +514,16 @@ export default function Canvas({ boardId }: CanvasProps) {
         pointer.y
       );
 
-      const dx = canvasPoint.x - lastCursorPos.current.x;
-      const dy = canvasPoint.y - lastCursorPos.current.y;
+      const dx = cursorCanvasPoint.x - lastCursorPos.current.x;
+      const dy = cursorCanvasPoint.y - lastCursorPos.current.y;
       if (dx * dx + dy * dy < CURSOR_MIN_DISTANCE * CURSOR_MIN_DISTANCE) return;
 
       lastCursorSend.current = now;
-      lastCursorPos.current = { x: canvasPoint.x, y: canvasPoint.y };
+      lastCursorPos.current = { x: cursorCanvasPoint.x, y: cursorCanvasPoint.y };
 
       setCursor(boardId, user.uid, {
-        x: canvasPoint.x,
-        y: canvasPoint.y,
+        x: cursorCanvasPoint.x,
+        y: cursorCanvasPoint.y,
         name: displayName || "Guest",
         color: getUserColor(user.uid),
         timestamp: now,
@@ -471,43 +540,115 @@ export default function Canvas({ boardId }: CanvasProps) {
       stageX,
       stageY,
       stageScale,
+      lastUsedColors,
+      upsertObject,
+      updateObjectLocal,
     ]
   );
 
-  // --- Mouse up (finish selection rect) ---
+  // --- Mouse up (finalize drag-to-create or click-to-create or selection rect) ---
   const handleMouseUp = useCallback(() => {
-    if (!selRect.active) return;
+    // --- Drag-to-create finalization ---
+    if (mode === "create" && creationTool && creationTool !== "connector" && drawingRef.current && user) {
+      const drawing = drawingRef.current;
 
-    const x = Math.min(selRect.startX, selRect.currentX);
-    const y = Math.min(selRect.startY, selRect.currentY);
-    const w = Math.abs(selRect.currentX - selRect.startX);
-    const h = Math.abs(selRect.currentY - selRect.startY);
+      if (drawing.created) {
+        // Dragged past threshold — persist to Firestore
+        const obj = useObjectStore.getState().objects[drawing.objectId];
+        if (obj) {
+          createObject(
+            boardId,
+            {
+              type: obj.type,
+              x: obj.x,
+              y: obj.y,
+              width: obj.width,
+              height: obj.height,
+              color: obj.color,
+              text: obj.text ?? "",
+              createdBy: user.uid,
+            },
+            drawing.objectId
+          ).catch((err) => {
+            console.error("Failed to create object:", err);
+          });
+        }
+      } else {
+        // Click (no drag) — create at default size
+        const defaults = getDefaultsForTool(creationTool);
+        const color = getColorForTool(creationTool, lastUsedColors);
 
-    // Only perform hit-test if rect is large enough
-    if (w > 5 && h > 5) {
-      const selBounds = { x, y, width: w, height: h };
-      const matchingIds: string[] = [];
+        const newObject = {
+          id: drawing.objectId,
+          type: creationTool,
+          x: drawing.startX,
+          y: drawing.startY,
+          width: defaults.width,
+          height: defaults.height,
+          color,
+          text: "",
+          createdBy: user.uid,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
 
-      for (const obj of Object.values(objects)) {
-        if (obj.type === "connector") continue;
-        if (boundsOverlap(selBounds, obj)) {
-          matchingIds.push(obj.id);
+        upsertObject(newObject);
+
+        createObject(
+          boardId,
+          {
+            type: creationTool,
+            x: drawing.startX,
+            y: drawing.startY,
+            width: defaults.width,
+            height: defaults.height,
+            color,
+            text: "",
+            createdBy: user.uid,
+          },
+          drawing.objectId
+        ).catch((err) => {
+          console.error("Failed to create object:", err);
+        });
+      }
+
+      drawingRef.current = null;
+      return;
+    }
+
+    // --- Selection rect finalization ---
+    if (selRect.active) {
+      const x = Math.min(selRect.startX, selRect.currentX);
+      const y = Math.min(selRect.startY, selRect.currentY);
+      const w = Math.abs(selRect.currentX - selRect.startX);
+      const h = Math.abs(selRect.currentY - selRect.startY);
+
+      // Only perform hit-test if rect is large enough
+      if (w > 5 && h > 5) {
+        const selBounds = { x, y, width: w, height: h };
+        const matchingIds: string[] = [];
+
+        for (const obj of Object.values(objects)) {
+          if (obj.type === "connector") continue;
+          if (boundsOverlap(selBounds, obj)) {
+            matchingIds.push(obj.id);
+          }
+        }
+
+        if (matchingIds.length > 0) {
+          useCanvasStore.setState({ selectedObjectIds: matchingIds });
         }
       }
 
-      if (matchingIds.length > 0) {
-        useCanvasStore.setState({ selectedObjectIds: matchingIds });
-      }
+      setSelRect({
+        active: false,
+        startX: 0,
+        startY: 0,
+        currentX: 0,
+        currentY: 0,
+      });
     }
-
-    setSelRect({
-      active: false,
-      startX: 0,
-      startY: 0,
-      currentX: 0,
-      currentY: 0,
-    });
-  }, [selRect, objects]);
+  }, [mode, creationTool, user, boardId, selRect, objects, lastUsedColors, upsertObject]);
 
   // --- Right-click (context menu) ---
   const handleContextMenu = useCallback(
@@ -573,6 +714,14 @@ export default function Canvas({ boardId }: CanvasProps) {
     return [startCx, startCy, connectorEndpoint.x, connectorEndpoint.y];
   })();
 
+  // Should we show the ghost preview?
+  const showGhost =
+    mode === "create" &&
+    creationTool &&
+    creationTool !== "connector" &&
+    ghostPos &&
+    !drawingRef.current;
+
   return (
     <div
       style={{
@@ -613,7 +762,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           />
         </Layer>
 
-        {/* Layer 2: Board objects */}
+        {/* Layer 2: Board objects + ghost preview */}
         <Layer>
           <BoardObjects
             boardId={boardId}
@@ -622,6 +771,16 @@ export default function Canvas({ boardId }: CanvasProps) {
             hoveredObjectId={hoveredObjectId}
             onAnchorClick={handleAnchorClick}
           />
+
+          {/* Ghost preview for shape creation */}
+          {showGhost && (
+            <GhostPreview
+              tool={creationTool!}
+              x={ghostPos!.x}
+              y={ghostPos!.y}
+              color={getColorForTool(creationTool!, lastUsedColors)}
+            />
+          )}
 
           {/* Temporary connector line */}
           {connectorTempLine && (

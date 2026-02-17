@@ -28,6 +28,9 @@ interface CanvasState {
   // Connector creation (Phase 3)
   connectorStart: string | null;
 
+  // Color memory
+  lastUsedColors: Record<string, string>;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -44,6 +47,7 @@ interface CanvasState {
   showContextMenu: (state: ContextMenuState) => void;
   hideContextMenu: () => void;
   setConnectorStart: (id: string | null) => void;
+  setLastUsedColor: (type: string, color: string) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -65,6 +69,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   clipboard: [],
   contextMenu: INITIAL_CONTEXT_MENU,
   connectorStart: null,
+  lastUsedColors: {},
 
   setMode: (mode) =>
     set({
@@ -128,4 +133,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   hideContextMenu: () => set({ contextMenu: INITIAL_CONTEXT_MENU }),
 
   setConnectorStart: (id) => set({ connectorStart: id }),
+
+  setLastUsedColor: (type, color) =>
+    set((s) => ({
+      lastUsedColors: { ...s.lastUsedColors, [type]: color },
+    })),
 }));
