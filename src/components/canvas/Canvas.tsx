@@ -32,6 +32,7 @@ import TextEditor from "./TextEditor";
 import GhostPreview from "./GhostPreview";
 import { useFrameNesting } from "@/hooks/useFrameNesting";
 import { borderResizingIds } from "@/lib/resizeState";
+import { syncKonvaChildren } from "@/lib/konvaSync";
 
 interface CanvasProps {
   boardId: string;
@@ -119,76 +120,85 @@ function applyResizeToKonvaNode(
   group.width(w);
   group.height(h);
 
-  const children = group.getChildren();
-
-  switch (objectType) {
-    case "frame": {
-      // Index 0: background Rect — full w/h
-      // Index 1: title bar Rect — width only (height stays at 40px)
-      // Index 2: selection border Rect — full w/h
-      // Title Text — width(w - 20)
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i];
-        const cls = child.getClassName();
-        if (cls === "Rect") {
-          const r = child as unknown as Konva.Rect;
-          if (i === 1) {
-            // Title bar: only update width, preserve height
-            r.width(w);
-          } else {
-            r.width(w);
-            r.height(h);
-          }
-        } else if (cls === "Text") {
-          const t = child as unknown as Konva.Text;
-          t.width(w - 20);
-        }
-      }
-      break;
-    }
-    case "stickyNote": {
-      for (const child of children) {
-        const cls = child.getClassName();
-        if (cls === "Rect") {
-          const r = child as unknown as Konva.Rect;
-          r.width(w);
-          r.height(h);
-        } else if (cls === "Text") {
-          const t = child as unknown as Konva.Text;
-          if (t.wrap() === "word") {
-            t.width(w - 20);
-          }
-        }
-      }
-      break;
-    }
-    case "circle": {
-      for (const child of children) {
-        const cls = child.getClassName();
-        if (cls === "Circle") {
-          const c = child as unknown as Konva.Circle;
-          c.x(w / 2);
-          c.y(h / 2);
-          c.radius(w / 2);
-        }
-      }
-      break;
-    }
-    default: {
-      // rectangle and other types: all Rects get full w/h
-      for (const child of children) {
-        const cls = child.getClassName();
-        if (cls === "Rect") {
-          const r = child as unknown as Konva.Rect;
-          r.width(w);
-          r.height(h);
-        }
-      }
-      break;
-    }
-  }
+  syncKonvaChildren(group, objectType, w, h);
 
   group.getLayer()?.batchDraw();
+}
+
+// --- Helper: compute border resize dimensions with flipping support ---
+// The origin point (corner diagonally opposite the drag handle) is strictly
+// locked in global coordinates. When the cursor crosses past the origin,
+// the shape inverts but the origin remains the pivot.
+function computeBorderResize(
+  br: BorderResizeState,
+  cursorX: number,
+  cursorY: number,
+  limits: { min: { width: number; height: number }; max: { width: number; height: number } }
+): { x: number; y: number; width: number; height: number } {
+  const { edge, startX, startY, startW, startH, startRight, startBottom, objectType } = br;
+
+  let newX = startX;
+  let newY = startY;
+  let newW = startW;
+  let newH = startH;
+
+  // Which axes does this edge affect?
+  const resizesH = edge !== "n" && edge !== "s";
+  const resizesV = edge !== "e" && edge !== "w";
+
+  // Which side of the shape is the drag handle on?
+  const isEast = edge === "e" || edge === "se" || edge === "ne";
+  const isSouth = edge === "s" || edge === "se" || edge === "sw";
+
+  // Track raw signed deltas for position calculation after clamping
+  let rawW = 0;
+  let rawH = 0;
+
+  if (resizesH) {
+    // Anchor is the opposite edge: east drag → left edge fixed, west drag → right edge fixed
+    const anchorX = isEast ? startX : startRight;
+    rawW = cursorX - anchorX;
+    newW = Math.abs(rawW);
+  }
+
+  if (resizesV) {
+    const anchorY = isSouth ? startY : startBottom;
+    rawH = cursorY - anchorY;
+    newH = Math.abs(rawH);
+  }
+
+  // Clamp to type limits
+  newW = Math.max(limits.min.width, Math.min(limits.max.width, newW));
+  newH = Math.max(limits.min.height, Math.min(limits.max.height, newH));
+
+  // Circle constraint: enforce square
+  if (objectType === "circle") {
+    const maxDim = Math.max(newW, newH);
+    newW = maxDim;
+    newH = maxDim;
+  }
+
+  // Round dimensions FIRST to preserve anchor integrity
+  newW = Math.round(newW);
+  newH = Math.round(newH);
+
+  // Recalculate position from the locked anchor AFTER rounding.
+  // The sign of the raw delta determines which side of the anchor the cursor is on:
+  //   rawW >= 0 → shape extends right from anchor → newX = anchor
+  //   rawW <  0 → shape extends left from anchor  → newX = anchor - width (flipped)
+  if (resizesH) {
+    const anchorX = isEast ? startX : startRight;
+    newX = rawW >= 0 ? anchorX : anchorX - newW;
+    newX = Math.round(newX);
+  }
+
+  if (resizesV) {
+    const anchorY = isSouth ? startY : startBottom;
+    newY = rawH >= 0 ? anchorY : anchorY - newH;
+    newY = Math.round(newY);
+  }
+
+  return { x: newX, y: newY, width: newW, height: newH };
 }
 
 interface DrawingState {
@@ -211,6 +221,8 @@ export default function Canvas({ boardId }: CanvasProps) {
     width: number;
     height: number;
   } | null>(null);
+  // RAF handle for border resize rendering — coalesces mouse events to display refresh rate
+  const borderResizeRafRef = useRef(0);
 
   // Selection rectangle state
   const [selRect, setSelRect] = useState({
@@ -559,7 +571,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         }
       }
 
-      // --- Border resize: compute new dimensions ---
+      // --- Border resize: compute new dimensions + RAF-gated render ---
       if (borderResizeRef.current) {
         const br = borderResizeRef.current;
         const canvasPoint = getCanvasPoint(
@@ -571,74 +583,35 @@ export default function Canvas({ boardId }: CanvasProps) {
         );
 
         const limits = getSizeLimitsForTool(br.objectType);
-        const { edge, startX, startY, startW, startH } = br;
-        const startRight = startX + startW;
-        const startBottom = startY + startH;
 
-        let newX = startX;
-        let newY = startY;
-        let newW = startW;
-        let newH = startH;
+        // Compute with anchor-locked flipping support (pure arithmetic, ~ns)
+        const result = computeBorderResize(br, canvasPoint.x, canvasPoint.y, limits);
 
-        // Horizontal axis
-        if (edge === "e" || edge === "se" || edge === "ne") {
-          newW = canvasPoint.x - startX;
-        } else if (edge === "w" || edge === "sw" || edge === "nw") {
-          newW = startRight - canvasPoint.x;
+        // Store latest values — always current, read on mouseUp for commit
+        borderResizeLatestRef.current = result;
+
+        // RAF-gate the Konva render to sync with display refresh rate.
+        // Multiple mousemove events between frames are coalesced — only the
+        // latest result (from borderResizeLatestRef) is painted.
+        if (!borderResizeRafRef.current) {
+          borderResizeRafRef.current = requestAnimationFrame(() => {
+            borderResizeRafRef.current = 0;
+            const latest = borderResizeLatestRef.current;
+            const activeBr = borderResizeRef.current;
+            const activeStage = stageRef.current;
+            if (!latest || !activeBr || !activeStage) return;
+
+            applyResizeToKonvaNode(
+              activeStage,
+              activeBr.objectId,
+              activeBr.objectType,
+              latest.x,
+              latest.y,
+              latest.width,
+              latest.height
+            );
+          });
         }
-
-        // Vertical axis
-        if (edge === "s" || edge === "se" || edge === "sw") {
-          newH = canvasPoint.y - startY;
-        } else if (edge === "n" || edge === "ne" || edge === "nw") {
-          newH = startBottom - canvasPoint.y;
-        }
-
-        // Clamp to limits (prevents negative/zero dimensions)
-        newW = Math.max(limits.min.width, Math.min(limits.max.width, newW));
-        newH = Math.max(limits.min.height, Math.min(limits.max.height, newH));
-
-        // Circle constraint: enforce square
-        if (br.objectType === "circle") {
-          const maxDim = Math.max(newW, newH);
-          newW = maxDim;
-          newH = maxDim;
-        }
-
-        // Round dimensions FIRST to preserve anchor integrity
-        newW = Math.round(newW);
-        newH = Math.round(newH);
-
-        // Recalculate position from fixed anchor AFTER rounding.
-        // This ensures the opposite corner stays perfectly fixed.
-        if (edge === "w" || edge === "nw" || edge === "sw") {
-          newX = startRight - newW;
-        }
-        if (edge === "n" || edge === "nw" || edge === "ne") {
-          newY = startBottom - newH;
-        }
-
-        newX = Math.round(newX);
-        newY = Math.round(newY);
-
-        // Store latest values for commit on mouseUp
-        borderResizeLatestRef.current = {
-          x: newX,
-          y: newY,
-          width: newW,
-          height: newH,
-        };
-
-        // Direct Konva manipulation — bypass React for smooth performance
-        applyResizeToKonvaNode(
-          stage,
-          br.objectId,
-          br.objectType,
-          newX,
-          newY,
-          newW,
-          newH
-        );
       }
 
       // Track hovered object for anchor points (connector mode)
@@ -737,6 +710,21 @@ export default function Canvas({ boardId }: CanvasProps) {
     if (borderResizeRef.current) {
       const br = borderResizeRef.current;
       const latest = borderResizeLatestRef.current;
+
+      // STEP 0: Cancel any pending RAF and apply final dimensions synchronously.
+      // This ensures the Konva node is at the exact latest cursor position
+      // before we commit to React state.
+      if (borderResizeRafRef.current) {
+        cancelAnimationFrame(borderResizeRafRef.current);
+        borderResizeRafRef.current = 0;
+      }
+      const stage = stageRef.current;
+      if (stage && latest) {
+        applyResizeToKonvaNode(
+          stage, br.objectId, br.objectType,
+          latest.x, latest.y, latest.width, latest.height
+        );
+      }
 
       // STEP 1: Commit correct values to Zustand while memo guard is STILL active.
       // This ensures the store has final dimensions before any re-render can see them.
@@ -932,6 +920,8 @@ export default function Canvas({ boardId }: CanvasProps) {
         startY: obj.y,
         startW: obj.width,
         startH: obj.height,
+        startRight: obj.x + obj.width,
+        startBottom: obj.y + obj.height,
         objectType: obj.type,
       };
 
@@ -955,6 +945,11 @@ export default function Canvas({ boardId }: CanvasProps) {
   // --- Cleanup border resize on mode change ---
   useEffect(() => {
     if (borderResizeRef.current) {
+      // Cancel any pending RAF to prevent stale renders
+      if (borderResizeRafRef.current) {
+        cancelAnimationFrame(borderResizeRafRef.current);
+        borderResizeRafRef.current = 0;
+      }
       borderResizingIds.delete(borderResizeRef.current.objectId);
       // Re-sync Transformer so it re-attaches to the node after abort
       useCanvasStore.getState().bumpBorderResizeGeneration();

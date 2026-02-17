@@ -7,6 +7,7 @@ import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { setTransforming, borderResizingIds } from "@/lib/resizeState";
+import { syncKonvaChildren } from "@/lib/konvaSync";
 
 import {
   SHAPE_SIZE_LIMITS,
@@ -248,6 +249,12 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         node.width(newWidth);
         node.height(newHeight);
 
+        // CRITICAL: Sync children immediately to prevent ghost frame.
+        // After scale reset, children still have old dimensions. Without this,
+        // Konva may draw a frame showing the Group at scale=1 with old child
+        // sizes before React reconciles with the new store values.
+        syncKonvaChildren(node as Konva.Group, obj.type, newWidth, newHeight);
+
         const newX = Math.round(node.x());
         const newY = Math.round(node.y());
         node.x(newX);
@@ -267,6 +274,11 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         // Release local edit guard after persisting
         endLocalEdit(id);
       }
+
+      // Force a synchronous draw of the objects layer to paint correct dimensions
+      // before the React re-render cycle. Prevents the ghost frame where
+      // scale=1 but children have stale sizes.
+      transformer.getLayer()?.batchDraw();
     },
     [updateObjectLocal]
   );
