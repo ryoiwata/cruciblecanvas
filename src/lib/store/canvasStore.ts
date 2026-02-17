@@ -31,6 +31,10 @@ interface CanvasState {
   // Color memory
   lastUsedColors: Record<string, string>;
 
+  // Border resize generation counter — incremented on border resize start/end
+  // to trigger Transformer re-sync in SelectionLayer (detach during resize, re-attach after)
+  borderResizeGeneration: number;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -48,6 +52,7 @@ interface CanvasState {
   hideContextMenu: () => void;
   setConnectorStart: (id: string | null) => void;
   setLastUsedColor: (type: string, color: string) => void;
+  bumpBorderResizeGeneration: () => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -70,6 +75,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   contextMenu: INITIAL_CONTEXT_MENU,
   connectorStart: null,
   lastUsedColors: {},
+  borderResizeGeneration: 0,
 
   setMode: (mode) =>
     set({
@@ -138,4 +144,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set((s) => ({
       lastUsedColors: { ...s.lastUsedColors, [type]: color },
     })),
+
+  bumpBorderResizeGeneration: () =>
+    set((s) => ({ borderResizeGeneration: s.borderResizeGeneration + 1 })),
 }));

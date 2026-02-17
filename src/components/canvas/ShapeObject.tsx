@@ -10,6 +10,7 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
+import { borderResizingIds } from "@/lib/resizeState";
 
 interface ShapeObjectProps {
   object: BoardObject;
@@ -160,5 +161,13 @@ export default memo(function ShapeObject({
         onHoverChange={handleBorderHover}
       />
     </Group>
+  );
+}, (prevProps, nextProps) => {
+  if (borderResizingIds.has(nextProps.object.id)) return true;
+  return (
+    prevProps.object === nextProps.object &&
+    prevProps.boardId === nextProps.boardId &&
+    prevProps.isLocked === nextProps.isLocked &&
+    prevProps.lockedByName === nextProps.lockedByName
   );
 });

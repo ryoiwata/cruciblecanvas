@@ -31,6 +31,7 @@ import CursorLayer from "./CursorLayer";
 import TextEditor from "./TextEditor";
 import GhostPreview from "./GhostPreview";
 import { useFrameNesting } from "@/hooks/useFrameNesting";
+import { borderResizingIds } from "@/lib/resizeState";
 
 interface CanvasProps {
   boardId: string;
@@ -115,18 +116,75 @@ function applyResizeToKonvaNode(
   const group = node as Konva.Group;
   group.x(x);
   group.y(y);
+  group.width(w);
+  group.height(h);
 
-  for (const child of group.getChildren()) {
-    const cls = child.getClassName();
-    if (objectType === "circle" && cls === "Circle") {
-      const c = child as unknown as Konva.Circle;
-      c.x(w / 2);
-      c.y(h / 2);
-      c.radius(w / 2);
-    } else if (cls === "Rect") {
-      const r = child as unknown as Konva.Rect;
-      r.width(w);
-      r.height(h);
+  const children = group.getChildren();
+
+  switch (objectType) {
+    case "frame": {
+      // Index 0: background Rect — full w/h
+      // Index 1: title bar Rect — width only (height stays at 40px)
+      // Index 2: selection border Rect — full w/h
+      // Title Text — width(w - 20)
+      for (let i = 0; i < children.length; i++) {
+        const child = children[i];
+        const cls = child.getClassName();
+        if (cls === "Rect") {
+          const r = child as unknown as Konva.Rect;
+          if (i === 1) {
+            // Title bar: only update width, preserve height
+            r.width(w);
+          } else {
+            r.width(w);
+            r.height(h);
+          }
+        } else if (cls === "Text") {
+          const t = child as unknown as Konva.Text;
+          t.width(w - 20);
+        }
+      }
+      break;
+    }
+    case "stickyNote": {
+      for (const child of children) {
+        const cls = child.getClassName();
+        if (cls === "Rect") {
+          const r = child as unknown as Konva.Rect;
+          r.width(w);
+          r.height(h);
+        } else if (cls === "Text") {
+          const t = child as unknown as Konva.Text;
+          if (t.wrap() === "word") {
+            t.width(w - 20);
+          }
+        }
+      }
+      break;
+    }
+    case "circle": {
+      for (const child of children) {
+        const cls = child.getClassName();
+        if (cls === "Circle") {
+          const c = child as unknown as Konva.Circle;
+          c.x(w / 2);
+          c.y(h / 2);
+          c.radius(w / 2);
+        }
+      }
+      break;
+    }
+    default: {
+      // rectangle and other types: all Rects get full w/h
+      for (const child of children) {
+        const cls = child.getClassName();
+        if (cls === "Rect") {
+          const r = child as unknown as Konva.Rect;
+          r.width(w);
+          r.height(h);
+        }
+      }
+      break;
     }
   }
 
@@ -680,15 +738,30 @@ export default function Canvas({ boardId }: CanvasProps) {
       const br = borderResizeRef.current;
       const latest = borderResizeLatestRef.current;
 
+      // STEP 1: Commit correct values to Zustand while memo guard is STILL active.
+      // This ensures the store has final dimensions before any re-render can see them.
       if (latest) {
-        // Commit final dimensions to React state
         updateObjectLocal(br.objectId, latest);
-        // Persist to Firestore
+      }
+
+      // STEP 2: Remove memo guard AFTER Zustand has correct values.
+      // The next re-render will see: guard=false AND correct values — no ghosting flash.
+      borderResizingIds.delete(br.objectId);
+
+      // STEP 3: Bump generation to re-sync Transformer (re-attaches the node now
+      // that the border resize is done). This triggers SelectionLayer's useEffect.
+      useCanvasStore.getState().bumpBorderResizeGeneration();
+
+      // STEP 4: End local edit guard (allows Firestore echoes for this object again)
+      useObjectStore.getState().endLocalEdit(br.objectId);
+
+      // STEP 5: Persist to Firestore (async, non-blocking)
+      if (latest) {
         updateObject(boardId, br.objectId, latest).catch(console.error);
       }
 
+      // STEP 6: Release lock and clear refs
       releaseLock(boardId, br.objectId);
-      useObjectStore.getState().endLocalEdit(br.objectId);
       borderResizeRef.current = null;
       borderResizeLatestRef.current = null;
       setCursorOverride(null);
@@ -862,6 +935,13 @@ export default function Canvas({ boardId }: CanvasProps) {
         objectType: obj.type,
       };
 
+      // Signal that this object is being border-resized (suppresses React re-renders)
+      borderResizingIds.add(objectId);
+
+      // Bump generation to detach this node from the Transformer during border resize,
+      // preventing the Transformer from interfering with direct Konva manipulation
+      useCanvasStore.getState().bumpBorderResizeGeneration();
+
       // Guard against Firestore echoes during resize
       useObjectStore.getState().startLocalEdit(objectId);
 
@@ -875,6 +955,9 @@ export default function Canvas({ boardId }: CanvasProps) {
   // --- Cleanup border resize on mode change ---
   useEffect(() => {
     if (borderResizeRef.current) {
+      borderResizingIds.delete(borderResizeRef.current.objectId);
+      // Re-sync Transformer so it re-attaches to the node after abort
+      useCanvasStore.getState().bumpBorderResizeGeneration();
       releaseLock(boardId, borderResizeRef.current.objectId);
       useObjectStore.getState().endLocalEdit(borderResizeRef.current.objectId);
       borderResizeRef.current = null;

@@ -10,6 +10,7 @@ import { updateObjects } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
 import { FRAME_DEFAULTS } from "@/lib/types";
+import { borderResizingIds } from "@/lib/resizeState";
 
 interface FrameObjectProps {
   object: BoardObject;
@@ -223,5 +224,13 @@ export default memo(function FrameObject({
         />
       )}
     </Group>
+  );
+}, (prevProps, nextProps) => {
+  if (borderResizingIds.has(nextProps.object.id)) return true;
+  return (
+    prevProps.object === nextProps.object &&
+    prevProps.boardId === nextProps.boardId &&
+    prevProps.isLocked === nextProps.isLocked &&
+    prevProps.lockedByName === nextProps.lockedByName
   );
 });

@@ -6,6 +6,7 @@ import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
+import { setTransforming, borderResizingIds } from "@/lib/resizeState";
 
 import {
   SHAPE_SIZE_LIMITS,
@@ -42,13 +43,28 @@ function getLimitsForType(type: string) {
   }
 }
 
+// Maps an anchor handle name to which edges are fixed (i.e. the opposite side of the drag).
+// xFixed=true means left edge is fixed (user dragging right side).
+// xFixed=false means right edge is fixed (user dragging left side).
+// null means no horizontal constraint (e.g. "top-center" only affects vertical).
+function getFixedEdges(anchor: string | null): { xFixed: boolean | null; yFixed: boolean | null } {
+  if (!anchor) return { xFixed: null, yFixed: null };
+  return {
+    xFixed: anchor.includes("left") ? false : anchor.includes("right") ? true : null,
+    yFixed: anchor.includes("top") ? false : anchor.includes("bottom") ? true : null,
+  };
+}
+
 interface SelectionLayerProps {
   stageRef: React.RefObject<Konva.Stage | null>;
 }
 
 export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
   const transformerRef = useRef<Konva.Transformer>(null);
+  const activeAnchorRef = useRef<string | null>(null);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Reactive counter — bumped on border resize start/end to trigger Transformer re-sync
+  const borderResizeGeneration = useCanvasStore((s) => s.borderResizeGeneration);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
   // Determine transformer config based on selected objects
@@ -136,6 +152,9 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
     const nodes: Konva.Node[] = [];
     for (const id of selectedObjectIds) {
       if (!currentObjects[id]) continue;
+      // Skip nodes being border-resized to prevent Transformer from interfering
+      // with direct Konva manipulation during border resize
+      if (borderResizingIds.has(id)) continue;
       const node = stage.findOne(`#${id}`);
       if (node) nodes.push(node);
     }
@@ -152,14 +171,8 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
           const id = node.id();
           const obj = cleanupObjects[id];
           const limits = getLimitsForType(obj?.type || "");
-          // Use getClientRect to get actual base dimensions (not stale node.width())
-          const baseRect = node.getClientRect({
-            skipTransform: true,
-            skipShadow: true,
-            skipStroke: true,
-          });
-          const w = Math.round(baseRect.width * Math.abs(node.scaleX()));
-          const h = Math.round(baseRect.height * Math.abs(node.scaleY()));
+          const w = Math.round(node.width() * Math.abs(node.scaleX()));
+          const h = Math.round(node.height() * Math.abs(node.scaleY()));
           node.scaleX(1);
           node.scaleY(1);
           node.width(Math.max(limits.minW, w));
@@ -167,11 +180,21 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         }
       }
     };
-  }, [selectedObjectIds, stageRef]);
+    // borderResizeGeneration triggers re-sync when border resize starts/ends
+  }, [selectedObjectIds, stageRef, borderResizeGeneration]);
+
+  // Cleanup: ensure isTransforming is reset if component unmounts mid-transform
+  useEffect(() => {
+    return () => {
+      setTransforming(false);
+    };
+  }, []);
 
   const handleTransformStart = useCallback(() => {
     const transformer = transformerRef.current;
     if (!transformer) return;
+    activeAnchorRef.current = transformer.getActiveAnchor() || null;
+    setTransforming(true);
     const { startLocalEdit } = useObjectStore.getState();
     for (const node of transformer.nodes()) {
       startLocalEdit(node.id());
@@ -182,6 +205,9 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
     () => {
       const transformer = transformerRef.current;
       if (!transformer) return;
+
+      activeAnchorRef.current = null;
+      setTransforming(false);
 
       const currentObjects = useObjectStore.getState().objects;
       const { endLocalEdit } = useObjectStore.getState();
@@ -195,15 +221,12 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         const limits = getLimitsForType(obj.type);
         const isCircle = obj.type === "circle";
 
-        // Use getClientRect to get actual base dimensions from children,
-        // avoiding stale node.width() on Group nodes
-        const baseRect = node.getClientRect({
-          skipTransform: true,
-          skipShadow: true,
-          skipStroke: true,
-        });
-        let newWidth = Math.round(baseRect.width * Math.abs(node.scaleX()));
-        let newHeight = Math.round(baseRect.height * Math.abs(node.scaleY()));
+        // Use node.width()/height() — these are kept in sync by applyResizeToKonvaNode
+        // during border resize and by react-konva reconciliation otherwise.
+        // Avoids getClientRect which can return stale child bounding boxes after
+        // direct Konva manipulation, causing anchor instability on subsequent resizes.
+        let newWidth = Math.round(node.width() * Math.abs(node.scaleX()));
+        let newHeight = Math.round(node.height() * Math.abs(node.scaleY()));
 
         // CRUCIAL: Reset scale immediately to clear Konva's transform matrix
         // before any downstream state updates
@@ -268,40 +291,38 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       boundBoxFunc={(oldBox, newBox) => {
         const limits = getLimitsForType(singleType || "");
         const clamped = { ...newBox };
+        const { xFixed, yFixed } = getFixedEdges(activeAnchorRef.current);
 
         // Normalize: ensure positive dimensions (prevents flipping artifacts
         // when user drags handle past the opposite edge quickly)
         clamped.width = Math.abs(clamped.width);
         clamped.height = Math.abs(clamped.height);
 
-        // CLAMP to minimum (not reject!) — returning oldBox caused snap-back
-        // flicker because the entire box was reverted every frame the user
-        // held the handle near the minimum boundary.
+        // Clamp width to min/max, adjusting position based on which edge is fixed
         if (clamped.width < limits.minW) {
-          // Detect anchor: if x moved, the user is dragging a left-side
-          // handle so the RIGHT edge is the anchor.
-          if (Math.abs(clamped.x - oldBox.x) > 0.5) {
+          if (xFixed === false) {
+            // Right edge is fixed (user dragging left side) — adjust x
             clamped.x = oldBox.x + oldBox.width - limits.minW;
           }
           clamped.width = limits.minW;
         }
-        if (clamped.height < limits.minH) {
-          // Same logic for vertical axis — if y moved, BOTTOM edge is anchor.
-          if (Math.abs(clamped.y - oldBox.y) > 0.5) {
-            clamped.y = oldBox.y + oldBox.height - limits.minH;
-          }
-          clamped.height = limits.minH;
-        }
-
-        // Clamp to maximum (keep opposite edge fixed, same as min-clamp logic)
         if (clamped.width > limits.maxW) {
-          if (Math.abs(clamped.x - oldBox.x) > 0.5) {
+          if (xFixed === false) {
             clamped.x = oldBox.x + oldBox.width - limits.maxW;
           }
           clamped.width = limits.maxW;
         }
+
+        // Clamp height to min/max, adjusting position based on which edge is fixed
+        if (clamped.height < limits.minH) {
+          if (yFixed === false) {
+            // Bottom edge is fixed (user dragging top side) — adjust y
+            clamped.y = oldBox.y + oldBox.height - limits.minH;
+          }
+          clamped.height = limits.minH;
+        }
         if (clamped.height > limits.maxH) {
-          if (Math.abs(clamped.y - oldBox.y) > 0.5) {
+          if (yFixed === false) {
             clamped.y = oldBox.y + oldBox.height - limits.maxH;
           }
           clamped.height = limits.maxH;

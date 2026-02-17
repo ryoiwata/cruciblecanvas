@@ -4,6 +4,7 @@ import { Rect, Circle as KonvaCircle } from "react-konva";
 import type Konva from "konva";
 import type { ResizeEdge } from "@/lib/types";
 import { CORNER_ZONE } from "@/lib/types";
+import { isTransforming } from "@/lib/resizeState";
 
 interface ResizeBorderProps {
   objectId: string;
@@ -82,6 +83,7 @@ export default function ResizeBorder({
   };
 
   const handleMouseEnter = () => {
+    if (isTransforming) return;
     onHoverChange(true);
   };
 
@@ -91,6 +93,7 @@ export default function ResizeBorder({
   };
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (isTransforming) return;
     const node = e.target;
     const pos = node.getRelativePointerPosition();
     if (!pos) return;

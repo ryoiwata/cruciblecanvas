@@ -188,6 +188,9 @@ export interface BorderResizeState {
   startY: number;
   startW: number;
   startH: number;
+  // Frozen anchor references captured at drag start.
+  startRight: number;
+  startBottom: number;
   objectType: ObjectType;
 }
 
