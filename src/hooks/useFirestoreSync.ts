@@ -43,6 +43,7 @@ export function useFirestoreSync(boardId: string | undefined): void {
         }
 
         // Subsequent snapshots: apply incremental changes
+        const { locallyEditingIds } = useObjectStore.getState();
         snapshot.docChanges().forEach((change) => {
           const data = change.doc.data();
           const obj = { ...data, id: change.doc.id } as BoardObject;
@@ -50,7 +51,10 @@ export function useFirestoreSync(boardId: string | undefined): void {
           switch (change.type) {
             case "added":
             case "modified":
-              upsertObject(obj);
+              // Skip Firestore echoes for objects being actively resized/edited locally
+              if (!locallyEditingIds.has(change.doc.id)) {
+                upsertObject(obj);
+              }
               break;
             case "removed":
               removeObject(change.doc.id);

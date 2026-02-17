@@ -6,6 +6,7 @@ interface ObjectState {
   objects: Record<string, BoardObject>;
   locks: Record<string, ObjectLock>;
   isLoaded: boolean;
+  locallyEditingIds: Set<string>;
 
   // Object actions
   setObjects: (objects: Record<string, BoardObject>) => void;
@@ -23,6 +24,10 @@ interface ObjectState {
   // Loading state
   setIsLoaded: (loaded: boolean) => void;
 
+  // Local edit guards (prevents Firestore echoes from overwriting in-progress resizes)
+  startLocalEdit: (id: string) => void;
+  endLocalEdit: (id: string) => void;
+
   // Frame helpers (Phase 3)
   getChildrenOfFrame: (frameId: string) => BoardObject[];
   getFramesContaining: (objectId: string) => BoardObject[];
@@ -32,6 +37,7 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
   objects: {},
   locks: {},
   isLoaded: false,
+  locallyEditingIds: new Set<string>(),
 
   setObjects: (objects) => set({ objects }),
 
@@ -79,6 +85,20 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
   setLocks: (locks) => set({ locks }),
 
   setIsLoaded: (loaded) => set({ isLoaded: loaded }),
+
+  startLocalEdit: (id) =>
+    set((state) => {
+      const next = new Set(state.locallyEditingIds);
+      next.add(id);
+      return { locallyEditingIds: next };
+    }),
+
+  endLocalEdit: (id) =>
+    set((state) => {
+      const next = new Set(state.locallyEditingIds);
+      next.delete(id);
+      return { locallyEditingIds: next };
+    }),
 
   getChildrenOfFrame: (frameId) => {
     const objs = get().objects;

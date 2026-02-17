@@ -510,6 +510,11 @@ export default function Canvas({ boardId }: CanvasProps) {
           }
         }
 
+        // 1px floor — prevents Konva hit detection from breaking on
+        // sub-pixel objects that can occur during very fast drags
+        newW = Math.max(1, newW);
+        newH = Math.max(1, newH);
+
         // Circle constraint: enforce square
         if (br.objectType === "circle") {
           const maxDim = Math.max(newW, newH);
@@ -526,6 +531,22 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Clamp to limits
         newW = Math.max(limits.min.width, Math.min(limits.max.width, newW));
         newH = Math.max(limits.min.height, Math.min(limits.max.height, newH));
+
+        // Anchor position when clamped at minimum (keep opposite edge fixed)
+        if (newW <= limits.min.width && (edge === "w" || edge === "nw" || edge === "sw")) {
+          newX = startRight - newW;
+        }
+        if (newH <= limits.min.height && (edge === "n" || edge === "nw" || edge === "ne")) {
+          newY = startBottom - newH;
+        }
+
+        // Anchor position when clamped at maximum (keep opposite edge fixed)
+        if (newW >= limits.max.width && (edge === "w" || edge === "nw" || edge === "sw")) {
+          newX = startRight - newW;
+        }
+        if (newH >= limits.max.height && (edge === "n" || edge === "nw" || edge === "ne")) {
+          newY = startBottom - newH;
+        }
 
         // Normalize to positive integers
         newW = Math.round(Math.abs(newW));
@@ -646,6 +667,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         }).catch(console.error);
       }
       releaseLock(boardId, br.objectId);
+      useObjectStore.getState().endLocalEdit(br.objectId);
       borderResizeRef.current = null;
       setCursorOverride(null);
       return;
@@ -818,6 +840,9 @@ export default function Canvas({ boardId }: CanvasProps) {
         objectType: obj.type,
       };
 
+      // Guard against Firestore echoes during resize
+      useObjectStore.getState().startLocalEdit(objectId);
+
       // Acquire soft lock
       acquireLock(boardId, objectId, user.uid, displayName || "Guest");
     };
@@ -829,6 +854,7 @@ export default function Canvas({ boardId }: CanvasProps) {
   useEffect(() => {
     if (borderResizeRef.current) {
       releaseLock(boardId, borderResizeRef.current.objectId);
+      useObjectStore.getState().endLocalEdit(borderResizeRef.current.objectId);
       borderResizeRef.current = null;
       setCursorOverride(null);
     }

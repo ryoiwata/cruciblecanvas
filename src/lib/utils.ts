@@ -50,6 +50,19 @@ export function getCanvasPoint(
 }
 
 // ---------------------------------------------------------------------------
+// Grid snapping
+// ---------------------------------------------------------------------------
+
+/**
+ * Snaps a value to the nearest grid line.
+ * Returns the original value if gridSize is <= 0.
+ */
+export function snapToGrid(value: number, gridSize: number = 20): number {
+  if (gridSize <= 0) return value;
+  return Math.round(value / gridSize) * gridSize;
+}
+
+// ---------------------------------------------------------------------------
 // Bounds / overlap helpers (Phase 3)
 // ---------------------------------------------------------------------------
 
