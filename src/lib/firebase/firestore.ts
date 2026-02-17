@@ -65,7 +65,8 @@ export async function updateObject(
   const docRef = doc(db, "boards", boardId, "objects", objectId);
 
   // Strip immutable fields and undefined values
-  const { id: _, createdAt: __, createdBy: ___, ...mutable } = updates;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { id: _id, createdAt: _createdAt, createdBy: _createdBy, ...mutable } = updates;
   const cleaned: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(mutable)) {
     if (value !== undefined) {

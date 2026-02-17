@@ -44,7 +44,8 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
 
   removeObject: (id) =>
     set((state) => {
-      const { [id]: _, ...rest } = state.objects;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [id]: _removed, ...rest } = state.objects;
       return { objects: rest };
     }),
 
