@@ -176,6 +176,21 @@ export const GRID_SIZE = 20;
 
 export const MIN_DRAG_THRESHOLD = 5;
 
+export const BORDER_ZONE = 8;
+export const CORNER_ZONE = 16;
+
+export type ResizeEdge = "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
+
+export interface BorderResizeState {
+  objectId: string;
+  edge: ResizeEdge;
+  startX: number;
+  startY: number;
+  startW: number;
+  startH: number;
+  objectType: ObjectType;
+}
+
 export const ZOOM_MIN = 0.05;
 export const ZOOM_MAX = 5.0;
 

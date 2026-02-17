@@ -6,10 +6,10 @@ import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
-import { setCursor } from "@/lib/firebase/rtdb";
-import { createObject, generateObjectId } from "@/lib/firebase/firestore";
+import { setCursor, acquireLock, releaseLock } from "@/lib/firebase/rtdb";
+import { createObject, generateObjectId, updateObject } from "@/lib/firebase/firestore";
 import { snapToGrid, getCanvasPoint, getUserColor, boundsOverlap } from "@/lib/utils";
-import type { ObjectType } from "@/lib/types";
+import type { ObjectType, ResizeEdge, BorderResizeState } from "@/lib/types";
 import {
   STICKY_NOTE_DEFAULT,
   ZOOM_MIN,
@@ -110,6 +110,7 @@ export default function Canvas({ boardId }: CanvasProps) {
   const lastCursorPos = useRef({ x: 0, y: 0 });
   const isPanning = useRef(false);
   const drawingRef = useRef<DrawingState | null>(null);
+  const borderResizeRef = useRef<BorderResizeState | null>(null);
 
   // Selection rectangle state
   const [selRect, setSelRect] = useState({
@@ -122,6 +123,9 @@ export default function Canvas({ boardId }: CanvasProps) {
 
   // Ghost preview position
   const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Cursor override (for border resize hover)
+  const [cursorOverride, setCursorOverride] = useState<string | null>(null);
 
   // Hovered object for anchor points
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
@@ -456,6 +460,94 @@ export default function Canvas({ boardId }: CanvasProps) {
         }
       }
 
+      // --- Border resize: compute new dimensions ---
+      if (borderResizeRef.current) {
+        const br = borderResizeRef.current;
+        const canvasPoint = getCanvasPoint(
+          stage.x(),
+          stage.y(),
+          stage.scaleX(),
+          pointer.x,
+          pointer.y
+        );
+
+        const freeForm = e.evt.ctrlKey || e.evt.metaKey;
+        const limits = getSizeLimitsForTool(br.objectType);
+        const { edge, startX, startY, startW, startH } = br;
+        const startRight = startX + startW;
+        const startBottom = startY + startH;
+
+        let newX = startX;
+        let newY = startY;
+        let newW = startW;
+        let newH = startH;
+
+        // Horizontal axis
+        if (edge === "e" || edge === "se" || edge === "ne") {
+          newW = canvasPoint.x - startX;
+        } else if (edge === "w" || edge === "sw" || edge === "nw") {
+          newW = startRight - canvasPoint.x;
+          newX = canvasPoint.x;
+        }
+
+        // Vertical axis
+        if (edge === "s" || edge === "se" || edge === "sw") {
+          newH = canvasPoint.y - startY;
+        } else if (edge === "n" || edge === "ne" || edge === "nw") {
+          newH = startBottom - canvasPoint.y;
+          newY = canvasPoint.y;
+        }
+
+        // Circle constraint: enforce square
+        if (br.objectType === "circle") {
+          const maxDim = Math.max(newW, newH);
+          // Adjust position to keep the anchor corner fixed
+          if (edge === "w" || edge === "nw" || edge === "sw") {
+            newX = startRight - maxDim;
+          }
+          if (edge === "n" || edge === "nw" || edge === "ne") {
+            newY = startBottom - maxDim;
+          }
+          newW = maxDim;
+          newH = maxDim;
+        }
+
+        // Clamp to limits
+        newW = Math.max(limits.min.width, Math.min(limits.max.width, newW));
+        newH = Math.max(limits.min.height, Math.min(limits.max.height, newH));
+
+        // Snap to grid
+        if (!freeForm) {
+          newW = snapToGrid(newW);
+          newH = snapToGrid(newH);
+          if (newW < limits.min.width) newW = limits.min.width;
+          if (newH < limits.min.height) newH = limits.min.height;
+          newX = snapToGrid(newX);
+          newY = snapToGrid(newY);
+        }
+
+        // Prevent negative/zero dimensions by keeping anchor fixed
+        if (newW < limits.min.width) {
+          newW = limits.min.width;
+          if (edge === "w" || edge === "nw" || edge === "sw") {
+            newX = startRight - newW;
+          }
+        }
+        if (newH < limits.min.height) {
+          newH = limits.min.height;
+          if (edge === "n" || edge === "nw" || edge === "ne") {
+            newY = startBottom - newH;
+          }
+        }
+
+        updateObjectLocal(br.objectId, {
+          x: newX,
+          y: newY,
+          width: newW,
+          height: newH,
+        });
+      }
+
       // Track hovered object for anchor points (connector mode)
       if (mode === "create" && creationTool === "connector") {
         const target = e.target;
@@ -546,8 +638,26 @@ export default function Canvas({ boardId }: CanvasProps) {
     ]
   );
 
-  // --- Mouse up (finalize drag-to-create or click-to-create or selection rect) ---
+  // --- Mouse up (finalize border resize / drag-to-create / click-to-create / selection rect) ---
   const handleMouseUp = useCallback(() => {
+    // --- Border resize finalization ---
+    if (borderResizeRef.current) {
+      const br = borderResizeRef.current;
+      const obj = useObjectStore.getState().objects[br.objectId];
+      if (obj) {
+        updateObject(boardId, br.objectId, {
+          x: obj.x,
+          y: obj.y,
+          width: obj.width,
+          height: obj.height,
+        }).catch(console.error);
+      }
+      releaseLock(boardId, br.objectId);
+      borderResizeRef.current = null;
+      setCursorOverride(null);
+      return;
+    }
+
     // --- Drag-to-create finalization ---
     if (mode === "create" && creationTool && creationTool !== "connector" && drawingRef.current && user) {
       const drawing = drawingRef.current;
@@ -683,8 +793,57 @@ export default function Canvas({ boardId }: CanvasProps) {
     return () => window.removeEventListener("object-drag-end", handler);
   }, [checkNesting]);
 
+  // --- Border resize: cursor override ---
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const cursor = (e as CustomEvent).detail?.cursor as string | null;
+      setCursorOverride(cursor);
+    };
+    window.addEventListener("border-cursor", handler);
+    return () => window.removeEventListener("border-cursor", handler);
+  }, []);
+
+  // --- Border resize: start ---
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { objectId, edge } = (e as CustomEvent).detail as {
+        objectId: string;
+        edge: ResizeEdge;
+      };
+      if (!user) return;
+
+      const obj = useObjectStore.getState().objects[objectId];
+      if (!obj) return;
+
+      borderResizeRef.current = {
+        objectId,
+        edge,
+        startX: obj.x,
+        startY: obj.y,
+        startW: obj.width,
+        startH: obj.height,
+        objectType: obj.type,
+      };
+
+      // Acquire soft lock
+      acquireLock(boardId, objectId, user.uid, displayName || "Guest");
+    };
+    window.addEventListener("border-resize-start", handler);
+    return () => window.removeEventListener("border-resize-start", handler);
+  }, [boardId, user, displayName]);
+
+  // --- Cleanup border resize on mode change ---
+  useEffect(() => {
+    if (borderResizeRef.current) {
+      releaseLock(boardId, borderResizeRef.current.objectId);
+      borderResizeRef.current = null;
+      setCursorOverride(null);
+    }
+  }, [mode, boardId]);
+
   // --- Cursor style per mode ---
   const getCursorStyle = () => {
+    if (cursorOverride) return cursorOverride;
     if (isPanning.current) return "grabbing";
     switch (mode) {
       case "pan":

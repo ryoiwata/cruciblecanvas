@@ -40,8 +40,16 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
   if (!hasMixedTypes && singleType) {
     switch (singleType) {
       case "stickyNote":
-        // Allow height resize from bottom only
-        enabledAnchors = ["bottom-center", "bottom-right"];
+        enabledAnchors = [
+          "top-left",
+          "top-center",
+          "top-right",
+          "middle-left",
+          "middle-right",
+          "bottom-left",
+          "bottom-center",
+          "bottom-right",
+        ];
         break;
       case "rectangle":
         enabledAnchors = [
@@ -58,8 +66,12 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       case "circle":
         enabledAnchors = [
           "top-left",
+          "top-center",
           "top-right",
+          "middle-left",
+          "middle-right",
           "bottom-left",
+          "bottom-center",
           "bottom-right",
         ];
         keepRatio = true;
@@ -133,59 +145,72 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
     transformer.getLayer()?.batchDraw();
   }, [selectedObjectIds, objects, stageRef]);
 
-  const handleTransformEnd = useCallback(() => {
-    const transformer = transformerRef.current;
-    if (!transformer) return;
-    const limits = getSizeLimits();
+  const handleTransformEnd = useCallback(
+    (e: Konva.KonvaEventObject<Event>) => {
+      const transformer = transformerRef.current;
+      if (!transformer) return;
+      const limits = getSizeLimits();
+      const freeForm =
+        (e.evt as MouseEvent).ctrlKey || (e.evt as MouseEvent).metaKey;
 
-    for (const node of transformer.nodes()) {
-      const id = node.id();
-      const obj = objects[id];
-      if (!obj) continue;
+      for (const node of transformer.nodes()) {
+        const id = node.id();
+        const obj = objects[id];
+        if (!obj) continue;
 
-      // Compute actual size from scale
-      const scaleX = node.scaleX();
-      const scaleY = node.scaleY();
-      let newWidth = Math.round(node.width() * scaleX);
-      let newHeight = Math.round(node.height() * scaleY);
+        // Compute actual size from scale
+        const scaleX = node.scaleX();
+        const scaleY = node.scaleY();
+        let newWidth = Math.round(node.width() * scaleX);
+        let newHeight = Math.round(node.height() * scaleY);
 
-      // Clamp
-      newWidth = Math.max(limits.minW, Math.min(limits.maxW, newWidth));
-      newHeight = Math.max(limits.minH, Math.min(limits.maxH, newHeight));
+        // Clamp
+        newWidth = Math.max(limits.minW, Math.min(limits.maxW, newWidth));
+        newHeight = Math.max(limits.minH, Math.min(limits.maxH, newHeight));
 
-      // Snap
-      newWidth = snapToGrid(newWidth);
-      newHeight = snapToGrid(newHeight);
-      if (newWidth < limits.minW) newWidth = limits.minW;
-      if (newHeight < limits.minH) newHeight = limits.minH;
+        // Snap to grid (unless Cmd/Ctrl held for free-form)
+        if (!freeForm) {
+          newWidth = snapToGrid(newWidth);
+          newHeight = snapToGrid(newHeight);
+          if (newWidth < limits.minW) newWidth = limits.minW;
+          if (newHeight < limits.minH) newHeight = limits.minH;
+        }
 
-      // Reset scale
-      node.scaleX(1);
-      node.scaleY(1);
-      node.width(newWidth);
-      node.height(newHeight);
+        // Reset scale
+        node.scaleX(1);
+        node.scaleY(1);
+        node.width(newWidth);
+        node.height(newHeight);
 
-      const newX = snapToGrid(node.x());
-      const newY = snapToGrid(node.y());
-      node.x(newX);
-      node.y(newY);
+        let newX = node.x();
+        let newY = node.y();
+        if (!freeForm) {
+          newX = snapToGrid(newX);
+          newY = snapToGrid(newY);
+        } else {
+          newX = Math.round(newX);
+          newY = Math.round(newY);
+        }
+        node.x(newX);
+        node.y(newY);
 
-      updateObjectLocal(id, {
-        x: newX,
-        y: newY,
-        width: newWidth,
-        height: newHeight,
-      });
+        updateObjectLocal(id, {
+          x: newX,
+          y: newY,
+          width: newWidth,
+          height: newHeight,
+        });
 
-      updateObject(
-        // boardId is not directly available here, so we get it from URL
-        // This is a simplification — in practice, boardId should be passed as a prop
-        getBoardIdFromUrl(),
-        id,
-        { x: newX, y: newY, width: newWidth, height: newHeight }
-      ).catch(console.error);
-    }
-  }, [objects, getSizeLimits, updateObjectLocal]);
+        updateObject(getBoardIdFromUrl(), id, {
+          x: newX,
+          y: newY,
+          width: newWidth,
+          height: newHeight,
+        }).catch(console.error);
+      }
+    },
+    [objects, getSizeLimits, updateObjectLocal]
+  );
 
   return (
     <Transformer

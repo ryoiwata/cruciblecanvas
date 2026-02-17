@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState, useCallback } from "react";
 import { Group, Rect, Text } from "react-konva";
+import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
@@ -38,8 +39,13 @@ export default function StickyNote({
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
 
+  const [isHoveringBorder, setIsHoveringBorder] = useState(false);
+  const handleBorderHover = useCallback((hovering: boolean) => {
+    setIsHoveringBorder(hovering);
+  }, []);
+
   const isSelected = selectedObjectIds.includes(object.id);
-  const isDraggable = mode === "select" && !isLocked;
+  const isDraggable = mode === "select" && !isLocked && !isHoveringBorder;
 
   const handleDragStart = () => {
     if (!user) return;
@@ -170,6 +176,14 @@ export default function StickyNote({
           fill="#666"
         />
       )}
+
+      <ResizeBorder
+        objectId={object.id}
+        width={object.width}
+        height={object.height}
+        enabled={mode === "select" && !isLocked}
+        onHoverChange={handleBorderHover}
+      />
     </Group>
   );
 }
