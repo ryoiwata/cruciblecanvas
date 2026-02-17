@@ -7,15 +7,16 @@ import AuthCard from "@/components/auth/AuthCard";
 
 export default function AuthPage() {
   const user = useAuthStore((s) => s.user);
+  const isAnonymous = useAuthStore((s) => s.isAnonymous);
   const isLoading = useAuthStore((s) => s.isLoading);
   const router = useRouter();
 
-  // Redirect to dashboard if already authenticated
+  // Redirect to dashboard if already authenticated (skip guests — they go straight to a board)
   useEffect(() => {
-    if (!isLoading && user) {
+    if (!isLoading && user && !isAnonymous) {
       router.replace("/dashboard");
     }
-  }, [user, isLoading, router]);
+  }, [user, isAnonymous, isLoading, router]);
 
   if (isLoading) {
     return (
@@ -25,7 +26,7 @@ export default function AuthPage() {
     );
   }
 
-  if (user) {
+  if (user && !isAnonymous) {
     return null; // Redirect in progress
   }
 

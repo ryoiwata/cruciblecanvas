@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase/config";
+import { createBoardMetadata } from "@/lib/firebase/firestore";
 import {
   signInAsGuest,
   signInWithGoogle,
@@ -33,7 +34,11 @@ export default function AuthCard() {
       const profileRef = doc(db, "users", credential.user.uid, "profile", "info");
       await setDoc(profileRef, { displayName: trimmed }, { merge: true });
       setStoreName(trimmed);
-      router.push("/dashboard");
+
+      // Auto-create a board and redirect guest directly to it
+      const boardId = crypto.randomUUID();
+      await createBoardMetadata(boardId, credential.user.uid, "Untitled Board");
+      router.push("/board/" + boardId);
     } catch (err) {
       console.error("Guest sign-in failed:", err);
       setError("Sign-in failed. Please try again.");
