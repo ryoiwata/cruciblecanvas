@@ -1,8 +1,10 @@
 import {
   signInAnonymously,
   signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
   GoogleAuthProvider,
-  GithubAuthProvider,
   linkWithPopup,
   signOut,
   AuthProvider,
@@ -40,9 +42,26 @@ export async function signInWithGoogle(): Promise<UserCredential> {
   return credential;
 }
 
-export async function signInWithGithub(): Promise<UserCredential> {
-  const provider = new GithubAuthProvider();
-  const credential = await signInWithPopup(auth, provider);
+export async function signInWithEmail(
+  email: string,
+  password: string
+): Promise<UserCredential> {
+  const credential = await signInWithEmailAndPassword(auth, email, password);
+  await writeUserProfile(credential);
+  return credential;
+}
+
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+  displayName: string
+): Promise<UserCredential> {
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    email,
+    password
+  );
+  await updateProfile(credential.user, { displayName });
   await writeUserProfile(credential);
   return credential;
 }
