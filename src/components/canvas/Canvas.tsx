@@ -497,33 +497,12 @@ export default function Canvas({ boardId }: CanvasProps) {
         }
 
         // Prevent negative dimensions (user dragged past opposite edge)
-        if (newW <= 0) {
-          newW = limits.min.width;
-          if (edge === "w" || edge === "nw" || edge === "sw") {
-            newX = startRight - newW;
-          }
-        }
-        if (newH <= 0) {
-          newH = limits.min.height;
-          if (edge === "n" || edge === "nw" || edge === "ne") {
-            newY = startBottom - newH;
-          }
-        }
-
-        // 1px floor — prevents Konva hit detection from breaking on
-        // sub-pixel objects that can occur during very fast drags
-        newW = Math.max(1, newW);
-        newH = Math.max(1, newH);
+        newW = Math.max(limits.min.width, newW);
+        newH = Math.max(limits.min.height, newH);
 
         // Circle constraint: enforce square
         if (br.objectType === "circle") {
           const maxDim = Math.max(newW, newH);
-          if (edge === "w" || edge === "nw" || edge === "sw") {
-            newX = startRight - maxDim;
-          }
-          if (edge === "n" || edge === "nw" || edge === "ne") {
-            newY = startBottom - maxDim;
-          }
           newW = maxDim;
           newH = maxDim;
         }
@@ -532,19 +511,13 @@ export default function Canvas({ boardId }: CanvasProps) {
         newW = Math.max(limits.min.width, Math.min(limits.max.width, newW));
         newH = Math.max(limits.min.height, Math.min(limits.max.height, newH));
 
-        // Anchor position when clamped at minimum (keep opposite edge fixed)
-        if (newW <= limits.min.width && (edge === "w" || edge === "nw" || edge === "sw")) {
+        // Single position recalculation from anchor after all dimension
+        // adjustments (circle constraint + clamp). This avoids double-
+        // correction that caused anchoring drift.
+        if (edge === "w" || edge === "nw" || edge === "sw") {
           newX = startRight - newW;
         }
-        if (newH <= limits.min.height && (edge === "n" || edge === "nw" || edge === "ne")) {
-          newY = startBottom - newH;
-        }
-
-        // Anchor position when clamped at maximum (keep opposite edge fixed)
-        if (newW >= limits.max.width && (edge === "w" || edge === "nw" || edge === "sw")) {
-          newX = startRight - newW;
-        }
-        if (newH >= limits.max.height && (edge === "n" || edge === "nw" || edge === "ne")) {
+        if (edge === "n" || edge === "nw" || edge === "ne") {
           newY = startBottom - newH;
         }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, memo } from "react";
 import { Group, Rect, Circle, Text } from "react-konva";
 import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
@@ -18,7 +18,7 @@ interface ShapeObjectProps {
   lockedByName: string | null;
 }
 
-export default function ShapeObject({
+export default memo(function ShapeObject({
   object,
   boardId,
   isLocked,
@@ -109,6 +109,8 @@ export default function ShapeObject({
       id={object.id}
       x={object.x}
       y={object.y}
+      width={object.width}
+      height={object.height}
       draggable={isDraggable}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
@@ -159,4 +161,4 @@ export default function ShapeObject({
       />
     </Group>
   );
-}
+});

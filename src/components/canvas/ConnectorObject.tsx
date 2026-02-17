@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Line, Text, Group } from "react-konva";
 import type Konva from "konva";
 import { useObjectStore } from "@/lib/store/objectStore";
@@ -23,7 +24,7 @@ function getDash(style: ConnectorStyle): number[] {
   }
 }
 
-export default function ConnectorObject({
+export default memo(function ConnectorObject({
   object,
 }: ConnectorObjectProps) {
   const objects = useObjectStore((s) => s.objects);
@@ -118,4 +119,4 @@ export default function ConnectorObject({
       )}
     </Group>
   );
-}
+});

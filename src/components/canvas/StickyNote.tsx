@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, memo } from "react";
 import { Group, Rect, Text } from "react-konva";
 import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
@@ -18,7 +18,7 @@ interface StickyNoteProps {
   lockedByName: string | null;
 }
 
-export default function StickyNote({
+export default memo(function StickyNote({
   object,
   boardId,
   isLocked,
@@ -115,6 +115,8 @@ export default function StickyNote({
       id={object.id}
       x={object.x}
       y={object.y}
+      width={object.width}
+      height={object.height}
       draggable={isDraggable}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
@@ -185,4 +187,4 @@ export default function StickyNote({
       />
     </Group>
   );
-}
+});

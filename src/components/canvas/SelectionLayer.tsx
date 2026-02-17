@@ -152,8 +152,14 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
           const id = node.id();
           const obj = cleanupObjects[id];
           const limits = getLimitsForType(obj?.type || "");
-          const w = Math.round(node.width() * Math.abs(node.scaleX()));
-          const h = Math.round(node.height() * Math.abs(node.scaleY()));
+          // Use getClientRect to get actual base dimensions (not stale node.width())
+          const baseRect = node.getClientRect({
+            skipTransform: true,
+            skipShadow: true,
+            skipStroke: true,
+          });
+          const w = Math.round(baseRect.width * Math.abs(node.scaleX()));
+          const h = Math.round(baseRect.height * Math.abs(node.scaleY()));
           node.scaleX(1);
           node.scaleY(1);
           node.width(Math.max(limits.minW, w));
@@ -189,9 +195,15 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         const limits = getLimitsForType(obj.type);
         const isCircle = obj.type === "circle";
 
-        // Atomic dimension calculation from current scale
-        let newWidth = Math.round(node.width() * Math.abs(node.scaleX()));
-        let newHeight = Math.round(node.height() * Math.abs(node.scaleY()));
+        // Use getClientRect to get actual base dimensions from children,
+        // avoiding stale node.width() on Group nodes
+        const baseRect = node.getClientRect({
+          skipTransform: true,
+          skipShadow: true,
+          skipStroke: true,
+        });
+        let newWidth = Math.round(baseRect.width * Math.abs(node.scaleX()));
+        let newHeight = Math.round(baseRect.height * Math.abs(node.scaleY()));
 
         // CRUCIAL: Reset scale immediately to clear Konva's transform matrix
         // before any downstream state updates
@@ -209,7 +221,7 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
           newHeight = maxDim;
         }
 
-        // Apply final dimensions to the Konva node
+        // Sync Konva node dimensions (React will also update via store)
         node.width(newWidth);
         node.height(newHeight);
 
@@ -244,6 +256,7 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       keepRatio={keepRatio}
       flipEnabled={false}
       centeredScaling={false}
+      ignoreStroke={true}
       borderStroke="#2196F3"
       borderStrokeWidth={2}
       anchorFill="#ffffff"
@@ -267,14 +280,14 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         if (clamped.width < limits.minW) {
           // Detect anchor: if x moved, the user is dragging a left-side
           // handle so the RIGHT edge is the anchor.
-          if (Math.abs(clamped.x - oldBox.x) > 1) {
+          if (Math.abs(clamped.x - oldBox.x) > 0.5) {
             clamped.x = oldBox.x + oldBox.width - limits.minW;
           }
           clamped.width = limits.minW;
         }
         if (clamped.height < limits.minH) {
           // Same logic for vertical axis — if y moved, BOTTOM edge is anchor.
-          if (Math.abs(clamped.y - oldBox.y) > 1) {
+          if (Math.abs(clamped.y - oldBox.y) > 0.5) {
             clamped.y = oldBox.y + oldBox.height - limits.minH;
           }
           clamped.height = limits.minH;
@@ -282,13 +295,13 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
 
         // Clamp to maximum (keep opposite edge fixed, same as min-clamp logic)
         if (clamped.width > limits.maxW) {
-          if (Math.abs(clamped.x - oldBox.x) > 1) {
+          if (Math.abs(clamped.x - oldBox.x) > 0.5) {
             clamped.x = oldBox.x + oldBox.width - limits.maxW;
           }
           clamped.width = limits.maxW;
         }
         if (clamped.height > limits.maxH) {
-          if (Math.abs(clamped.y - oldBox.y) > 1) {
+          if (Math.abs(clamped.y - oldBox.y) > 0.5) {
             clamped.y = oldBox.y + oldBox.height - limits.maxH;
           }
           clamped.height = limits.maxH;

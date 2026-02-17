@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, memo } from "react";
 import { Group, Rect, Text } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
@@ -17,7 +17,7 @@ interface ColorLegendObjectProps {
   lockedByName: string | null;
 }
 
-export default function ColorLegendObject({
+export default memo(function ColorLegendObject({
   object,
   boardId,
   isLocked,
@@ -189,4 +189,4 @@ export default function ColorLegendObject({
       )}
     </Group>
   );
-}
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, memo } from "react";
 import { Group, Rect, Text } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
@@ -24,7 +24,7 @@ interface ChildSnapshot {
   y: number;
 }
 
-export default function FrameObject({
+export default memo(function FrameObject({
   object,
   boardId,
   isLocked,
@@ -154,6 +154,8 @@ export default function FrameObject({
       id={object.id}
       x={object.x}
       y={object.y}
+      width={object.width}
+      height={object.height}
       draggable={isDraggable}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
@@ -222,4 +224,4 @@ export default function FrameObject({
       )}
     </Group>
   );
-}
+});
