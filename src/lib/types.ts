@@ -204,8 +204,8 @@ export const SHAPE_DEFAULTS = {
 } as const;
 
 export const SHAPE_SIZE_LIMITS = {
-  min: { width: 20, height: 20 },
-  max: { width: 800, height: 800 },
+  min: { width: 1, height: 1 },
+  max: { width: 100000, height: 100000 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -221,8 +221,8 @@ export const FRAME_DEFAULTS = {
 } as const;
 
 export const FRAME_SIZE_LIMITS = {
-  min: { width: 150, height: 100 },
-  max: { width: 4000, height: 4000 },
+  min: { width: 1, height: 1 },
+  max: { width: 100000, height: 100000 },
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -240,8 +240,8 @@ export const CONNECTOR_DEFAULTS = {
 // ---------------------------------------------------------------------------
 
 export const STICKY_NOTE_SIZE_LIMITS = {
-  min: { width: 80, height: 60 },
-  max: { width: 600, height: 600 },
+  min: { width: 1, height: 1 },
+  max: { width: 100000, height: 100000 },
 } as const;
 
 // ---------------------------------------------------------------------------

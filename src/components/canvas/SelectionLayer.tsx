@@ -38,7 +38,7 @@ function getLimitsForType(type: string) {
         maxH: FRAME_SIZE_LIMITS.max.height,
       };
     default:
-      return { minW: 20, minH: 20, maxW: 4000, maxH: 4000 };
+      return { minW: 1, minH: 1, maxW: 100000, maxH: 100000 };
   }
 }
 

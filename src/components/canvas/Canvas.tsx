@@ -97,6 +97,42 @@ function getSizeLimitsForTool(tool: ObjectType): {
   }
 }
 
+// --- Helper: directly manipulate Konva nodes during border resize ---
+// Bypasses React reconciliation for smooth 60fps performance.
+// Only the primary visual elements are updated; React state is committed on mouseUp.
+function applyResizeToKonvaNode(
+  stage: Konva.Stage,
+  objectId: string,
+  objectType: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number
+) {
+  const node = stage.findOne(`#${objectId}`);
+  if (!node) return;
+
+  const group = node as Konva.Group;
+  group.x(x);
+  group.y(y);
+
+  for (const child of group.getChildren()) {
+    const cls = child.getClassName();
+    if (objectType === "circle" && cls === "Circle") {
+      const c = child as unknown as Konva.Circle;
+      c.x(w / 2);
+      c.y(h / 2);
+      c.radius(w / 2);
+    } else if (cls === "Rect") {
+      const r = child as unknown as Konva.Rect;
+      r.width(w);
+      r.height(h);
+    }
+  }
+
+  group.getLayer()?.batchDraw();
+}
+
 interface DrawingState {
   objectId: string;
   startX: number;
@@ -111,6 +147,12 @@ export default function Canvas({ boardId }: CanvasProps) {
   const isPanning = useRef(false);
   const drawingRef = useRef<DrawingState | null>(null);
   const borderResizeRef = useRef<BorderResizeState | null>(null);
+  const borderResizeLatestRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
   // Selection rectangle state
   const [selRect, setSelRect] = useState({
@@ -485,7 +527,6 @@ export default function Canvas({ boardId }: CanvasProps) {
           newW = canvasPoint.x - startX;
         } else if (edge === "w" || edge === "sw" || edge === "nw") {
           newW = startRight - canvasPoint.x;
-          newX = canvasPoint.x;
         }
 
         // Vertical axis
@@ -493,12 +534,11 @@ export default function Canvas({ boardId }: CanvasProps) {
           newH = canvasPoint.y - startY;
         } else if (edge === "n" || edge === "ne" || edge === "nw") {
           newH = startBottom - canvasPoint.y;
-          newY = canvasPoint.y;
         }
 
-        // Prevent negative dimensions (user dragged past opposite edge)
-        newW = Math.max(limits.min.width, newW);
-        newH = Math.max(limits.min.height, newH);
+        // Clamp to limits (prevents negative/zero dimensions)
+        newW = Math.max(limits.min.width, Math.min(limits.max.width, newW));
+        newH = Math.max(limits.min.height, Math.min(limits.max.height, newH));
 
         // Circle constraint: enforce square
         if (br.objectType === "circle") {
@@ -507,13 +547,12 @@ export default function Canvas({ boardId }: CanvasProps) {
           newH = maxDim;
         }
 
-        // Clamp to limits
-        newW = Math.max(limits.min.width, Math.min(limits.max.width, newW));
-        newH = Math.max(limits.min.height, Math.min(limits.max.height, newH));
+        // Round dimensions FIRST to preserve anchor integrity
+        newW = Math.round(newW);
+        newH = Math.round(newH);
 
-        // Single position recalculation from anchor after all dimension
-        // adjustments (circle constraint + clamp). This avoids double-
-        // correction that caused anchoring drift.
+        // Recalculate position from fixed anchor AFTER rounding.
+        // This ensures the opposite corner stays perfectly fixed.
         if (edge === "w" || edge === "nw" || edge === "sw") {
           newX = startRight - newW;
         }
@@ -521,18 +560,27 @@ export default function Canvas({ boardId }: CanvasProps) {
           newY = startBottom - newH;
         }
 
-        // Normalize to positive integers
-        newW = Math.round(Math.abs(newW));
-        newH = Math.round(Math.abs(newH));
         newX = Math.round(newX);
         newY = Math.round(newY);
 
-        updateObjectLocal(br.objectId, {
+        // Store latest values for commit on mouseUp
+        borderResizeLatestRef.current = {
           x: newX,
           y: newY,
           width: newW,
           height: newH,
-        });
+        };
+
+        // Direct Konva manipulation — bypass React for smooth performance
+        applyResizeToKonvaNode(
+          stage,
+          br.objectId,
+          br.objectType,
+          newX,
+          newY,
+          newW,
+          newH
+        );
       }
 
       // Track hovered object for anchor points (connector mode)
@@ -630,18 +678,19 @@ export default function Canvas({ boardId }: CanvasProps) {
     // --- Border resize finalization ---
     if (borderResizeRef.current) {
       const br = borderResizeRef.current;
-      const obj = useObjectStore.getState().objects[br.objectId];
-      if (obj) {
-        updateObject(boardId, br.objectId, {
-          x: obj.x,
-          y: obj.y,
-          width: obj.width,
-          height: obj.height,
-        }).catch(console.error);
+      const latest = borderResizeLatestRef.current;
+
+      if (latest) {
+        // Commit final dimensions to React state
+        updateObjectLocal(br.objectId, latest);
+        // Persist to Firestore
+        updateObject(boardId, br.objectId, latest).catch(console.error);
       }
+
       releaseLock(boardId, br.objectId);
       useObjectStore.getState().endLocalEdit(br.objectId);
       borderResizeRef.current = null;
+      borderResizeLatestRef.current = null;
       setCursorOverride(null);
       return;
     }
