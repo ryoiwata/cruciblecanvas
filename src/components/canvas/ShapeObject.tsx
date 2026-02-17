@@ -9,7 +9,6 @@ import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
-import { snapToGrid } from "@/lib/utils";
 import type { BoardObject } from "@/lib/types";
 
 interface ShapeObjectProps {
@@ -60,15 +59,15 @@ export default function ShapeObject({
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target;
-    const snappedX = snapToGrid(node.x());
-    const snappedY = snapToGrid(node.y());
-    node.x(snappedX);
-    node.y(snappedY);
-    updateObjectLocal(object.id, { x: snappedX, y: snappedY });
+    const finalX = Math.round(node.x());
+    const finalY = Math.round(node.y());
+    node.x(finalX);
+    node.y(finalY);
+    updateObjectLocal(object.id, { x: finalX, y: finalY });
     releaseLock(boardId, object.id);
 
     try {
-      await updateObject(boardId, object.id, { x: snappedX, y: snappedY });
+      await updateObject(boardId, object.id, { x: finalX, y: finalY });
     } catch {
       const { x, y } = preDragPos.current;
       node.x(x);

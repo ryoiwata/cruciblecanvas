@@ -6,12 +6,41 @@ import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
-import { snapToGrid } from "@/lib/utils";
+
 import {
   SHAPE_SIZE_LIMITS,
   FRAME_SIZE_LIMITS,
   STICKY_NOTE_SIZE_LIMITS,
 } from "@/lib/types";
+
+function getLimitsForType(type: string) {
+  switch (type) {
+    case "stickyNote":
+      return {
+        minW: STICKY_NOTE_SIZE_LIMITS.min.width,
+        minH: STICKY_NOTE_SIZE_LIMITS.min.height,
+        maxW: STICKY_NOTE_SIZE_LIMITS.max.width,
+        maxH: STICKY_NOTE_SIZE_LIMITS.max.height,
+      };
+    case "rectangle":
+    case "circle":
+      return {
+        minW: SHAPE_SIZE_LIMITS.min.width,
+        minH: SHAPE_SIZE_LIMITS.min.height,
+        maxW: SHAPE_SIZE_LIMITS.max.width,
+        maxH: SHAPE_SIZE_LIMITS.max.height,
+      };
+    case "frame":
+      return {
+        minW: FRAME_SIZE_LIMITS.min.width,
+        minH: FRAME_SIZE_LIMITS.min.height,
+        maxW: FRAME_SIZE_LIMITS.max.width,
+        maxH: FRAME_SIZE_LIMITS.max.height,
+      };
+    default:
+      return { minW: 20, minH: 20, maxW: 4000, maxH: 4000 };
+  }
+}
 
 interface SelectionLayerProps {
   stageRef: React.RefObject<Konva.Stage | null>;
@@ -97,38 +126,6 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
     }
   }
 
-  // Get size limits for the selected type
-  const getSizeLimits = useCallback(() => {
-    if (!singleType)
-      return { minW: 20, minH: 20, maxW: 4000, maxH: 4000 };
-    switch (singleType) {
-      case "stickyNote":
-        return {
-          minW: STICKY_NOTE_SIZE_LIMITS.min.width,
-          minH: STICKY_NOTE_SIZE_LIMITS.min.height,
-          maxW: STICKY_NOTE_SIZE_LIMITS.max.width,
-          maxH: STICKY_NOTE_SIZE_LIMITS.max.height,
-        };
-      case "rectangle":
-      case "circle":
-        return {
-          minW: SHAPE_SIZE_LIMITS.min.width,
-          minH: SHAPE_SIZE_LIMITS.min.height,
-          maxW: SHAPE_SIZE_LIMITS.max.width,
-          maxH: SHAPE_SIZE_LIMITS.max.height,
-        };
-      case "frame":
-        return {
-          minW: FRAME_SIZE_LIMITS.min.width,
-          minH: FRAME_SIZE_LIMITS.min.height,
-          maxW: FRAME_SIZE_LIMITS.max.width,
-          maxH: FRAME_SIZE_LIMITS.max.height,
-        };
-      default:
-        return { minW: 20, minH: 20, maxW: 4000, maxH: 4000 };
-    }
-  }, [singleType]);
-
   useEffect(() => {
     const transformer = transformerRef.current;
     const stage = stageRef.current;
@@ -146,70 +143,61 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
   }, [selectedObjectIds, objects, stageRef]);
 
   const handleTransformEnd = useCallback(
-    (e: Konva.KonvaEventObject<Event>) => {
+    () => {
       const transformer = transformerRef.current;
       if (!transformer) return;
-      const limits = getSizeLimits();
-      const freeForm =
-        (e.evt as MouseEvent).ctrlKey || (e.evt as MouseEvent).metaKey;
 
       for (const node of transformer.nodes()) {
         const id = node.id();
         const obj = objects[id];
         if (!obj) continue;
 
-        // Compute actual size from scale
-        const scaleX = node.scaleX();
-        const scaleY = node.scaleY();
-        let newWidth = Math.round(node.width() * scaleX);
-        let newHeight = Math.round(node.height() * scaleY);
+        // Per-object limits so multi-select applies correct bounds per type
+        const limits = getLimitsForType(obj.type);
+        const isCircle = obj.type === "circle";
 
-        // Clamp
+        // Atomic dimension calculation from current scale
+        let newWidth = Math.round(node.width() * Math.abs(node.scaleX()));
+        let newHeight = Math.round(node.height() * Math.abs(node.scaleY()));
+
+        // CRUCIAL: Reset scale immediately to clear Konva's transform matrix
+        // before any downstream state updates
+        node.scaleX(1);
+        node.scaleY(1);
+
+        // Clamp — floor raw dimensions at type minimum, cap at max
         newWidth = Math.max(limits.minW, Math.min(limits.maxW, newWidth));
         newHeight = Math.max(limits.minH, Math.min(limits.maxH, newHeight));
 
-        // Snap to grid (unless Cmd/Ctrl held for free-form)
-        if (!freeForm) {
-          newWidth = snapToGrid(newWidth);
-          newHeight = snapToGrid(newHeight);
-          if (newWidth < limits.minW) newWidth = limits.minW;
-          if (newHeight < limits.minH) newHeight = limits.minH;
+        // Circle constraint: keepRatio means width === height
+        if (isCircle) {
+          const maxDim = Math.max(newWidth, newHeight);
+          newWidth = maxDim;
+          newHeight = maxDim;
         }
 
-        // Reset scale
-        node.scaleX(1);
-        node.scaleY(1);
+        // Apply final dimensions to the Konva node
         node.width(newWidth);
         node.height(newHeight);
 
-        let newX = node.x();
-        let newY = node.y();
-        if (!freeForm) {
-          newX = snapToGrid(newX);
-          newY = snapToGrid(newY);
-        } else {
-          newX = Math.round(newX);
-          newY = Math.round(newY);
-        }
+        const newX = Math.round(node.x());
+        const newY = Math.round(node.y());
         node.x(newX);
         node.y(newY);
 
-        updateObjectLocal(id, {
+        // Persist to local store and Firestore
+        const updates = {
           x: newX,
           y: newY,
           width: newWidth,
           height: newHeight,
-        });
+        };
 
-        updateObject(getBoardIdFromUrl(), id, {
-          x: newX,
-          y: newY,
-          width: newWidth,
-          height: newHeight,
-        }).catch(console.error);
+        updateObjectLocal(id, updates);
+        updateObject(getBoardIdFromUrl(), id, updates).catch(console.error);
       }
     },
-    [objects, getSizeLimits, updateObjectLocal]
+    [objects, updateObjectLocal]
   );
 
   return (
@@ -218,6 +206,8 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       enabledAnchors={enabledAnchors}
       rotateEnabled={false}
       keepRatio={keepRatio}
+      flipEnabled={false}
+      centeredScaling={false}
       borderStroke="#2196F3"
       borderStrokeWidth={2}
       anchorFill="#ffffff"
@@ -226,16 +216,19 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       anchorCornerRadius={2}
       onTransformEnd={handleTransformEnd}
       boundBoxFunc={(oldBox, newBox) => {
-        const limits = getSizeLimits();
-        if (
-          newBox.width < limits.minW ||
-          newBox.height < limits.minH ||
-          newBox.width > limits.maxW ||
-          newBox.height > limits.maxH
-        ) {
+        const limits = getLimitsForType(singleType || "");
+
+        // Reject transform when dimensions go below minimum or negative
+        // (happens when user drags handle past the opposite edge quickly)
+        if (newBox.width < limits.minW || newBox.height < limits.minH) {
           return oldBox;
         }
-        return newBox;
+
+        // Clamp to maximum
+        const clamped = { ...newBox };
+        clamped.width = Math.min(limits.maxW, clamped.width);
+        clamped.height = Math.min(limits.maxH, clamped.height);
+        return clamped;
       }}
     />
   );

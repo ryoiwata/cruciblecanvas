@@ -8,7 +8,6 @@ import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import { updateObjects } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
-import { snapToGrid } from "@/lib/utils";
 import type { BoardObject } from "@/lib/types";
 import { FRAME_DEFAULTS } from "@/lib/types";
 
@@ -81,21 +80,21 @@ export default function FrameObject({
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target;
-    const snappedX = snapToGrid(node.x());
-    const snappedY = snapToGrid(node.y());
-    node.x(snappedX);
-    node.y(snappedY);
+    const finalX = Math.round(node.x());
+    const finalY = Math.round(node.y());
+    node.x(finalX);
+    node.y(finalY);
 
-    const dx = snappedX - preDragPos.current.x;
-    const dy = snappedY - preDragPos.current.y;
+    const dx = finalX - preDragPos.current.x;
+    const dy = finalY - preDragPos.current.y;
 
-    updateObjectLocal(object.id, { x: snappedX, y: snappedY });
+    updateObjectLocal(object.id, { x: finalX, y: finalY });
 
-    // Snap children
+    // Move children by delta
     const childUpdates: { id: string; changes: Partial<BoardObject> }[] = [];
     for (const snap of childSnapshots.current) {
-      const cx = snapToGrid(snap.x + dx);
-      const cy = snapToGrid(snap.y + dy);
+      const cx = Math.round(snap.x + dx);
+      const cy = Math.round(snap.y + dy);
       updateObjectLocal(snap.id, { x: cx, y: cy });
       childUpdates.push({ id: snap.id, changes: { x: cx, y: cy } });
     }
@@ -104,7 +103,7 @@ export default function FrameObject({
 
     try {
       await updateObjects(boardId, [
-        { id: object.id, changes: { x: snappedX, y: snappedY } },
+        { id: object.id, changes: { x: finalX, y: finalY } },
         ...childUpdates,
       ]);
     } catch {

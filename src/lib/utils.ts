@@ -1,13 +1,3 @@
-import { GRID_SIZE } from "./types";
-
-/**
- * Snaps a coordinate value to the nearest grid intersection.
- * Handles negative coordinates correctly: snapToGrid(-15) → -20.
- */
-export function snapToGrid(value: number, gridSize: number = GRID_SIZE): number {
-  return Math.round(value / gridSize) * gridSize;
-}
-
 /**
  * Generates a deterministic hex color from a userId string.
  * Same userId always produces the same color across sessions and users.

@@ -8,7 +8,7 @@ import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import { setCursor, acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import { createObject, generateObjectId, updateObject } from "@/lib/firebase/firestore";
-import { snapToGrid, getCanvasPoint, getUserColor, boundsOverlap } from "@/lib/utils";
+import { getCanvasPoint, getUserColor, boundsOverlap } from "@/lib/utils";
 import type { ObjectType, ResizeEdge, BorderResizeState } from "@/lib/types";
 import {
   STICKY_NOTE_DEFAULT,
@@ -348,8 +348,8 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       if (mode === "create" && creationTool && creationTool !== "connector") {
         // Start drag-to-create
-        const sx = snapToGrid(canvasPoint.x);
-        const sy = snapToGrid(canvasPoint.y);
+        const sx = Math.round(canvasPoint.x);
+        const sy = Math.round(canvasPoint.y);
         const objectId = generateObjectId(boardId);
 
         drawingRef.current = {
@@ -396,9 +396,8 @@ export default function Canvas({ boardId }: CanvasProps) {
 
         if (drawingRef.current) {
           // Actively drawing — compute size
-          const freeForm = e.evt.ctrlKey || e.evt.metaKey;
-          const endX = freeForm ? canvasPoint.x : snapToGrid(canvasPoint.x);
-          const endY = freeForm ? canvasPoint.y : snapToGrid(canvasPoint.y);
+          const endX = canvasPoint.x;
+          const endY = canvasPoint.y;
 
           let w = Math.abs(endX - drawingRef.current.startX);
           let h = Math.abs(endY - drawingRef.current.startY);
@@ -454,8 +453,8 @@ export default function Canvas({ boardId }: CanvasProps) {
         } else {
           // Not drawing — update ghost preview position
           setGhostPos({
-            x: snapToGrid(canvasPoint.x),
-            y: snapToGrid(canvasPoint.y),
+            x: Math.round(canvasPoint.x),
+            y: Math.round(canvasPoint.y),
           });
         }
       }
@@ -471,7 +470,6 @@ export default function Canvas({ boardId }: CanvasProps) {
           pointer.y
         );
 
-        const freeForm = e.evt.ctrlKey || e.evt.metaKey;
         const limits = getSizeLimitsForTool(br.objectType);
         const { edge, startX, startY, startW, startH } = br;
         const startRight = startX + startW;
@@ -498,10 +496,23 @@ export default function Canvas({ boardId }: CanvasProps) {
           newY = canvasPoint.y;
         }
 
+        // Prevent negative dimensions (user dragged past opposite edge)
+        if (newW <= 0) {
+          newW = limits.min.width;
+          if (edge === "w" || edge === "nw" || edge === "sw") {
+            newX = startRight - newW;
+          }
+        }
+        if (newH <= 0) {
+          newH = limits.min.height;
+          if (edge === "n" || edge === "nw" || edge === "ne") {
+            newY = startBottom - newH;
+          }
+        }
+
         // Circle constraint: enforce square
         if (br.objectType === "circle") {
           const maxDim = Math.max(newW, newH);
-          // Adjust position to keep the anchor corner fixed
           if (edge === "w" || edge === "nw" || edge === "sw") {
             newX = startRight - maxDim;
           }
@@ -516,29 +527,11 @@ export default function Canvas({ boardId }: CanvasProps) {
         newW = Math.max(limits.min.width, Math.min(limits.max.width, newW));
         newH = Math.max(limits.min.height, Math.min(limits.max.height, newH));
 
-        // Snap to grid
-        if (!freeForm) {
-          newW = snapToGrid(newW);
-          newH = snapToGrid(newH);
-          if (newW < limits.min.width) newW = limits.min.width;
-          if (newH < limits.min.height) newH = limits.min.height;
-          newX = snapToGrid(newX);
-          newY = snapToGrid(newY);
-        }
-
-        // Prevent negative/zero dimensions by keeping anchor fixed
-        if (newW < limits.min.width) {
-          newW = limits.min.width;
-          if (edge === "w" || edge === "nw" || edge === "sw") {
-            newX = startRight - newW;
-          }
-        }
-        if (newH < limits.min.height) {
-          newH = limits.min.height;
-          if (edge === "n" || edge === "nw" || edge === "ne") {
-            newY = startBottom - newH;
-          }
-        }
+        // Normalize to positive integers
+        newW = Math.round(Math.abs(newW));
+        newH = Math.round(Math.abs(newH));
+        newX = Math.round(newX);
+        newY = Math.round(newY);
 
         updateObjectLocal(br.objectId, {
           x: newX,
