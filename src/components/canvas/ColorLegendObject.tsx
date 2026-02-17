@@ -11,19 +11,19 @@ import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import { snapToGrid } from "@/lib/utils";
 import type { BoardObject } from "@/lib/types";
 
-interface StickyNoteProps {
+interface ColorLegendObjectProps {
   object: BoardObject;
   boardId: string;
   isLocked: boolean;
   lockedByName: string | null;
 }
 
-export default function StickyNote({
+export default function ColorLegendObject({
   object,
   boardId,
   isLocked,
   lockedByName,
-}: StickyNoteProps) {
+}: ColorLegendObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const groupRef = useRef<Konva.Group>(null);
 
@@ -40,6 +40,7 @@ export default function StickyNote({
 
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "select" && !isLocked;
+  const entries = object.legendEntries || [];
 
   const handleDragStart = () => {
     if (!user) return;
@@ -49,8 +50,7 @@ export default function StickyNote({
   };
 
   const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const node = e.target;
-    updateObjectLocal(object.id, { x: node.x(), y: node.y() });
+    updateObjectLocal(object.id, { x: e.target.x(), y: e.target.y() });
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -70,11 +70,6 @@ export default function StickyNote({
       node.y(y);
       updateObjectLocal(object.id, { x, y });
     }
-
-    // Trigger frame nesting check
-    window.dispatchEvent(
-      new CustomEvent("object-drag-end", { detail: { objectId: object.id } })
-    );
   };
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -104,6 +99,10 @@ export default function StickyNote({
     });
   };
 
+  const entryHeight = 24;
+  const headerHeight = 30;
+  const dynamicHeight = headerHeight + entries.length * entryHeight + 10;
+
   return (
     <Group
       ref={groupRef}
@@ -123,48 +122,67 @@ export default function StickyNote({
       {/* Background */}
       <Rect
         width={object.width}
-        height={object.height}
-        fill={object.color}
-        cornerRadius={4}
+        height={Math.max(dynamicHeight, object.height)}
+        fill="#FFFFFF"
+        cornerRadius={8}
         shadowColor="rgba(0,0,0,0.1)"
-        shadowBlur={4}
+        shadowBlur={6}
         shadowOffsetY={2}
-        stroke={isSelected ? "#2196F3" : undefined}
-        strokeWidth={isSelected ? 2 : 0}
+        stroke={isSelected ? "#2196F3" : "#E5E7EB"}
+        strokeWidth={isSelected ? 2 : 1}
       />
 
-      {/* Text content */}
-      {object.text !== undefined && object.text !== "" && (
+      {/* Header */}
+      <Text
+        text="Color Legend"
+        x={10}
+        y={8}
+        fontSize={14}
+        fontFamily="sans-serif"
+        fontStyle="bold"
+        fill="#1a1a1a"
+      />
+
+      {/* Legend entries */}
+      {entries.map((entry, i) => (
+        <Group key={i} y={headerHeight + i * entryHeight}>
+          <Rect
+            x={10}
+            y={2}
+            width={16}
+            height={16}
+            fill={entry.color}
+            cornerRadius={3}
+          />
+          <Text
+            x={32}
+            y={3}
+            text={entry.meaning || "(no label)"}
+            fontSize={12}
+            fontFamily="sans-serif"
+            fill="#4B5563"
+            width={object.width - 44}
+            ellipsis
+          />
+        </Group>
+      ))}
+
+      {entries.length === 0 && (
         <Text
-          text={object.text}
-          width={object.width - 20}
           x={10}
-          y={10}
-          fontSize={14}
+          y={headerHeight + 4}
+          text="Double-click to add entries"
+          fontSize={11}
           fontFamily="sans-serif"
-          fill="#1a1a1a"
-          ellipsis={true}
-          wrap="word"
-          height={object.height - 20}
+          fill="#9CA3AF"
         />
       )}
 
-      {/* AI badge */}
-      {object.isAIGenerated && (
-        <Text
-          text="✨"
-          x={object.width - 22}
-          y={4}
-          fontSize={14}
-        />
-      )}
-
-      {/* Lock indicator */}
       {isLocked && lockedByName && (
         <Text
           text={`🔒 ${lockedByName}`}
           x={4}
-          y={object.height - 20}
+          y={Math.max(dynamicHeight, object.height) - 20}
           fontSize={11}
           fontFamily="sans-serif"
           fill="#666"

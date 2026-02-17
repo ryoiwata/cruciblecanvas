@@ -5,6 +5,7 @@ import {
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  writeBatch,
 } from "firebase/firestore";
 import { db } from "./config";
 import type { BoardObject } from "../types";
@@ -89,6 +90,87 @@ export async function deleteObject(
 ): Promise<void> {
   const docRef = doc(db, "boards", boardId, "objects", objectId);
   await deleteDoc(docRef);
+}
+
+// ---------------------------------------------------------------------------
+// Batch operations (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Batch-deletes multiple objects from Firestore.
+ */
+export async function deleteObjects(
+  boardId: string,
+  objectIds: string[]
+): Promise<void> {
+  if (objectIds.length === 0) return;
+  const batch = writeBatch(db);
+  for (const id of objectIds) {
+    batch.delete(doc(db, "boards", boardId, "objects", id));
+  }
+  await batch.commit();
+}
+
+/**
+ * Batch-creates multiple objects in Firestore.
+ * Returns the generated document IDs.
+ */
+export async function createObjects(
+  boardId: string,
+  objects: Omit<BoardObject, "createdAt" | "updatedAt">[]
+): Promise<string[]> {
+  if (objects.length === 0) return [];
+  const batch = writeBatch(db);
+  const ids: string[] = [];
+  const colRef = collection(db, "boards", boardId, "objects");
+
+  for (const data of objects) {
+    const docRef = data.id ? doc(colRef, data.id) : doc(colRef);
+    ids.push(docRef.id);
+
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (value !== undefined) {
+        cleaned[key] = value;
+      }
+    }
+
+    batch.set(docRef, {
+      ...cleaned,
+      id: docRef.id,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  await batch.commit();
+  return ids;
+}
+
+/**
+ * Batch-updates multiple objects in Firestore.
+ */
+export async function updateObjects(
+  boardId: string,
+  updates: { id: string; changes: Partial<BoardObject> }[]
+): Promise<void> {
+  if (updates.length === 0) return;
+  const batch = writeBatch(db);
+
+  for (const { id, changes } of updates) {
+    const docRef = doc(db, "boards", boardId, "objects", id);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { id: _id, createdAt: _ca, createdBy: _cb, ...mutable } = changes;
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(mutable)) {
+      if (value !== undefined) {
+        cleaned[key] = value;
+      }
+    }
+    batch.update(docRef, { ...cleaned, updatedAt: serverTimestamp() });
+  }
+
+  await batch.commit();
 }
 
 /**

@@ -20,6 +20,8 @@ export type AnalyticalRole =
   | "option"
   | "evaluation";
 
+export type ConnectorStyle = "solid" | "dashed" | "dotted";
+
 // ---------------------------------------------------------------------------
 // Board Object (Firestore: boards/{boardId}/objects/{objectId})
 // ---------------------------------------------------------------------------
@@ -36,6 +38,7 @@ export interface BoardObjectMetadata {
   decisionContext?: string;
   score?: number;
   persona?: "skeptic" | "investor" | "counsel";
+  connectorStyle?: ConnectorStyle;
 }
 
 export interface BoardObject {
@@ -173,3 +176,75 @@ export const GRID_SIZE = 20;
 
 export const ZOOM_MIN = 0.05;
 export const ZOOM_MAX = 5.0;
+
+// ---------------------------------------------------------------------------
+// Shape defaults & limits
+// ---------------------------------------------------------------------------
+
+export const SHAPE_DEFAULTS = {
+  rectangle: { width: 100, height: 100, color: "#E3E8EF", cornerRadius: 4 },
+  circle: { width: 100, height: 100, color: "#E3E8EF" },
+} as const;
+
+export const SHAPE_SIZE_LIMITS = {
+  min: { width: 20, height: 20 },
+  max: { width: 800, height: 800 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Frame defaults & limits
+// ---------------------------------------------------------------------------
+
+export const FRAME_DEFAULTS = {
+  width: 400,
+  height: 300,
+  color: "#6366f1",
+  titleBarHeight: 40,
+  backgroundOpacity: 0.1,
+} as const;
+
+export const FRAME_SIZE_LIMITS = {
+  min: { width: 150, height: 100 },
+  max: { width: 4000, height: 4000 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Connector defaults
+// ---------------------------------------------------------------------------
+
+export const CONNECTOR_DEFAULTS = {
+  color: "#6B7280",
+  style: "solid" as ConnectorStyle,
+  strokeWidth: 2,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Sticky note size limits
+// ---------------------------------------------------------------------------
+
+export const STICKY_NOTE_SIZE_LIMITS = {
+  min: { width: 80, height: 60 },
+  max: { width: 600, height: 600 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Color Legend defaults
+// ---------------------------------------------------------------------------
+
+export const COLOR_LEGEND_DEFAULTS = {
+  width: 200,
+  height: 160,
+  color: "#FFFFFF",
+} as const;
+
+// ---------------------------------------------------------------------------
+// Context menu types
+// ---------------------------------------------------------------------------
+
+export interface ContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  targetObjectId: string | null;
+  nearbyFrames: { id: string; title: string }[];
+}

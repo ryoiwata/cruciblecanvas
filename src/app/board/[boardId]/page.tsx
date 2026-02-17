@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useFirestoreSync } from "@/hooks/useFirestoreSync";
 import { useLockSync } from "@/hooks/useLockSync";
+import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import {
   setPresence,
   removePresence,
@@ -15,6 +16,9 @@ import {
 } from "@/lib/firebase/rtdb";
 import { getUserColor } from "@/lib/utils";
 import Toolbar from "@/components/ui/Toolbar";
+import ContextMenu from "@/components/ui/ContextMenu";
+import ColorPicker from "@/components/ui/ColorPicker";
+import DeleteDialog from "@/components/ui/DeleteDialog";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -36,6 +40,10 @@ export default function BoardPage() {
   const isLoading = useAuthStore((s) => s.isLoading);
   const isObjectsLoaded = useObjectStore((s) => s.isLoaded);
 
+  // Keyboard shortcuts (delete, copy, paste, duplicate, tool switching)
+  const { pendingDelete, setPendingDelete, performDelete, deleteCount } =
+    useKeyboardShortcuts({ boardId });
+
   // Auth guard
   useEffect(() => {
     if (!isLoading && !user) {
@@ -44,7 +52,6 @@ export default function BoardPage() {
   }, [user, isLoading, router]);
 
   // Firestore object sync — only after auth resolves
-  // Pass undefined when not ready so the hook skips subscription
   useFirestoreSync(user ? boardId : undefined);
 
   // RTDB lock sync — only after auth resolves
@@ -100,6 +107,19 @@ export default function BoardPage() {
     <>
       <Toolbar />
       <Canvas boardId={boardId} />
+      <ContextMenu boardId={boardId} />
+      <ColorPicker boardId={boardId} />
+
+      {pendingDelete && (
+        <DeleteDialog
+          count={deleteCount}
+          onConfirm={() => {
+            performDelete();
+            setPendingDelete(false);
+          }}
+          onCancel={() => setPendingDelete(false)}
+        />
+      )}
     </>
   );
 }

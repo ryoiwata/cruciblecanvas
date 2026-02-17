@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { Group, Rect, Text } from "react-konva";
+import { Group, Rect, Circle, Text } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
@@ -11,19 +11,19 @@ import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import { snapToGrid } from "@/lib/utils";
 import type { BoardObject } from "@/lib/types";
 
-interface StickyNoteProps {
+interface ShapeObjectProps {
   object: BoardObject;
   boardId: string;
   isLocked: boolean;
   lockedByName: string | null;
 }
 
-export default function StickyNote({
+export default function ShapeObject({
   object,
   boardId,
   isLocked,
   lockedByName,
-}: StickyNoteProps) {
+}: ShapeObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const groupRef = useRef<Konva.Group>(null);
 
@@ -31,7 +31,6 @@ export default function StickyNote({
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
-  const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
@@ -87,11 +86,6 @@ export default function StickyNote({
     }
   };
 
-  const handleDblClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    e.cancelBubble = true;
-    setEditingObject(object.id);
-  };
-
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
@@ -116,50 +110,29 @@ export default function StickyNote({
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onTap={handleClick}
-      onDblClick={handleDblClick}
       onContextMenu={handleContextMenu}
       opacity={isLocked ? 0.6 : 1}
     >
-      {/* Background */}
-      <Rect
-        width={object.width}
-        height={object.height}
-        fill={object.color}
-        cornerRadius={4}
-        shadowColor="rgba(0,0,0,0.1)"
-        shadowBlur={4}
-        shadowOffsetY={2}
-        stroke={isSelected ? "#2196F3" : undefined}
-        strokeWidth={isSelected ? 2 : 0}
-      />
-
-      {/* Text content */}
-      {object.text !== undefined && object.text !== "" && (
-        <Text
-          text={object.text}
-          width={object.width - 20}
-          x={10}
-          y={10}
-          fontSize={14}
-          fontFamily="sans-serif"
-          fill="#1a1a1a"
-          ellipsis={true}
-          wrap="word"
-          height={object.height - 20}
+      {object.type === "rectangle" ? (
+        <Rect
+          width={object.width}
+          height={object.height}
+          fill={object.color}
+          cornerRadius={4}
+          stroke={isSelected ? "#2196F3" : undefined}
+          strokeWidth={isSelected ? 2 : 0}
+        />
+      ) : (
+        <Circle
+          x={object.width / 2}
+          y={object.height / 2}
+          radius={object.width / 2}
+          fill={object.color}
+          stroke={isSelected ? "#2196F3" : undefined}
+          strokeWidth={isSelected ? 2 : 0}
         />
       )}
 
-      {/* AI badge */}
-      {object.isAIGenerated && (
-        <Text
-          text="✨"
-          x={object.width - 22}
-          y={4}
-          fontSize={14}
-        />
-      )}
-
-      {/* Lock indicator */}
       {isLocked && lockedByName && (
         <Text
           text={`🔒 ${lockedByName}`}

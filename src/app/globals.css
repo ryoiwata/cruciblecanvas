@@ -18,3 +18,14 @@ body {
     text-wrap: balance;
   }
 }
+
+/* Prevent scrollbars on board pages */
+body:has(.konvajs-content) {
+  overflow: hidden;
+}
+
+/* Disable context menu on canvas */
+.konvajs-content {
+  -webkit-user-select: none;
+  user-select: none;
+}

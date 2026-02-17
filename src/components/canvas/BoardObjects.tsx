@@ -4,6 +4,11 @@ import { useObjectStore } from "@/lib/store/objectStore";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import StickyNote from "./StickyNote";
+import ShapeObject from "./ShapeObject";
+import FrameObject from "./FrameObject";
+import ConnectorObject from "./ConnectorObject";
+import ColorLegendObject from "./ColorLegendObject";
+import AnchorPoints from "./AnchorPoints";
 import type { BoardObject } from "@/lib/types";
 import type { Timestamp } from "firebase/firestore";
 
@@ -11,6 +16,8 @@ interface BoardObjectsProps {
   boardId: string;
   width: number;
   height: number;
+  hoveredObjectId: string | null;
+  onAnchorClick: (objectId: string) => void;
 }
 
 /** Convert createdAt to milliseconds for z-index sorting. */
@@ -23,13 +30,13 @@ function getCreatedAtMs(obj: BoardObject): number {
   return 0;
 }
 
-/**
- * Renders all board objects from the objectStore.
- *
- * Phase 2: only stickyNote type.
- * Applies viewport culling (200px padding) and sorts by createdAt for z-index.
- */
-export default function BoardObjects({ boardId, width, height }: BoardObjectsProps) {
+export default function BoardObjects({
+  boardId,
+  width,
+  height,
+  hoveredObjectId,
+  onAnchorClick,
+}: BoardObjectsProps) {
   const objects = useObjectStore((s) => s.objects);
   const locks = useObjectStore((s) => s.locks);
   const userId = useAuthStore((s) => s.user?.uid);
@@ -37,6 +44,8 @@ export default function BoardObjects({ boardId, width, height }: BoardObjectsPro
   const stageX = useCanvasStore((s) => s.stageX);
   const stageY = useCanvasStore((s) => s.stageY);
   const stageScale = useCanvasStore((s) => s.stageScale);
+  const mode = useCanvasStore((s) => s.mode);
+  const creationTool = useCanvasStore((s) => s.creationTool);
 
   // Viewport culling bounds in canvas-space
   const padding = 200;
@@ -45,37 +54,126 @@ export default function BoardObjects({ boardId, width, height }: BoardObjectsPro
   const vpRight = vpLeft + width / stageScale + padding * 2;
   const vpBottom = vpTop + height / stageScale + padding * 2;
 
-  const visibleObjects = Object.values(objects)
-    .filter((obj) => {
-      // Phase 2: only sticky notes
-      if (obj.type !== "stickyNote") return false;
+  const allObjects = Object.values(objects);
 
-      // Viewport culling
-      if (obj.x + obj.width < vpLeft) return false;
-      if (obj.x > vpRight) return false;
-      if (obj.y + obj.height < vpTop) return false;
-      if (obj.y > vpBottom) return false;
+  // Separate object types for z-ordering: frames behind, connectors on top
+  const frames: BoardObject[] = [];
+  const mainObjects: BoardObject[] = [];
+  const connectors: BoardObject[] = [];
 
-      return true;
-    })
-    .sort((a, b) => getCreatedAtMs(a) - getCreatedAtMs(b));
+  for (const obj of allObjects) {
+    // Viewport culling (connectors skip culling — they're derived from endpoints)
+    if (obj.type !== "connector") {
+      if (obj.x + obj.width < vpLeft) continue;
+      if (obj.x > vpRight) continue;
+      if (obj.y + obj.height < vpTop) continue;
+      if (obj.y > vpBottom) continue;
+    }
 
-  return (
-    <>
-      {visibleObjects.map((obj) => {
-        const lock = locks[obj.id];
-        const isLockedByOther = !!lock && lock.userId !== userId;
+    if (obj.type === "frame") {
+      frames.push(obj);
+    } else if (obj.type === "connector") {
+      connectors.push(obj);
+    } else {
+      mainObjects.push(obj);
+    }
+  }
 
+  // Sort by createdAt for z-index within each group
+  frames.sort((a, b) => getCreatedAtMs(a) - getCreatedAtMs(b));
+  mainObjects.sort((a, b) => getCreatedAtMs(a) - getCreatedAtMs(b));
+  connectors.sort((a, b) => getCreatedAtMs(a) - getCreatedAtMs(b));
+
+  const isConnectorMode = mode === "create" && creationTool === "connector";
+
+  const renderObject = (obj: BoardObject) => {
+    const lock = locks[obj.id];
+    const isLockedByOther = !!lock && lock.userId !== userId;
+    const lockedByName = isLockedByOther ? lock.userName : null;
+
+    switch (obj.type) {
+      case "stickyNote":
         return (
           <StickyNote
             key={obj.id}
             object={obj}
             boardId={boardId}
             isLocked={isLockedByOther}
-            lockedByName={isLockedByOther ? lock.userName : null}
+            lockedByName={lockedByName}
           />
         );
-      })}
+      case "rectangle":
+      case "circle":
+        return (
+          <ShapeObject
+            key={obj.id}
+            object={obj}
+            boardId={boardId}
+            isLocked={isLockedByOther}
+            lockedByName={lockedByName}
+          />
+        );
+      case "frame":
+        return (
+          <FrameObject
+            key={obj.id}
+            object={obj}
+            boardId={boardId}
+            isLocked={isLockedByOther}
+            lockedByName={lockedByName}
+          />
+        );
+      case "connector":
+        return (
+          <ConnectorObject
+            key={obj.id}
+            object={obj}
+            boardId={boardId}
+          />
+        );
+      case "colorLegend":
+        return (
+          <ColorLegendObject
+            key={obj.id}
+            object={obj}
+            boardId={boardId}
+            isLocked={isLockedByOther}
+            lockedByName={lockedByName}
+          />
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <>
+      {/* Frames (behind everything) */}
+      {frames.map(renderObject)}
+
+      {/* Main objects (sticky notes, shapes, color legends) */}
+      {mainObjects.map(renderObject)}
+
+      {/* Connectors (on top of all objects) */}
+      {connectors.map(renderObject)}
+
+      {/* Anchor points for connector creation mode */}
+      {isConnectorMode &&
+        [...frames, ...mainObjects].map((obj) => {
+          if (obj.type === "connector" || obj.type === "colorLegend")
+            return null;
+          // Show anchors on hover or always in connector mode
+          if (hoveredObjectId === obj.id || isConnectorMode) {
+            return (
+              <AnchorPoints
+                key={`anchor-${obj.id}`}
+                object={obj}
+                onAnchorClick={onAnchorClick}
+              />
+            );
+          }
+          return null;
+        })}
     </>
   );
 }

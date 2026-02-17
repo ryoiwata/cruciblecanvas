@@ -1,28 +1,59 @@
 "use client";
 
-import { useEffect } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
-import type { CanvasMode } from "@/lib/store/canvasStore";
+import type { ObjectType } from "@/lib/types";
 
 interface Tool {
   id: string;
   label: string;
   icon: string;
-  mode: CanvasMode;
-  creationTool?: "stickyNote";
+  mode: "pan" | "select" | "create";
+  creationTool?: ObjectType;
   shortcut: string;
 }
 
 const tools: Tool[] = [
-  { id: "pan", label: "Pan", icon: "✋", mode: "pan", shortcut: "1" },
-  { id: "select", label: "Select", icon: "↖", mode: "select", shortcut: "2" },
+  { id: "pan", label: "Pan", icon: "\u270b", mode: "pan", shortcut: "1" },
+  { id: "select", label: "Select", icon: "\u2196", mode: "select", shortcut: "2" },
   {
     id: "stickyNote",
     label: "Sticky Note",
-    icon: "📝",
+    icon: "\ud83d\udcdd",
     mode: "create",
     creationTool: "stickyNote",
     shortcut: "3",
+  },
+  {
+    id: "rectangle",
+    label: "Rectangle",
+    icon: "\u25fb",
+    mode: "create",
+    creationTool: "rectangle",
+    shortcut: "4",
+  },
+  {
+    id: "circle",
+    label: "Circle",
+    icon: "\u25cb",
+    mode: "create",
+    creationTool: "circle",
+    shortcut: "5",
+  },
+  {
+    id: "frame",
+    label: "Frame",
+    icon: "\u25a3",
+    mode: "create",
+    creationTool: "frame",
+    shortcut: "6",
+  },
+  {
+    id: "connector",
+    label: "Connector",
+    icon: "\u2571",
+    mode: "create",
+    creationTool: "connector",
+    shortcut: "7",
   },
 ];
 
@@ -31,34 +62,8 @@ export default function Toolbar() {
   const creationTool = useCanvasStore((s) => s.creationTool);
   const setMode = useCanvasStore((s) => s.setMode);
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
-  const exitToPan = useCanvasStore((s) => s.exitToPan);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't fire when typing in input/textarea
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-
-      switch (e.key) {
-        case "1":
-          setMode("pan");
-          break;
-        case "2":
-          setMode("select");
-          break;
-        case "3":
-          enterCreateMode("stickyNote");
-          break;
-        case "Escape":
-          exitToPan();
-          break;
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [setMode, enterCreateMode, exitToPan]);
+  // Keyboard shortcuts are now handled by useKeyboardShortcuts hook
 
   const isActive = (tool: Tool) => {
     if (tool.mode === "create") {
@@ -89,7 +94,7 @@ export default function Toolbar() {
           }`}
         >
           <span>{tool.icon}</span>
-          <span>{tool.label}</span>
+          <span className="hidden sm:inline">{tool.label}</span>
         </button>
       ))}
     </div>

@@ -6,25 +6,33 @@ import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
-import { updateObject } from "@/lib/firebase/firestore";
+import { updateObjects } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import { snapToGrid } from "@/lib/utils";
 import type { BoardObject } from "@/lib/types";
+import { FRAME_DEFAULTS } from "@/lib/types";
 
-interface StickyNoteProps {
+interface FrameObjectProps {
   object: BoardObject;
   boardId: string;
   isLocked: boolean;
   lockedByName: string | null;
 }
 
-export default function StickyNote({
+interface ChildSnapshot {
+  id: string;
+  x: number;
+  y: number;
+}
+
+export default function FrameObject({
   object,
   boardId,
   isLocked,
   lockedByName,
-}: StickyNoteProps) {
+}: FrameObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const childSnapshots = useRef<ChildSnapshot[]>([]);
   const groupRef = useRef<Konva.Group>(null);
 
   const mode = useCanvasStore((s) => s.mode);
@@ -34,6 +42,7 @@ export default function StickyNote({
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
+  const getChildrenOfFrame = useObjectStore((s) => s.getChildrenOfFrame);
 
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
@@ -45,12 +54,29 @@ export default function StickyNote({
     if (!user) return;
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
+
+    // Snapshot children positions for delta movement
+    const children = getChildrenOfFrame(object.id);
+    childSnapshots.current = children.map((c) => ({
+      id: c.id,
+      x: c.x,
+      y: c.y,
+    }));
+
     acquireLock(boardId, object.id, user.uid, displayName || "Guest");
   };
 
   const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
     const node = e.target;
+    const dx = node.x() - preDragPos.current.x;
+    const dy = node.y() - preDragPos.current.y;
+
     updateObjectLocal(object.id, { x: node.x(), y: node.y() });
+
+    // Move children by delta
+    for (const snap of childSnapshots.current) {
+      updateObjectLocal(snap.id, { x: snap.x + dx, y: snap.y + dy });
+    }
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -59,22 +85,39 @@ export default function StickyNote({
     const snappedY = snapToGrid(node.y());
     node.x(snappedX);
     node.y(snappedY);
+
+    const dx = snappedX - preDragPos.current.x;
+    const dy = snappedY - preDragPos.current.y;
+
     updateObjectLocal(object.id, { x: snappedX, y: snappedY });
+
+    // Snap children
+    const childUpdates: { id: string; changes: Partial<BoardObject> }[] = [];
+    for (const snap of childSnapshots.current) {
+      const cx = snapToGrid(snap.x + dx);
+      const cy = snapToGrid(snap.y + dy);
+      updateObjectLocal(snap.id, { x: cx, y: cy });
+      childUpdates.push({ id: snap.id, changes: { x: cx, y: cy } });
+    }
+
     releaseLock(boardId, object.id);
 
     try {
-      await updateObject(boardId, object.id, { x: snappedX, y: snappedY });
+      await updateObjects(boardId, [
+        { id: object.id, changes: { x: snappedX, y: snappedY } },
+        ...childUpdates,
+      ]);
     } catch {
+      // Revert frame
       const { x, y } = preDragPos.current;
       node.x(x);
       node.y(y);
       updateObjectLocal(object.id, { x, y });
+      // Revert children
+      for (const snap of childSnapshots.current) {
+        updateObjectLocal(snap.id, { x: snap.x, y: snap.y });
+      }
     }
-
-    // Trigger frame nesting check
-    window.dispatchEvent(
-      new CustomEvent("object-drag-end", { detail: { objectId: object.id } })
-    );
   };
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -104,6 +147,8 @@ export default function StickyNote({
     });
   };
 
+  const titleBarHeight = FRAME_DEFAULTS.titleBarHeight;
+
   return (
     <Group
       ref={groupRef}
@@ -120,44 +165,50 @@ export default function StickyNote({
       onContextMenu={handleContextMenu}
       opacity={isLocked ? 0.6 : 1}
     >
-      {/* Background */}
+      {/* Frame background */}
       <Rect
         width={object.width}
         height={object.height}
         fill={object.color}
+        opacity={FRAME_DEFAULTS.backgroundOpacity}
+        stroke={object.color}
+        strokeWidth={2}
         cornerRadius={4}
-        shadowColor="rgba(0,0,0,0.1)"
-        shadowBlur={4}
-        shadowOffsetY={2}
-        stroke={isSelected ? "#2196F3" : undefined}
-        strokeWidth={isSelected ? 2 : 0}
       />
 
-      {/* Text content */}
-      {object.text !== undefined && object.text !== "" && (
-        <Text
-          text={object.text}
-          width={object.width - 20}
-          x={10}
-          y={10}
-          fontSize={14}
-          fontFamily="sans-serif"
-          fill="#1a1a1a"
-          ellipsis={true}
-          wrap="word"
-          height={object.height - 20}
+      {/* Title bar */}
+      <Rect
+        width={object.width}
+        height={titleBarHeight}
+        fill={object.color}
+        opacity={0.2}
+        cornerRadius={[4, 4, 0, 0]}
+      />
+
+      {/* Selection border */}
+      {isSelected && (
+        <Rect
+          width={object.width}
+          height={object.height}
+          stroke="#2196F3"
+          strokeWidth={2}
+          cornerRadius={4}
         />
       )}
 
-      {/* AI badge */}
-      {object.isAIGenerated && (
-        <Text
-          text="✨"
-          x={object.width - 22}
-          y={4}
-          fontSize={14}
-        />
-      )}
+      {/* Title text */}
+      <Text
+        text={object.text || "Untitled Frame"}
+        x={10}
+        y={10}
+        width={object.width - 20}
+        fontSize={14}
+        fontFamily="sans-serif"
+        fontStyle="bold"
+        fill={object.color}
+        ellipsis
+        wrap="none"
+      />
 
       {/* Lock indicator */}
       {isLocked && lockedByName && (
