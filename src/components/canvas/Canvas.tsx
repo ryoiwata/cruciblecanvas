@@ -7,6 +7,7 @@ import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import { setCursor, acquireLock, releaseLock } from "@/lib/firebase/rtdb";
+import { presenceLogger } from "@/lib/debug/presenceLogger";
 import { createObject, generateObjectId, updateObject } from "@/lib/firebase/firestore";
 import { getCanvasPoint, getUserColor, boundsOverlap } from "@/lib/utils";
 import type { ObjectType, ResizeEdge, BorderResizeState } from "@/lib/types";
@@ -728,6 +729,7 @@ export default function Canvas({ boardId }: CanvasProps) {
       lastCursorSend.current = now;
       lastCursorPos.current = { x: cursorCanvasPoint.x, y: cursorCanvasPoint.y };
 
+      presenceLogger.cursorSent(user.uid, cursorCanvasPoint);
       setCursor(boardId, user.uid, {
         x: cursorCanvasPoint.x,
         y: cursorCanvasPoint.y,

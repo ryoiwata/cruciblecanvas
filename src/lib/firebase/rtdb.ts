@@ -1,6 +1,8 @@
 import {
   ref,
+  get,
   set,
+  update,
   remove,
   onValue,
   onChildAdded,
@@ -11,7 +13,27 @@ import {
   type Unsubscribe,
 } from "firebase/database";
 import { rtdb } from "./config";
+import { presenceLogger } from "../debug/presenceLogger";
 import type { CursorData, PresenceData, ObjectLock } from "../types";
+
+// ---------------------------------------------------------------------------
+// Connection monitoring — .info/connected
+// ---------------------------------------------------------------------------
+
+/**
+ * Subscribes to RTDB connection state. Callback fires with `true` when
+ * the WebSocket is established and `false` when it drops.
+ */
+export function onConnectionStateChange(
+  callback: (connected: boolean) => void
+): Unsubscribe {
+  const connectedRef = ref(rtdb, ".info/connected");
+  return onValue(connectedRef, (snapshot) => {
+    const connected = snapshot.val() === true;
+    presenceLogger.connectionStateChanged(connected);
+    callback(connected);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Cursors — /boards/{boardId}/cursors/{userId}
@@ -23,7 +45,9 @@ export function setCursor(
   data: CursorData
 ): void {
   const cursorRef = ref(rtdb, `boards/${boardId}/cursors/${userId}`);
-  set(cursorRef, data);
+  set(cursorRef, data).catch((err) => {
+    presenceLogger.writeError("setCursor", err);
+  });
 }
 
 export function onCursorsChange(
@@ -53,18 +77,21 @@ export function onCursorChildEvents(
 
   const unsubAdd = onChildAdded(cursorsRef, (snapshot) => {
     if (snapshot.key && snapshot.val()) {
+      presenceLogger.cursorReceived(snapshot.key, snapshot.val());
       callbacks.onAdd(snapshot.key, snapshot.val());
     }
   });
 
   const unsubChange = onChildChanged(cursorsRef, (snapshot) => {
     if (snapshot.key && snapshot.val()) {
+      presenceLogger.cursorReceived(snapshot.key, snapshot.val());
       callbacks.onChange(snapshot.key, snapshot.val());
     }
   });
 
   const unsubRemove = onChildRemoved(cursorsRef, (snapshot) => {
     if (snapshot.key) {
+      presenceLogger.cursorChildRemoved(snapshot.key);
       callbacks.onRemove(snapshot.key);
     }
   });
@@ -78,7 +105,9 @@ export function onCursorChildEvents(
 
 export function removeCursor(boardId: string, userId: string): void {
   const cursorRef = ref(rtdb, `boards/${boardId}/cursors/${userId}`);
-  remove(cursorRef);
+  remove(cursorRef).catch((err) => {
+    presenceLogger.writeError("removeCursor", err);
+  });
 }
 
 /**
@@ -91,7 +120,11 @@ export function setupCursorDisconnect(
   userId: string
 ): void {
   const cursorRef = ref(rtdb, `boards/${boardId}/cursors/${userId}`);
-  onDisconnect(cursorRef).remove();
+  onDisconnect(cursorRef)
+    .remove()
+    .catch((err) => {
+      presenceLogger.writeError("setupCursorDisconnect", err);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -99,8 +132,8 @@ export function setupCursorDisconnect(
 // ---------------------------------------------------------------------------
 
 /**
- * Sets this user's presence as online and registers onDisconnect cleanup.
- * On disconnect, RTDB server sets online=false and updates lastSeen.
+ * Sets this user's full presence record as online.
+ * Does NOT register onDisconnect — call setupPresenceDisconnect() once instead.
  */
 export function setPresence(
   boardId: string,
@@ -121,10 +154,42 @@ export function setPresence(
     ...cleaned,
     online: true,
     lastSeen: Date.now(),
+  }).catch((err) => {
+    presenceLogger.writeError("setPresence", err);
   });
-  onDisconnect(presenceRef).update({
-    online: false,
-    lastSeen: serverTimestamp(),
+}
+
+/**
+ * Registers onDisconnect cleanup for this user's presence.
+ * Call once on board entry (and again after reconnect).
+ * Separated from setPresence() to avoid re-registering on every heartbeat.
+ */
+export function setupPresenceDisconnect(
+  boardId: string,
+  userId: string
+): void {
+  const presenceRef = ref(rtdb, `boards/${boardId}/presence/${userId}`);
+  onDisconnect(presenceRef)
+    .update({
+      online: false,
+      lastSeen: serverTimestamp(),
+    })
+    .catch((err) => {
+      presenceLogger.writeError("setupPresenceDisconnect", err);
+    });
+}
+
+/**
+ * Lightweight heartbeat — only updates lastSeen timestamp.
+ * Much cheaper than a full setPresence() call for keeping presence alive.
+ */
+export function updatePresenceTimestamp(
+  boardId: string,
+  userId: string
+): void {
+  const presenceRef = ref(rtdb, `boards/${boardId}/presence/${userId}`);
+  update(presenceRef, { lastSeen: Date.now() }).catch((err) => {
+    presenceLogger.writeError("updatePresenceTimestamp", err);
   });
 }
 
@@ -136,6 +201,19 @@ export function onPresenceChange(
   return onValue(presenceRef, (snapshot) => {
     callback(snapshot.val());
   });
+}
+
+/**
+ * One-shot read of all current presence entries for a board.
+ * Used to eagerly populate the store before child listeners are attached,
+ * fixing the "Empty User List" on initial join.
+ */
+export async function getPresenceSnapshot(
+  boardId: string
+): Promise<Record<string, PresenceData> | null> {
+  const presenceRef = ref(rtdb, `boards/${boardId}/presence`);
+  const snapshot = await get(presenceRef);
+  return snapshot.val();
 }
 
 /**
@@ -156,18 +234,21 @@ export function onPresenceChildEvents(
 
   const unsubAdd = onChildAdded(presenceRef, (snapshot) => {
     if (snapshot.key && snapshot.val()) {
+      presenceLogger.presenceAdded(snapshot.key, snapshot.val());
       callbacks.onAdd(snapshot.key, snapshot.val());
     }
   });
 
   const unsubChange = onChildChanged(presenceRef, (snapshot) => {
     if (snapshot.key && snapshot.val()) {
+      presenceLogger.presenceChanged(snapshot.key, snapshot.val());
       callbacks.onChange(snapshot.key, snapshot.val());
     }
   });
 
   const unsubRemove = onChildRemoved(presenceRef, (snapshot) => {
     if (snapshot.key) {
+      presenceLogger.presenceChildRemoved(snapshot.key);
       callbacks.onRemove(snapshot.key);
     }
   });
@@ -181,7 +262,9 @@ export function onPresenceChildEvents(
 
 export function removePresence(boardId: string, userId: string): void {
   const presenceRef = ref(rtdb, `boards/${boardId}/presence/${userId}`);
-  remove(presenceRef);
+  remove(presenceRef).catch((err) => {
+    presenceLogger.writeError("removePresence", err);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -204,13 +287,21 @@ export function acquireLock(
     userName,
     timestamp: Date.now(),
   };
-  set(lockRef, lock);
-  onDisconnect(lockRef).remove();
+  set(lockRef, lock).catch((err) => {
+    presenceLogger.writeError("acquireLock", err);
+  });
+  onDisconnect(lockRef)
+    .remove()
+    .catch((err) => {
+      presenceLogger.writeError("acquireLock.onDisconnect", err);
+    });
 }
 
 export function releaseLock(boardId: string, objectId: string): void {
   const lockRef = ref(rtdb, `boards/${boardId}/locks/${objectId}`);
-  remove(lockRef);
+  remove(lockRef).catch((err) => {
+    presenceLogger.writeError("releaseLock", err);
+  });
 }
 
 export function onLocksChange(
