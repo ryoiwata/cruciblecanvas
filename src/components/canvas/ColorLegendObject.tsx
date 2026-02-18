@@ -38,7 +38,7 @@ export default memo(function ColorLegendObject({
   const displayName = useAuthStore((s) => s.displayName);
 
   const isSelected = selectedObjectIds.includes(object.id);
-  const isDraggable = mode === "select" && !isLocked;
+  const isDraggable = mode === "pointer" && !isLocked;
   const entries = object.legendEntries || [];
 
   const handleDragStart = () => {
@@ -72,7 +72,7 @@ export default memo(function ColorLegendObject({
   };
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (mode !== "select") return;
+    if (mode !== "pointer") return;
     e.cancelBubble = true;
     if (e.evt.ctrlKey || e.evt.metaKey) {
       toggleSelection(object.id);

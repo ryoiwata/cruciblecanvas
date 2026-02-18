@@ -45,7 +45,7 @@ export default memo(function StickyNote({
   }, []);
 
   const isSelected = selectedObjectIds.includes(object.id);
-  const isDraggable = mode === "select" && !isLocked && !isHoveringBorder;
+  const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
 
   const handleDragStart = () => {
     if (!user) return;
@@ -84,7 +84,7 @@ export default memo(function StickyNote({
   };
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (mode !== "select") return;
+    if (mode !== "pointer") return;
     e.cancelBubble = true;
     if (e.evt.ctrlKey || e.evt.metaKey) {
       toggleSelection(object.id);
@@ -183,7 +183,7 @@ export default memo(function StickyNote({
         objectId={object.id}
         width={object.width}
         height={object.height}
-        enabled={mode === "select" && !isLocked}
+        enabled={mode === "pointer" && !isLocked}
         onHoverChange={handleBorderHover}
       />
     </Group>

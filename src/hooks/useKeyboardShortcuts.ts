@@ -20,7 +20,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
   const mode = useCanvasStore((s) => s.mode);
   const setMode = useCanvasStore((s) => s.setMode);
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
-  const exitToPan = useCanvasStore((s) => s.exitToPan);
+  const exitToPointer = useCanvasStore((s) => s.exitToPointer);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const clearSelection = useCanvasStore((s) => s.clearSelection);
   const copyToClipboard = useCanvasStore((s) => s.copyToClipboard);
@@ -177,28 +177,25 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
       // Tool switching
       switch (e.key) {
         case "1":
-          setMode("pan");
+          setMode("pointer");
           return;
         case "2":
-          setMode("select");
-          return;
-        case "3":
           enterCreateMode("stickyNote");
           return;
-        case "4":
+        case "3":
           enterCreateMode("rectangle");
           return;
-        case "5":
+        case "4":
           enterCreateMode("circle");
           return;
-        case "6":
+        case "5":
           enterCreateMode("frame");
           return;
-        case "7":
+        case "6":
           enterCreateMode("connector");
           return;
         case "Escape":
-          exitToPan();
+          exitToPointer();
           return;
       }
 
@@ -240,7 +237,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
     mode,
     setMode,
     enterCreateMode,
-    exitToPan,
+    exitToPointer,
     selectedObjectIds,
     editingObjectId,
     performDelete,

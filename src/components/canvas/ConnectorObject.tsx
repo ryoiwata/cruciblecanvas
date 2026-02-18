@@ -62,7 +62,7 @@ export default memo(function ConnectorObject({
   const isSelected = selectedObjectIds.includes(object.id);
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (mode !== "select") return;
+    if (mode !== "pointer") return;
     e.cancelBubble = true;
     if (e.evt.ctrlKey || e.evt.metaKey) {
       toggleSelection(object.id);

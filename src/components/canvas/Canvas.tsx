@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import { Stage, Layer, Line } from "react-konva";
+import { Stage, Layer, Line, Rect } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
@@ -26,7 +26,6 @@ import {
 import DotGrid from "./DotGrid";
 import BoardObjects from "./BoardObjects";
 import SelectionLayer from "./SelectionLayer";
-import SelectionRect from "./SelectionRect";
 import CursorLayer from "./CursorLayer";
 import TextEditor from "./TextEditor";
 import GhostPreview from "./GhostPreview";
@@ -212,7 +211,6 @@ export default function Canvas({ boardId }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const lastCursorSend = useRef(0);
   const lastCursorPos = useRef({ x: 0, y: 0 });
-  const isPanning = useRef(false);
   const drawingRef = useRef<DrawingState | null>(null);
   const borderResizeRef = useRef<BorderResizeState | null>(null);
   const borderResizeLatestRef = useRef<{
@@ -224,14 +222,24 @@ export default function Canvas({ boardId }: CanvasProps) {
   // RAF handle for border resize rendering — coalesces mouse events to display refresh rate
   const borderResizeRafRef = useRef(0);
 
-  // Selection rectangle state
-  const [selRect, setSelRect] = useState({
-    active: false,
-    startX: 0,
-    startY: 0,
-    currentX: 0,
-    currentY: 0,
-  });
+  // Pointer mode interaction tracking (pan or selection rect)
+  const pointerInteractionRef = useRef<{
+    type: "pan";
+    startMouseX: number;
+    startMouseY: number;
+    startStageX: number;
+    startStageY: number;
+  } | {
+    type: "selRect";
+  } | null>(null);
+
+  // Selection rect live coords (ref-based for RAF performance)
+  const selRectRef = useRef({ startX: 0, startY: 0, currentX: 0, currentY: 0 });
+  const selRectRafRef = useRef(0);
+  const selRectNodeRef = useRef<Konva.Rect>(null);
+
+  // Minimal state for cursor display during pan
+  const [isPanActive, setIsPanActive] = useState(false);
 
   // Ghost preview position
   const [ghostPos, setGhostPos] = useState<{ x: number; y: number } | null>(null);
@@ -331,24 +339,6 @@ export default function Canvas({ boardId }: CanvasProps) {
     [stageX, stageY, stageScale, setViewport]
   );
 
-  // --- Pan (stage drag) ---
-  const handleDragStart = useCallback(() => {
-    isPanning.current = true;
-  }, []);
-
-  const handleDragMove = useCallback(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    setViewport(stage.x(), stage.y(), stageScale);
-  }, [stageScale, setViewport]);
-
-  const handleDragEnd = useCallback(() => {
-    isPanning.current = false;
-    const stage = stageRef.current;
-    if (!stage) return;
-    setViewport(stage.x(), stage.y(), stageScale);
-  }, [stageScale, setViewport]);
-
   // --- Anchor click for connector creation ---
   const handleAnchorClick = useCallback(
     (objectId: string) => {
@@ -438,7 +428,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         return;
       }
 
-      if (mode === "select") {
+      if (mode === "pointer") {
         clearSelection();
       }
     },
@@ -474,14 +464,37 @@ export default function Canvas({ boardId }: CanvasProps) {
         return;
       }
 
-      if (mode === "select") {
-        setSelRect({
-          active: true,
-          startX: canvasPoint.x,
-          startY: canvasPoint.y,
-          currentX: canvasPoint.x,
-          currentY: canvasPoint.y,
-        });
+      if (mode === "pointer") {
+        if (e.evt.shiftKey) {
+          // Shift+drag: start selection rectangle
+          pointerInteractionRef.current = { type: "selRect" };
+          selRectRef.current = {
+            startX: canvasPoint.x,
+            startY: canvasPoint.y,
+            currentX: canvasPoint.x,
+            currentY: canvasPoint.y,
+          };
+          // Show the rect node immediately
+          const node = selRectNodeRef.current;
+          if (node) {
+            node.x(canvasPoint.x);
+            node.y(canvasPoint.y);
+            node.width(0);
+            node.height(0);
+            node.visible(true);
+            node.getLayer()?.batchDraw();
+          }
+        } else {
+          // Plain drag on empty canvas: start manual pan
+          pointerInteractionRef.current = {
+            type: "pan",
+            startMouseX: pointer.x,
+            startMouseY: pointer.y,
+            startStageX: stageX,
+            startStageY: stageY,
+          };
+          setIsPanActive(true);
+        }
       }
     },
     [mode, creationTool, stageX, stageY, stageScale, boardId]
@@ -643,20 +656,43 @@ export default function Canvas({ boardId }: CanvasProps) {
         }
       }
 
-      // Update selection rect
-      if (selRect.active) {
-        const canvasPoint = getCanvasPoint(
-          stageX,
-          stageY,
-          stageScale,
-          pointer.x,
-          pointer.y
-        );
-        setSelRect((prev) => ({
-          ...prev,
-          currentX: canvasPoint.x,
-          currentY: canvasPoint.y,
-        }));
+      // --- Pointer mode: manual pan or selection rect ---
+      if (pointerInteractionRef.current) {
+        const interaction = pointerInteractionRef.current;
+
+        if (interaction.type === "pan") {
+          // Manual pan: compute new viewport from mouse delta
+          const dx = pointer.x - interaction.startMouseX;
+          const dy = pointer.y - interaction.startMouseY;
+          const newX = interaction.startStageX + dx;
+          const newY = interaction.startStageY + dy;
+          setViewport(newX, newY, stageScale);
+        } else if (interaction.type === "selRect") {
+          // Selection rect: RAF-gated direct Konva node manipulation
+          const canvasPoint = getCanvasPoint(
+            stageX,
+            stageY,
+            stageScale,
+            pointer.x,
+            pointer.y
+          );
+          selRectRef.current.currentX = canvasPoint.x;
+          selRectRef.current.currentY = canvasPoint.y;
+
+          if (!selRectRafRef.current) {
+            selRectRafRef.current = requestAnimationFrame(() => {
+              selRectRafRef.current = 0;
+              const node = selRectNodeRef.current;
+              if (!node) return;
+              const sr = selRectRef.current;
+              node.x(Math.min(sr.startX, sr.currentX));
+              node.y(Math.min(sr.startY, sr.currentY));
+              node.width(Math.abs(sr.currentX - sr.startX));
+              node.height(Math.abs(sr.currentY - sr.startY));
+              node.getLayer()?.batchDraw();
+            });
+          }
+        }
       }
 
       // Cursor sync (throttled)
@@ -694,13 +730,13 @@ export default function Canvas({ boardId }: CanvasProps) {
       mode,
       creationTool,
       connectorStart,
-      selRect.active,
       stageX,
       stageY,
       stageScale,
       lastUsedColors,
       upsertObject,
       updateObjectLocal,
+      setViewport,
     ]
   );
 
@@ -824,39 +860,53 @@ export default function Canvas({ boardId }: CanvasProps) {
       return;
     }
 
-    // --- Selection rect finalization ---
-    if (selRect.active) {
-      const x = Math.min(selRect.startX, selRect.currentX);
-      const y = Math.min(selRect.startY, selRect.currentY);
-      const w = Math.abs(selRect.currentX - selRect.startX);
-      const h = Math.abs(selRect.currentY - selRect.startY);
+    // --- Pointer mode finalization (pan or selection rect) ---
+    if (pointerInteractionRef.current) {
+      const interaction = pointerInteractionRef.current;
 
-      // Only perform hit-test if rect is large enough
-      if (w > 5 && h > 5) {
-        const selBounds = { x, y, width: w, height: h };
-        const matchingIds: string[] = [];
+      if (interaction.type === "selRect") {
+        // Cancel pending RAF
+        if (selRectRafRef.current) {
+          cancelAnimationFrame(selRectRafRef.current);
+          selRectRafRef.current = 0;
+        }
 
-        for (const obj of Object.values(objects)) {
-          if (obj.type === "connector") continue;
-          if (boundsOverlap(selBounds, obj)) {
-            matchingIds.push(obj.id);
+        // AABB hit test
+        const sr = selRectRef.current;
+        const x = Math.min(sr.startX, sr.currentX);
+        const y = Math.min(sr.startY, sr.currentY);
+        const w = Math.abs(sr.currentX - sr.startX);
+        const h = Math.abs(sr.currentY - sr.startY);
+
+        if (w > 5 && h > 5) {
+          const selBounds = { x, y, width: w, height: h };
+          const matchingIds: string[] = [];
+
+          for (const obj of Object.values(objects)) {
+            if (obj.type === "connector") continue;
+            if (boundsOverlap(selBounds, obj)) {
+              matchingIds.push(obj.id);
+            }
+          }
+
+          if (matchingIds.length > 0) {
+            useCanvasStore.setState({ selectedObjectIds: matchingIds });
           }
         }
 
-        if (matchingIds.length > 0) {
-          useCanvasStore.setState({ selectedObjectIds: matchingIds });
+        // Hide selection rect node
+        const node = selRectNodeRef.current;
+        if (node) {
+          node.visible(false);
+          node.getLayer()?.batchDraw();
         }
+      } else if (interaction.type === "pan") {
+        setIsPanActive(false);
       }
 
-      setSelRect({
-        active: false,
-        startX: 0,
-        startY: 0,
-        currentX: 0,
-        currentY: 0,
-      });
+      pointerInteractionRef.current = null;
     }
-  }, [mode, creationTool, user, boardId, selRect, objects, lastUsedColors, upsertObject]);
+  }, [mode, creationTool, user, boardId, objects, lastUsedColors, upsertObject, updateObjectLocal]);
 
   // --- Right-click (context menu) ---
   const handleContextMenu = useCallback(
@@ -960,26 +1010,31 @@ export default function Canvas({ boardId }: CanvasProps) {
     }
   }, [mode, boardId]);
 
+  // --- Mode-change cleanup: cancel pending selection-rect RAF, reset interaction ---
+  useEffect(() => {
+    if (selRectRafRef.current) {
+      cancelAnimationFrame(selRectRafRef.current);
+      selRectRafRef.current = 0;
+    }
+    const node = selRectNodeRef.current;
+    if (node) {
+      node.visible(false);
+      node.getLayer()?.batchDraw();
+    }
+    pointerInteractionRef.current = null;
+    setIsPanActive(false);
+  }, [mode]);
+
   // --- Cursor style per mode ---
   const getCursorStyle = () => {
     if (cursorOverride) return cursorOverride;
-    if (isPanning.current) return "grabbing";
+    if (isPanActive) return "grabbing";
     switch (mode) {
-      case "pan":
-        return "grab";
-      case "select":
+      case "pointer":
         return "default";
       case "create":
         return "crosshair";
     }
-  };
-
-  // Compute selection rect display values
-  const selRectDisplay = {
-    x: Math.min(selRect.startX, selRect.currentX),
-    y: Math.min(selRect.startY, selRect.currentY),
-    width: Math.abs(selRect.currentX - selRect.startX),
-    height: Math.abs(selRect.currentY - selRect.startY),
   };
 
   // Compute temp connector line
@@ -1013,15 +1068,12 @@ export default function Canvas({ boardId }: CanvasProps) {
         ref={stageRef}
         width={dimensions.width}
         height={dimensions.height}
-        draggable={mode === "pan"}
+        draggable={false}
         x={stageX}
         y={stageY}
         scaleX={stageScale}
         scaleY={stageScale}
         onWheel={handleWheel}
-        onDragStart={handleDragStart}
-        onDragMove={handleDragMove}
-        onDragEnd={handleDragEnd}
         onClick={handleClick}
         onTap={handleClick}
         onMouseDown={handleMouseDown}
@@ -1075,12 +1127,13 @@ export default function Canvas({ boardId }: CanvasProps) {
         {/* Layer 3: Selection UI (Transformer handles + selection rect) */}
         <Layer>
           <SelectionLayer stageRef={stageRef} />
-          <SelectionRect
-            x={selRectDisplay.x}
-            y={selRectDisplay.y}
-            width={selRectDisplay.width}
-            height={selRectDisplay.height}
-            visible={selRect.active}
+          <Rect
+            ref={selRectNodeRef}
+            fill="rgba(33, 150, 243, 0.1)"
+            stroke="#2196F3"
+            strokeWidth={1}
+            visible={false}
+            listening={false}
           />
         </Layer>
 

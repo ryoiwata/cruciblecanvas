@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ObjectType, BoardObject, ContextMenuState } from "../types";
 
-export type CanvasMode = "pan" | "select" | "create";
+export type CanvasMode = "pointer" | "create";
 
 interface CanvasState {
   // Mode
@@ -38,7 +38,7 @@ interface CanvasState {
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
-  exitToPan: () => void;
+  exitToPointer: () => void;
   selectObject: (id: string) => void;
   toggleSelection: (id: string) => void;
   clearSelection: () => void;
@@ -64,7 +64,7 @@ const INITIAL_CONTEXT_MENU: ContextMenuState = {
 };
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
-  mode: "pan",
+  mode: "pointer",
   creationTool: null,
   selectedObjectIds: [],
   stageX: 0,
@@ -91,21 +91,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       connectorStart: null,
     }),
 
-  exitToPan: () =>
+  exitToPointer: () =>
     set({
-      mode: "pan",
+      mode: "pointer",
       creationTool: null,
       selectedObjectIds: [],
       connectorStart: null,
     }),
 
   selectObject: (id) => {
-    if (get().mode !== "select") return;
+    if (get().mode !== "pointer") return;
     set({ selectedObjectIds: [id] });
   },
 
   toggleSelection: (id) => {
-    if (get().mode !== "select") return;
+    if (get().mode !== "pointer") return;
     const current = get().selectedObjectIds;
     if (current.includes(id)) {
       set({ selectedObjectIds: current.filter((oid) => oid !== id) });

@@ -7,21 +7,20 @@ interface Tool {
   id: string;
   label: string;
   icon: string;
-  mode: "pan" | "select" | "create";
+  mode: "pointer" | "create";
   creationTool?: ObjectType;
   shortcut: string;
 }
 
 const tools: Tool[] = [
-  { id: "pan", label: "Pan", icon: "\u270b", mode: "pan", shortcut: "1" },
-  { id: "select", label: "Select", icon: "\u2196", mode: "select", shortcut: "2" },
+  { id: "pointer", label: "Pointer", icon: "\u2196", mode: "pointer", shortcut: "1" },
   {
     id: "stickyNote",
     label: "Sticky Note",
     icon: "\ud83d\udcdd",
     mode: "create",
     creationTool: "stickyNote",
-    shortcut: "3",
+    shortcut: "2",
   },
   {
     id: "rectangle",
@@ -29,7 +28,7 @@ const tools: Tool[] = [
     icon: "\u25fb",
     mode: "create",
     creationTool: "rectangle",
-    shortcut: "4",
+    shortcut: "3",
   },
   {
     id: "circle",
@@ -37,7 +36,7 @@ const tools: Tool[] = [
     icon: "\u25cb",
     mode: "create",
     creationTool: "circle",
-    shortcut: "5",
+    shortcut: "4",
   },
   {
     id: "frame",
@@ -45,7 +44,7 @@ const tools: Tool[] = [
     icon: "\u25a3",
     mode: "create",
     creationTool: "frame",
-    shortcut: "6",
+    shortcut: "5",
   },
   {
     id: "connector",
@@ -53,7 +52,7 @@ const tools: Tool[] = [
     icon: "\u2571",
     mode: "create",
     creationTool: "connector",
-    shortcut: "7",
+    shortcut: "6",
   },
 ];
 
