@@ -126,7 +126,7 @@ export default memo(function StickyNote({
       onTap={handleClick}
       onDblClick={handleDblClick}
       onContextMenu={handleContextMenu}
-      opacity={isLocked ? 0.6 : 1}
+      opacity={(isLocked ? 0.6 : 1) * (object.opacity ?? 1)}
     >
       {/* Background */}
       <Rect

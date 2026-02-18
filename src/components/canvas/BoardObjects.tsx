@@ -30,6 +30,14 @@ function getCreatedAtMs(obj: BoardObject): number {
   return 0;
 }
 
+/** Sort comparator: explicit zIndex first, then createdAt as tiebreaker. */
+function zSort(a: BoardObject, b: BoardObject): number {
+  const za = a.zIndex ?? 0;
+  const zb = b.zIndex ?? 0;
+  if (za !== zb) return za - zb;
+  return getCreatedAtMs(a) - getCreatedAtMs(b);
+}
+
 export default function BoardObjects({
   boardId,
   width,
@@ -56,9 +64,8 @@ export default function BoardObjects({
 
   const allObjects = Object.values(objects);
 
-  // Separate object types for z-ordering: frames behind, connectors on top
-  const frames: BoardObject[] = [];
-  const mainObjects: BoardObject[] = [];
+  // Separate connectors (always on top) from everything else
+  const layeredObjects: BoardObject[] = [];
   const connectors: BoardObject[] = [];
 
   for (const obj of allObjects) {
@@ -70,19 +77,16 @@ export default function BoardObjects({
       if (obj.y > vpBottom) continue;
     }
 
-    if (obj.type === "frame") {
-      frames.push(obj);
-    } else if (obj.type === "connector") {
+    if (obj.type === "connector") {
       connectors.push(obj);
     } else {
-      mainObjects.push(obj);
+      layeredObjects.push(obj);
     }
   }
 
-  // Sort by createdAt for z-index within each group
-  frames.sort((a, b) => getCreatedAtMs(a) - getCreatedAtMs(b));
-  mainObjects.sort((a, b) => getCreatedAtMs(a) - getCreatedAtMs(b));
-  connectors.sort((a, b) => getCreatedAtMs(a) - getCreatedAtMs(b));
+  // Sort by zIndex first, then createdAt as tiebreaker
+  layeredObjects.sort(zSort);
+  connectors.sort(zSort);
 
   const isConnectorMode = mode === "create" && creationTool === "connector";
 
@@ -148,18 +152,15 @@ export default function BoardObjects({
 
   return (
     <>
-      {/* Frames (behind everything) */}
-      {frames.map(renderObject)}
+      {/* All layered objects (frames, shapes, sticky notes, etc.) sorted by zIndex */}
+      {layeredObjects.map(renderObject)}
 
-      {/* Main objects (sticky notes, shapes, color legends) */}
-      {mainObjects.map(renderObject)}
-
-      {/* Connectors (on top of all objects) */}
+      {/* Connectors (always on top of all objects) */}
       {connectors.map(renderObject)}
 
       {/* Anchor points for connector creation mode */}
       {isConnectorMode &&
-        [...frames, ...mainObjects].map((obj) => {
+        layeredObjects.map((obj) => {
           if (obj.type === "connector" || obj.type === "colorLegend")
             return null;
           // Show anchors on hover or always in connector mode

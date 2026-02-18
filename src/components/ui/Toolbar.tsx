@@ -1,7 +1,15 @@
 "use client";
 
 import { useCanvasStore } from "@/lib/store/canvasStore";
+import { useObjectStore } from "@/lib/store/objectStore";
+import { updateObject } from "@/lib/firebase/firestore";
 import type { ObjectType } from "@/lib/types";
+import AlignMenu from "./AlignMenu";
+import ArrangeMenu from "./ArrangeMenu";
+
+interface ToolbarProps {
+  boardId: string;
+}
 
 interface Tool {
   id: string;
@@ -56,13 +64,32 @@ const tools: Tool[] = [
   },
 ];
 
-export default function Toolbar() {
+export default function Toolbar({ boardId }: ToolbarProps) {
   const mode = useCanvasStore((s) => s.mode);
   const creationTool = useCanvasStore((s) => s.creationTool);
   const setMode = useCanvasStore((s) => s.setMode);
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
+  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  const objects = useObjectStore((s) => s.objects);
+  const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
-  // Keyboard shortcuts are now handled by useKeyboardShortcuts hook
+  // Compute average opacity of selected non-connector objects
+  const selectedNonConnectors = selectedObjectIds
+    .map((id) => objects[id])
+    .filter((o) => o && o.type !== "connector");
+  const avgOpacity =
+    selectedNonConnectors.length > 0
+      ? selectedNonConnectors.reduce((sum, o) => sum + (o.opacity ?? 1), 0) /
+        selectedNonConnectors.length
+      : 1;
+
+  const handleOpacityChange = (value: number) => {
+    const opacity = Math.round(value) / 100;
+    for (const obj of selectedNonConnectors) {
+      updateObjectLocal(obj.id, { opacity });
+      updateObject(boardId, obj.id, { opacity }).catch(console.error);
+    }
+  };
 
   const isActive = (tool: Tool) => {
     if (tool.mode === "create") {
@@ -96,6 +123,34 @@ export default function Toolbar() {
           <span className="hidden sm:inline">{tool.label}</span>
         </button>
       ))}
+
+      {/* Separator */}
+      <div className="mx-1 h-6 w-px bg-gray-200" />
+
+      {/* Align & Arrange dropdowns */}
+      <AlignMenu boardId={boardId} />
+      <ArrangeMenu boardId={boardId} />
+
+      {/* Opacity slider (visible when non-connector objects are selected) */}
+      {selectedNonConnectors.length > 0 && (
+        <>
+          <div className="mx-1 h-6 w-px bg-gray-200" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500">Opacity</span>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              value={Math.round(avgOpacity * 100)}
+              onChange={(e) => handleOpacityChange(Number(e.target.value))}
+              className="h-1 w-20 cursor-pointer accent-indigo-500"
+            />
+            <span className="text-xs text-gray-400 w-7 text-right tabular-nums">
+              {Math.round(avgOpacity * 100)}%
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }

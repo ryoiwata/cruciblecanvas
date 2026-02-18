@@ -56,6 +56,8 @@ export interface BoardObject {
   // Visual properties
   color: string;
   text?: string;
+  opacity?: number; // 0-1, defaults to 1
+  zIndex?: number;  // explicit layer order; higher = in front
 
   // Ownership & timestamps
   createdBy: string;

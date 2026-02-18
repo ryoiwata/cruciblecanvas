@@ -80,6 +80,17 @@ function getDefaultsForTool(tool: ObjectType): { width: number; height: number }
   }
 }
 
+// --- Helper: compute max zIndex across all objects ---
+function getMaxZIndex(): number {
+  const objs = useObjectStore.getState().objects;
+  let max = 0;
+  for (const o of Object.values(objs)) {
+    const z = o.zIndex ?? 0;
+    if (z > max) max = z;
+  }
+  return max;
+}
+
 // --- Helper: get size limits for a tool ---
 function getSizeLimitsForTool(tool: ObjectType): {
   min: { width: number; height: number };
@@ -231,6 +242,7 @@ export default function Canvas({ boardId }: CanvasProps) {
     startStageY: number;
   } | {
     type: "selRect";
+    shiftHeld: boolean; // true = additive selection (merge with existing)
   } | null>(null);
 
   // Selection rect live coords (ref-based for RAF performance)
@@ -428,7 +440,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         return;
       }
 
-      if (mode === "pointer") {
+      if (mode === "pointer" && !e.evt.ctrlKey && !e.evt.metaKey) {
         clearSelection();
       }
     },
@@ -465,9 +477,9 @@ export default function Canvas({ boardId }: CanvasProps) {
       }
 
       if (mode === "pointer") {
-        if (e.evt.shiftKey) {
-          // Shift+drag: start selection rectangle
-          pointerInteractionRef.current = { type: "selRect" };
+        if (e.evt.ctrlKey || e.evt.metaKey) {
+          // Ctrl+drag: start selection rectangle (marquee)
+          pointerInteractionRef.current = { type: "selRect", shiftHeld: e.evt.shiftKey };
           selRectRef.current = {
             startX: canvasPoint.x,
             startY: canvasPoint.y,
@@ -560,6 +572,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               height: h,
               color,
               text: "",
+              zIndex: getMaxZIndex() + 1,
               createdBy: user.uid,
               createdAt: Date.now(),
               updatedAt: Date.now(),
@@ -810,6 +823,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               height: obj.height,
               color: obj.color,
               text: obj.text ?? "",
+              zIndex: obj.zIndex,
               createdBy: user.uid,
             },
             drawing.objectId
@@ -821,6 +835,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Click (no drag) — create at default size
         const defaults = getDefaultsForTool(creationTool);
         const color = getColorForTool(creationTool, lastUsedColors);
+        const maxZ = getMaxZIndex() + 1;
 
         const newObject = {
           id: drawing.objectId,
@@ -831,6 +846,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           height: defaults.height,
           color,
           text: "",
+          zIndex: maxZ,
           createdBy: user.uid,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -848,6 +864,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             height: defaults.height,
             color,
             text: "",
+            zIndex: maxZ,
             createdBy: user.uid,
           },
           drawing.objectId
@@ -890,7 +907,14 @@ export default function Canvas({ boardId }: CanvasProps) {
           }
 
           if (matchingIds.length > 0) {
-            useCanvasStore.setState({ selectedObjectIds: matchingIds });
+            if (interaction.shiftHeld) {
+              // Additive selection: merge with existing selection
+              const existing = useCanvasStore.getState().selectedObjectIds;
+              const merged = Array.from(new Set([...existing, ...matchingIds]));
+              useCanvasStore.setState({ selectedObjectIds: merged });
+            } else {
+              useCanvasStore.setState({ selectedObjectIds: matchingIds });
+            }
           }
         }
 

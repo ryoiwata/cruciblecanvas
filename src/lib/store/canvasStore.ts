@@ -21,6 +21,7 @@ interface CanvasState {
 
   // Clipboard (Phase 3)
   clipboard: BoardObject[];
+  pasteCount: number;
 
   // Context menu (Phase 3)
   contextMenu: ContextMenuState;
@@ -72,6 +73,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   stageScale: 1,
   editingObjectId: null,
   clipboard: [],
+  pasteCount: 0,
   contextMenu: INITIAL_CONTEXT_MENU,
   connectorStart: null,
   lastUsedColors: {},
@@ -129,7 +131,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       createdAt: 0,
       updatedAt: 0,
     }));
-    set({ clipboard: clones });
+    set({ clipboard: clones, pasteCount: 0 });
   },
 
   clearClipboard: () => set({ clipboard: [] }),

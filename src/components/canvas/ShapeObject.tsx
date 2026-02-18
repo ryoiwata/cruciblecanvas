@@ -119,7 +119,7 @@ export default memo(function ShapeObject({
       onClick={handleClick}
       onTap={handleClick}
       onContextMenu={handleContextMenu}
-      opacity={isLocked ? 0.6 : 1}
+      opacity={(isLocked ? 0.6 : 1) * (object.opacity ?? 1)}
     >
       {object.type === "rectangle" ? (
         <Rect

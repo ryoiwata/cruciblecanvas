@@ -16,6 +16,7 @@ import {
 } from "@/lib/firebase/rtdb";
 import { getUserColor } from "@/lib/utils";
 import Toolbar from "@/components/ui/Toolbar";
+import ShortcutLegend from "@/components/ui/ShortcutLegend";
 import ContextMenu from "@/components/ui/ContextMenu";
 import ColorPicker from "@/components/ui/ColorPicker";
 import DeleteDialog from "@/components/ui/DeleteDialog";
@@ -105,7 +106,8 @@ export default function BoardPage() {
 
   return (
     <>
-      <Toolbar />
+      <Toolbar boardId={boardId} />
+      <ShortcutLegend />
       <Canvas boardId={boardId} />
       <ContextMenu boardId={boardId} />
       <ColorPicker boardId={boardId} />

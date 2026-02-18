@@ -148,12 +148,21 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     const obj = objects[contextMenu.targetObjectId];
     if (!obj) return;
 
+    // Compute max zIndex so duplicate appears on top
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
     const newId = generateObjectId(boardId);
     const newObj = {
       ...obj,
       id: newId,
       x: obj.x + 20,
       y: obj.y + 20,
+      zIndex: maxZ + 1,
       createdBy: user.uid,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -170,6 +179,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
         height: newObj.height,
         color: newObj.color,
         text: newObj.text,
+        zIndex: newObj.zIndex,
         createdBy: user.uid,
         connectedTo: newObj.type === "connector" ? newObj.connectedTo : undefined,
         legendEntries: newObj.legendEntries,
@@ -183,13 +193,28 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
   const handlePaste = () => {
     if (!user || clipboard.length === 0) return;
 
-    for (const obj of clipboard) {
+    // Cascading offset: each paste adds +20px diagonal from previous
+    const pasteCount = useCanvasStore.getState().pasteCount + 1;
+    useCanvasStore.setState({ pasteCount });
+    const offset = pasteCount * 20;
+
+    // Compute max zIndex so pasted objects appear on top
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
+    for (let i = 0; i < clipboard.length; i++) {
+      const obj = clipboard[i];
       const newId = generateObjectId(boardId);
       const newObj = {
         ...obj,
         id: newId,
-        x: obj.x + 20,
-        y: obj.y + 20,
+        x: obj.x + offset,
+        y: obj.y + offset,
+        zIndex: maxZ + 1 + i,
         createdBy: user.uid,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -205,6 +230,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
           height: newObj.height,
           color: newObj.color,
           text: newObj.text,
+          zIndex: newObj.zIndex,
           createdBy: user.uid,
         },
         newId
@@ -212,6 +238,15 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     }
 
     hideContextMenu();
+  };
+
+  const handleOpacityChange = (value: number) => {
+    if (!contextMenu.targetObjectId) return;
+    const opacity = Math.round(value) / 100;
+    updateObjectLocal(contextMenu.targetObjectId, { opacity });
+    updateObject(boardId, contextMenu.targetObjectId, { opacity }).catch(
+      console.error
+    );
   };
 
   const handleCreateStickyNote = () => {
@@ -224,6 +259,14 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     const x = Math.round((contextMenu.x - stageX) / stageScale / 20) * 20;
     const y = Math.round((contextMenu.y - stageY) / stageScale / 20) * 20;
 
+    // Compute max zIndex so new object appears on top
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
     const newObj = {
       id: newId,
       type: "stickyNote" as const,
@@ -233,6 +276,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
       height: STICKY_NOTE_DEFAULT.height,
       color: STICKY_NOTE_DEFAULT.color,
       text: "",
+      zIndex: maxZ + 1,
       createdBy: user.uid,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -240,7 +284,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     upsertObject(newObj);
     createObject(
       boardId,
-      { type: newObj.type, x, y, width: newObj.width, height: newObj.height, color: newObj.color, text: "", createdBy: user.uid },
+      { type: newObj.type, x, y, width: newObj.width, height: newObj.height, color: newObj.color, text: "", zIndex: newObj.zIndex, createdBy: user.uid },
       newId
     ).catch(console.error);
     hideContextMenu();
@@ -255,6 +299,14 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     const x = Math.round((contextMenu.x - stageX) / stageScale / 20) * 20;
     const y = Math.round((contextMenu.y - stageY) / stageScale / 20) * 20;
 
+    // Compute max zIndex so new object appears on top
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
     const newObj = {
       id: newId,
       type: "rectangle" as const,
@@ -264,6 +316,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
       height: SHAPE_DEFAULTS.rectangle.height,
       color: SHAPE_DEFAULTS.rectangle.color,
       text: "",
+      zIndex: maxZ + 1,
       createdBy: user.uid,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -271,7 +324,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     upsertObject(newObj);
     createObject(
       boardId,
-      { type: newObj.type, x, y, width: newObj.width, height: newObj.height, color: newObj.color, text: "", createdBy: user.uid },
+      { type: newObj.type, x, y, width: newObj.width, height: newObj.height, color: newObj.color, text: "", zIndex: newObj.zIndex, createdBy: user.uid },
       newId
     ).catch(console.error);
     hideContextMenu();
@@ -349,6 +402,24 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
             ))}
           </div>
         )}
+
+      {/* Opacity slider for non-connector objects */}
+      {target && target.type !== "connector" && (
+        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
+          <span className="text-xs text-gray-500 w-12 shrink-0">Opacity</span>
+          <input
+            type="range"
+            min={10}
+            max={100}
+            value={Math.round((target.opacity ?? 1) * 100)}
+            onChange={(e) => handleOpacityChange(Number(e.target.value))}
+            className="h-1 flex-1 cursor-pointer accent-indigo-500"
+          />
+          <span className="text-xs text-gray-400 w-8 text-right tabular-nums">
+            {Math.round((target.opacity ?? 1) * 100)}%
+          </span>
+        </div>
+      )}
 
       {items.map((item, i) => (
         <button

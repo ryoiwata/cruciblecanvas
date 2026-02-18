@@ -165,7 +165,7 @@ export default memo(function FrameObject({
       onTap={handleClick}
       onDblClick={handleDblClick}
       onContextMenu={handleContextMenu}
-      opacity={isLocked ? 0.6 : 1}
+      opacity={(isLocked ? 0.6 : 1) * (object.opacity ?? 1)}
     >
       {/* Frame background */}
       <Rect

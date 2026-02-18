@@ -7,8 +7,9 @@ import {
   deleteObjects,
   createObject,
   generateObjectId,
+  updateObject,
 } from "@/lib/firebase/firestore";
-import { updateObject } from "@/lib/firebase/firestore";
+import { performLayerAction } from "@/components/ui/ArrangeMenu";
 
 interface UseKeyboardShortcutsOptions {
   boardId: string;
@@ -98,16 +99,32 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
 
   const handlePaste = useCallback(() => {
     if (!user || clipboard.length === 0) return;
+
+    // Cascading offset: each paste adds +20px diagonal from previous
+    const pasteCount = useCanvasStore.getState().pasteCount + 1;
+    useCanvasStore.setState({ pasteCount });
+    const offset = pasteCount * 20;
+
+    // Compute max zIndex for placing pasted objects on top
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
     const newIds: string[] = [];
 
-    for (const obj of clipboard) {
+    for (let i = 0; i < clipboard.length; i++) {
+      const obj = clipboard[i];
       const newId = generateObjectId(boardId);
       newIds.push(newId);
       const newObj = {
         ...obj,
         id: newId,
-        x: obj.x + 20,
-        y: obj.y + 20,
+        x: obj.x + offset,
+        y: obj.y + offset,
+        zIndex: maxZ + 1 + i,
         createdBy: user.uid,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -124,6 +141,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
           height: newObj.height,
           color: newObj.color,
           text: newObj.text,
+          zIndex: newObj.zIndex,
           createdBy: user.uid,
         },
         newId
@@ -134,16 +152,28 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
   const handleDuplicate = useCallback(() => {
     if (!user || selectedObjectIds.length === 0) return;
 
+    // Compute max zIndex so duplicates appear on top
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
+    let idx = 0;
     for (const id of selectedObjectIds) {
       const obj = objects[id];
       if (!obj) continue;
 
       const newId = generateObjectId(boardId);
+      const newZIndex = maxZ + 1 + idx;
+      idx++;
       const newObj = {
         ...obj,
         id: newId,
         x: obj.x + 20,
         y: obj.y + 20,
+        zIndex: newZIndex,
         createdBy: user.uid,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -160,6 +190,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
           height: newObj.height,
           color: newObj.color,
           text: newObj.text,
+          zIndex: newZIndex,
           createdBy: user.uid,
         },
         newId
@@ -227,6 +258,20 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
       if ((e.ctrlKey || e.metaKey) && e.key === "d") {
         e.preventDefault();
         handleDuplicate();
+        return;
+      }
+
+      // Layering shortcuts
+      if ((e.ctrlKey || e.metaKey) && e.key === "]") {
+        e.preventDefault();
+        const action = e.shiftKey ? "bringToFront" : "bringForward";
+        performLayerAction(action, selectedObjectIds, objects, updateObjectLocal, boardId);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "[") {
+        e.preventDefault();
+        const action = e.shiftKey ? "sendToBack" : "sendBackward";
+        performLayerAction(action, selectedObjectIds, objects, updateObjectLocal, boardId);
         return;
       }
     };
