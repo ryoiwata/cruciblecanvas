@@ -11,7 +11,9 @@ import type { ChatMessage, AIStream, AiPersona } from '@/lib/types';
 interface ChatState {
   // Sidebar open/close state
   sidebarOpen: boolean;
+  sidebarWidth: number;
   setSidebarOpen: (open: boolean) => void;
+  setSidebarWidth: (w: number) => void;
   toggleSidebar: () => void;
 
   // Messages loaded from Firestore
@@ -48,8 +50,10 @@ interface PersistedChatState {
 
 // Non-persisted chat state
 export const useChatStore = create<ChatState>()((set) => ({
-  sidebarOpen: false,
+  sidebarOpen: true,
+  sidebarWidth: 320,
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  setSidebarWidth: (w) => set({ sidebarWidth: w }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
 
   messages: [],

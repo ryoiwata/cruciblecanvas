@@ -119,7 +119,10 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
   };
 
   return (
-    <div className="border-t border-gray-200 bg-white">
+    <div
+      className="border-t border-gray-200 bg-white cursor-text"
+      onClick={() => inputRef.current?.focus()}
+    >
       {/* Rate limit warning */}
       {rateLimitError && (
         <div className="px-3 py-1.5 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">

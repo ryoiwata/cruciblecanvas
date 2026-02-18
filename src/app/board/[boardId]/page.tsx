@@ -48,6 +48,7 @@ export default function BoardPage() {
   const isObjectsLoaded = useObjectStore((s) => s.isLoaded);
 
   const sidebarOpen = useChatStore((s) => s.sidebarOpen);
+  const sidebarWidth = useChatStore((s) => s.sidebarWidth);
   const toggleSidebar = useChatStore((s) => s.toggleSidebar);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
   const unreadCount = useChatStore((s) => s.unreadCount);
@@ -128,7 +129,7 @@ export default function BoardPage() {
         <CanvasTitle boardId={boardId} />
 
         {/* Top-right header controls */}
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2" style={{ right: sidebarOpen ? '328px' : '16px', transition: 'right 300ms ease-in-out' }}>
+        <div className="fixed top-4 right-4 z-50 flex items-center gap-2" style={{ right: sidebarOpen ? `${sidebarWidth + 8}px` : '16px', transition: 'right 300ms ease-in-out' }}>
           <PrivacyToggle boardId={boardId} />
           <ShareButton boardId={boardId} />
           <PresenceIndicator />

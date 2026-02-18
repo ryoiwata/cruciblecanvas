@@ -20,7 +20,7 @@ function formatTimestamp(createdAt: ChatMessageType['createdAt']): string {
   const date =
     typeof createdAt === 'number'
       ? new Date(createdAt)
-      : 'toDate' in createdAt
+      : createdAt && typeof createdAt === 'object' && 'toDate' in createdAt
         ? createdAt.toDate()
         : new Date();
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
