@@ -15,8 +15,14 @@
 export const runtime = 'edge';
 
 import { streamText, stepCountIs } from 'ai';
-import { anthropic } from '@ai-sdk/anthropic';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+
+// Explicitly target Anthropic's API, bypassing the ANTHROPIC_BASE_URL env var
+// which may be set to Vercel's AI Gateway (requires separate AI_GATEWAY_API_KEY).
+const anthropic = createAnthropic({
+  baseURL: 'https://api.anthropic.com/v1',
+});
 import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
 import type { AIBoardContext } from '@/lib/ai/context';
@@ -153,7 +159,7 @@ export async function POST(req: Request): Promise<Response> {
 
   try {
     const result = streamText({
-      model: anthropic('claude-3-5-sonnet-20241022'),
+      model: anthropic('claude-sonnet-4-6'),
       system: systemPrompt,
       messages: [{ role: 'user', content: message }],
       tools,
