@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CrucibleCanvas is a collaborative strategic thinking whiteboard with AI-powered critical analysis. Users collaborate on an infinite canvas with sticky notes, shapes, frames, and connectors, while an AI agent (Claude) challenges ideas and generates decision frameworks.
 
-**Status**: Pre-implementation. The `spec.MD` file (1659 lines) is the authoritative source for all requirements, data models, UI layouts, and architecture decisions.
+**Status**: Active development. The `spec.MD` file is the authoritative source for all requirements, data models, UI layouts, and architecture decisions.
 
 ## Tech Stack
 
@@ -21,15 +21,14 @@ CrucibleCanvas is a collaborative strategic thinking whiteboard with AI-powered 
 
 ## Development Commands
 
-Project has not been initialized yet. After scaffolding with Next.js:
-
 ```bash
-npm run dev          # Start dev server
+npm run dev          # Start dev server (http://localhost:3000)
 npm run build        # Production build
 npm run lint         # ESLint
+npm run start        # Start production server
 ```
 
-No automated test suite is planned for MVP — testing is manual multi-browser (Chrome DevTools).
+Testing is primarily manual multi-browser (Chrome DevTools). A Puppeteer-based resize ghosting regression test exists in `tests/resize-ghosting-test.ts`.
 
 ## Environment Variables
 
@@ -46,32 +45,86 @@ All Firebase config plus Anthropic API key go in `.env.local` (see template in r
 - **Desktop-only**: Mobile/tablet blocked with a message; no responsive canvas
 - **Light mode only**: No dark mode for MVP
 - **AI rate limits**: 20 commands/user/hour, 50 commands/board/day
+- **Bottom-centered toolbar**: Floating toolbar at bottom of canvas (not top) with backdrop-blur; context-aware menus (Align, Arrange) pop up above it
+- **Shortcut Legend**: A secondary bar positioned directly above the toolbar displaying `Ctrl+Drag` (marquee select) and `Ctrl+Click` (multi-select) hints with inline SVG icons
+- **Cascading diagonal paste**: Copy/paste uses `pasteCount * 20` offset so repeated pastes cascade diagonally (+20px, +40px, +60px, etc.); count resets on new copy
 
-## Planned Source Structure (App Router)
+## UI Interaction Guidelines
+
+### Shortcut Legend
+The `ShortcutLegend` component (`src/components/ui/ShortcutLegend.tsx`) is a persistent UI element rendered above the toolbar. It must always be visible when the board canvas is active. It displays:
+- **Select**: `Ctrl + Drag` — marquee selection
+- **Multi-Select**: `Ctrl + Click` — additive selection toggle
+
+When adding new keyboard shortcuts, evaluate whether they belong in the Shortcut Legend (frequently used, non-obvious) or only in the full shortcuts reference (Section 11 of spec.MD).
+
+### Public/Private Toggle and Real-Time Synchronization
+The `PrivacyToggle` component (`src/components/ui/PrivacyToggle.tsx`) uses an emoji-based pill toggle:
+- **Public** (👀): Board is accessible to any authenticated user
+- **Private** (🥸): Board is restricted to the creator and invited emails
+
+**How it affects real-time sync:**
+1. **Dual-write pattern**: When the creator toggles privacy, the component writes to **both** Firestore (`boards/{boardId}/metadata/config.isPublic`) and RTDB (`boards/{boardId}/privacy.isPublic`) via `setBoardPrivacy()`.
+2. **RTDB privacy mirror**: The RTDB `/boards/{boardId}/privacy` node allows real-time listeners to gate access without a Firestore read. This enables instant privacy state propagation to all connected clients.
+3. **Creator-only control**: Only the board creator (`createdBy === user.uid`) can toggle the privacy state. Non-creators see a disabled toggle with a hover tooltip.
+4. **Firestore rules enforcement**: Firestore security rules check `isPublic`, `createdBy`, and `invitedEmails` to enforce access at the database level — the RTDB mirror is for real-time UX, not security enforcement.
+
+## Source Structure (App Router)
 
 ```
-app/
-  (auth)/login/          # Auth pages
-  dashboard/             # Board listing with AI summaries
-  board/[boardId]/       # Main canvas workspace
-  api/ai/               # Vercel Edge Function for Claude calls
-components/
-  canvas/               # Konva canvas, objects (sticky, shape, frame, connector)
-  ui/                   # Toolbar, panels, dialogs
-  collaboration/        # Cursors, presence indicators
-lib/
-  firebase.ts           # Firebase client init
-  firestore.ts          # Firestore CRUD helpers
-  realtime.ts           # RTDB presence/cursor/lock helpers
-  ai/                   # Claude prompt templates, tool schemas, context serializer
-  store/                # Zustand stores (canvas, auth, collaboration)
+src/
+  app/
+    auth/page.tsx             # Authentication (guest, Google, email)
+    dashboard/page.tsx        # Board listing, creation, recently visited
+    board/[boardId]/page.tsx  # Main canvas workspace
+    api/boards/new/route.ts   # Auto-board creation API
+    layout.tsx                # Root layout with AuthProvider
+    middleware.ts             # Routes / → /dashboard
+  components/
+    auth/AuthCard.tsx         # Multi-mode auth UI
+    canvas/                   # Konva canvas components (Canvas, BoardObjects,
+                              #   SelectionLayer, CursorLayer, TextEditor,
+                              #   StickyNote, ShapeObject, FrameObject,
+                              #   ConnectorObject, ColorLegendObject, etc.)
+    ui/                       # Toolbar, AlignMenu, ArrangeMenu, ColorPicker,
+                              #   ContextMenu, PrivacyToggle, ShareButton,
+                              #   PresenceIndicator, ShortcutLegend, etc.
+  hooks/
+    useFirestoreSync.ts       # Firestore real-time object listener
+    useMultiplayer.ts         # Presence init, heartbeat, reconnection
+    usePresenceSync.ts        # Presence data sync (child listeners)
+    useLockSync.ts            # Object lock management
+    useFrameNesting.ts        # Frame auto-nesting logic
+    useKeyboardShortcuts.ts   # All keyboard event handlers
+  lib/
+    firebase/
+      config.ts               # Firebase app init
+      auth.ts                  # Authentication functions
+      firestore.ts             # Firestore CRUD helpers
+      rtdb.ts                  # RTDB presence/cursor/lock/privacy helpers
+    store/
+      canvasStore.ts           # UI state (mode, selection, viewport, clipboard)
+      objectStore.ts           # Board objects & locks
+      authStore.ts             # User authentication state
+      presenceStore.ts         # Remote user presence
+    types.ts                   # TypeScript interfaces
+    utils.ts                   # Utility functions
+  providers/
+    AuthProvider.tsx           # Auth state initialization
 ```
 
 ## Firebase Schema
 
-**Firestore**: `boards/{boardId}/objects/{objectId}` (spatial properties, content), `boards/{boardId}/metadata`, `users/{userId}/profile`
+**Firestore** (persistent):
+- `boards/{boardId}/objects/{objectId}` — spatial properties, content, ownership
+- `boards/{boardId}/metadata/config` — title, isPublic, createdBy, invitedEmails
+- `users/{userId}/profile/info` — display name, email, photo
 
-**Realtime Database**: `boards/{boardId}/cursors/{userId}`, `boards/{boardId}/locks/{objectId}`, `presence/{userId}`
+**Realtime Database** (ephemeral):
+- `boards/{boardId}/cursors/{userId}` — live cursor position, name, color
+- `boards/{boardId}/presence/{userId}` — online status, name, lastSeen
+- `boards/{boardId}/locks/{objectId}` — soft object locks with `onDisconnect` cleanup
+- `boards/{boardId}/privacy` — mirrors `isPublic` from Firestore for real-time access gating
 
 ## Performance Targets
 

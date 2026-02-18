@@ -435,8 +435,8 @@ The canvas operates in three mutually exclusive modes:
 - **Move:** Click + drag selected objects (in Select Mode)
 - **Resize:** Transformer handles when selected
 - **Delete:** Select + Delete key → confirmation dialog. Ctrl+Delete bypasses confirmation for instant removal.
-- **Duplicate:** Ctrl+D → duplicate selected objects with +20px offset
-- **Copy/Paste:** Ctrl+C to copy, Ctrl+V to paste with +20px offset. Works with multi-select.
+- **Duplicate:** Ctrl+D → duplicate selected objects with +20px diagonal offset (x+20, y+20). Duplicates are placed on top (highest zIndex + 1). Parent frame reference is cleared.
+- **Copy/Paste:** Ctrl+C to copy, Ctrl+V to paste. Works with multi-select. Uses **cascading diagonal offset**: the first paste places objects at +20px (x+20, y+20), the second paste at +40px, third at +60px, etc. The `pasteCount` resets to 0 when a new copy operation is performed. Pasted objects receive fresh IDs, are assigned to the current user, and are placed on top of the z-stack.
 - **Deframe All:** Right-click selected frame → context menu action
 
 **Visual Feedback:**
@@ -506,10 +506,7 @@ The canvas operates in three mutually exclusive modes:
 │ [Guest Session Banner - slim, top, with "Save to Account" link]    │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
-│              ┌─────────────────────────────┐                        │
-│              │ 🔘 Select │ 📝 Sticky │ ◻ Shape │ ▣ Frame │        │
-│              └─────────────────────────────┘                        │
-│                    (Top-centered floating toolbar)                   │
+│                                                                     │
 │                                                                     │
 │  ┌──────────┐                               ┌────────────────────┐ │
 │  │ Board    │                               │ Online • 👤👤👤+2 │ │
@@ -533,23 +530,41 @@ The canvas operates in three mutually exclusive modes:
 │  │  Help)   │                                                       │
 │  └──────────┘                                                       │
 │  (Bottom-left)                                                      │
+│                                                                     │
+│         ┌───────────────────────────────────────────────┐           │
+│         │ ↖ Pointer │ 📝 Sticky │ ◻ Rect │ ○ Circle │  │           │
+│         │ ▣ Frame │ ╱ Connector │ 🎨 Color │ Align… │  │           │
+│         └───────────────────────────────────────────────┘           │
+│              (Bottom-centered floating toolbar + Shortcut Legend)    │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 6.3 Top-Centered Floating Toolbar
+### 6.3 Bottom-Centered Floating Toolbar
 
-- Horizontal bar centered at top of canvas, floating over the dot grid
-- Rounded corners (`border-radius: 0.5rem`), subtle drop shadow
-- Semi-transparent white background with backdrop blur
+- Horizontal bar centered at **bottom** of canvas (`fixed bottom-4 left-1/2 -translate-x-1/2`), floating over the dot grid
+- Rounded corners (`rounded-xl`), subtle drop shadow, semi-transparent white background with `backdrop-blur-md`
 - **Tools (left to right):**
-  - Pan (hand icon) — default active
-  - Select (arrow/crosshair icon)
-  - Sticky Note (sticky note icon)
-  - Shapes dropdown (rectangle, circle)
-  - Frame (frame icon)
-  - Connector (line icon)
-- **Active tool:** Highlighted background (brand purple tint) + cursor changes
-- **Behavior:** Clicking a tool activates its mode. Escape returns to Pan.
+  - Pointer (↖ icon, shortcut `1`) — default active
+  - Sticky Note (📝 icon, shortcut `2`)
+  - Rectangle (◻ icon, shortcut `3`)
+  - Circle (○ icon, shortcut `4`)
+  - Frame (▣ icon, shortcut `5`)
+  - Connector (╱ icon, shortcut `6`)
+- **Separator**, then: Color Picker popup, Align menu, Arrange (layer) menu
+- **Conditional sections** (appear when objects are selected):
+  - Font selector (visible when sticky notes are selected): sans-serif, handwritten, monospace
+  - Opacity slider (visible when non-connector objects are selected): 10%–100%
+- **Active tool:** Highlighted with indigo tint (`bg-indigo-100 text-indigo-600`) + cursor changes
+- **Behavior:** Clicking a tool activates its mode. Escape returns to Pointer.
+
+### 6.3.1 Shortcut Legend
+
+- A secondary bar positioned **above** the toolbar (`fixed bottom-[58px]`)
+- Semi-transparent white background with `backdrop-blur-sm`
+- Displays two keyboard shortcuts with inline SVG icons:
+  - **Select:** `Ctrl + Drag` (marquee icon)
+  - **Multi-Select:** `Ctrl + Click` (overlapping rectangles icon)
+- Uses `<kbd>` elements for shortcut keys, monospace font at 10px
 
 ### 6.4 Color Picker
 
@@ -1051,22 +1066,26 @@ Triggered when a user creates their first board. 5-step guided overlay with "Ski
 ### 11.1 Tool Switching
 | Shortcut | Action |
 |----------|--------|
-| `1` | Pan Mode (default) |
-| `2` | Select Mode |
-| `3` | Sticky Note tool |
-| `4` | Shape tool (Rectangle) |
+| `1` | Pointer Mode (default) |
+| `2` | Sticky Note tool |
+| `3` | Rectangle tool |
+| `4` | Circle tool |
 | `5` | Frame tool |
-| `Escape` | Return to Pan Mode / Deselect all |
+| `6` | Connector tool |
+| `Escape` | Return to Pointer Mode / Deselect all |
 
 ### 11.2 Object Operations
 | Shortcut | Action |
 |----------|--------|
-| `Delete` | Delete selected (with confirmation dialog) |
-| `Ctrl+Delete` | Delete selected (bypass confirmation) |
+| `Delete` / `Backspace` | Delete selected (with confirmation dialog) |
+| `Ctrl+Delete` / `Ctrl+Backspace` | Delete selected (bypass confirmation) |
 | `Ctrl+C` | Copy selected objects |
-| `Ctrl+V` | Paste with +20px offset |
-| `Ctrl+D` | Duplicate selected with +20px offset |
-| `Ctrl+Z` | Undo last AI command |
+| `Ctrl+V` | Paste with cascading +20px diagonal offset |
+| `Ctrl+D` | Duplicate selected with +20px diagonal offset |
+| `Ctrl+]` | Bring forward one layer |
+| `Ctrl+Shift+]` | Bring to front |
+| `Ctrl+[` | Send backward one layer |
+| `Ctrl+Shift+[` | Send to back |
 
 ### 11.3 AI Shortcuts (in sidebar input)
 | Shortcut | Action |
@@ -1204,28 +1223,32 @@ service cloud.firestore {
 
 ### 13.3 Realtime Database Security Rules
 
+> **Implementation note:** The deployed rules (`database.rules.json`) use collection-level `.read` for cursors and presence (instead of per-user `.read`) to allow `onChildAdded`/`onChildChanged` listeners at the collection root. Per-user read rules would block subscribing to the full cursor/presence list. Write rules remain per-user to prevent impersonation. A `privacy` node is included for mirroring board visibility into RTDB.
+
 ```json
 {
   "rules": {
     "boards": {
       "$boardId": {
         "cursors": {
+          ".read": "auth != null",
           "$userId": {
-            ".read": "auth != null",
-            ".write": "auth.uid == $userId"
+            ".write": "auth != null && auth.uid === $userId"
           }
         },
         "presence": {
+          ".read": "auth != null",
           "$userId": {
-            ".read": "auth != null",
-            ".write": "auth.uid == $userId"
+            ".write": "auth != null && auth.uid === $userId"
           }
         },
         "locks": {
-          "$objectId": {
-            ".read": "auth != null",
-            ".write": "auth != null && (!data.exists() || data.child('userId').val() == auth.uid)"
-          }
+          ".read": "auth != null",
+          ".write": "auth != null"
+        },
+        "privacy": {
+          ".read": "auth != null",
+          ".write": "auth != null"
         }
       }
     }
@@ -1460,7 +1483,7 @@ FIREBASE_ADMIN_PRIVATE_KEY=...
 - [ ] Frames (auto-nest, deframe all, context menu actions)
 - [ ] Connectors (edge-to-edge, drag from edge handles, auto-delete on orphan)
 - [ ] Color Legend canvas object
-- [ ] Top-centered floating toolbar
+- [ ] Bottom-centered floating toolbar with Shortcut Legend
 - **Gate:** Full CRUD operations work for all object types, multi-select functional
 
 ### Phase 4: AI Integration (Hours 18-24)
@@ -1635,7 +1658,7 @@ This section documents all design decisions made during the specification interv
 | 41 | Object creation | Click tool → click canvas (sticky tool mode, Escape to exit) | Fast repeated placement, clear mode indicator |
 | 42 | Copy/paste | In MVP (Ctrl+C/V/D) | Multi-select makes this natural to include |
 | 43 | Sidebar layout | Push canvas (resize) | No content hidden, clean separation |
-| 44 | Toolbar position | Top-centered floating bar | Modern, minimal, doesn't compete with content |
+| 44 | Toolbar position | **Bottom-centered** floating bar (updated from top) | Keeps tools near the user's hands; avoids competing with board title and presence indicators at top. Shortcut Legend bar sits above the toolbar. |
 | 45 | Board join | Full URL or ID accepted | Forgiving input, auto-parses URLs |
 | 46 | Offline indicator | Yellow banner notification | Clear, non-alarming, dismissible |
 | 47 | Grid style | Dot grid (20px intervals) | Clean, minimal, modern |
