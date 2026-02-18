@@ -14,7 +14,11 @@ import {
 import { useAuthStore } from "@/lib/store/authStore";
 import { FirebaseError } from "firebase/app";
 
-export default function AuthCard() {
+interface AuthCardProps {
+  redirectUrl?: string | null;
+}
+
+export default function AuthCard({ redirectUrl }: AuthCardProps) {
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -60,10 +64,15 @@ export default function AuthCard() {
       await setDoc(profileRef, { displayName: trimmed }, { merge: true });
       setStoreName(trimmed);
 
-      // Auto-create a board and redirect guest directly to it
-      const boardId = crypto.randomUUID();
-      await createBoardMetadata(boardId, credential.user.uid, "Untitled Board");
-      router.push("/board/" + boardId);
+      if (redirectUrl) {
+        // Guest is joining a shared board link — navigate there directly
+        router.push(redirectUrl);
+      } else {
+        // Auto-create a board and redirect guest directly to it
+        const boardId = crypto.randomUUID();
+        await createBoardMetadata(boardId, credential.user.uid, "Untitled Board");
+        router.push("/board/" + boardId);
+      }
     } catch (err) {
       console.error("Guest sign-in failed:", err);
       setError(friendlyError(err));
@@ -90,7 +99,7 @@ export default function AuthCard() {
       } else {
         await signInWithEmail(email.trim(), password);
       }
-      router.push("/dashboard");
+      router.push(redirectUrl || "/dashboard");
     } catch (err) {
       console.error("Email sign-in failed:", err);
       setError(friendlyError(err));
@@ -104,7 +113,7 @@ export default function AuthCard() {
     setLoading(true);
     try {
       await signInWithGoogle();
-      router.push("/dashboard");
+      router.push(redirectUrl || "/dashboard");
     } catch (err) {
       console.error("Google sign-in failed:", err);
       setError("Sign-in failed. Please allow popups for this site.");

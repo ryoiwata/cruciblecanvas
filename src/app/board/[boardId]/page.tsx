@@ -17,6 +17,7 @@ import DeleteDialog from "@/components/ui/DeleteDialog";
 import PresenceIndicator from "@/components/ui/PresenceIndicator";
 import PrivacyToggle from "@/components/ui/PrivacyToggle";
 import ShareButton from "@/components/ui/ShareButton";
+import CanvasTitle from "@/components/ui/CanvasTitle";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -42,12 +43,12 @@ export default function BoardPage() {
   const { pendingDelete, setPendingDelete, performDelete, deleteCount } =
     useKeyboardShortcuts({ boardId });
 
-  // Auth guard
+  // Auth guard — pass redirect so guests return here after sign-in
   useEffect(() => {
     if (!isLoading && !user) {
-      router.replace("/auth");
+      router.replace(`/auth?redirect=/board/${boardId}`);
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, boardId]);
 
   // Firestore object sync — only after auth resolves
   useFirestoreSync(user ? boardId : undefined);
@@ -86,6 +87,7 @@ export default function BoardPage() {
     <>
       <Toolbar boardId={boardId} />
       <ShortcutLegend />
+      <CanvasTitle boardId={boardId} />
 
       {/* Top-right header controls: Privacy toggle, Share button, Presence */}
       <div className="fixed top-4 right-4 z-50 flex items-center gap-3">

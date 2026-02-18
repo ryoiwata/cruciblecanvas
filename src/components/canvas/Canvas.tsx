@@ -260,6 +260,9 @@ export default function Canvas({ boardId }: CanvasProps) {
   // Cursor override (for border resize hover)
   const [cursorOverride, setCursorOverride] = useState<string | null>(null);
 
+  // Connector drag ref — tracks the startObjectId during a drag-based connector creation
+  const connectorDragRef = useRef<string | null>(null);
+
   // Hovered object for anchor points
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
 
@@ -282,6 +285,8 @@ export default function Canvas({ boardId }: CanvasProps) {
   const editingObjectId = useCanvasStore((s) => s.editingObjectId);
   const connectorStart = useCanvasStore((s) => s.connectorStart);
   const setConnectorStart = useCanvasStore((s) => s.setConnectorStart);
+  const setConnectorDragging = useCanvasStore((s) => s.setConnectorDragging);
+  const setConnectorHoverTarget = useCanvasStore((s) => s.setConnectorHoverTarget);
   const lastUsedColors = useCanvasStore((s) => s.lastUsedColors);
 
   const objects = useObjectStore((s) => s.objects);
@@ -423,6 +428,18 @@ export default function Canvas({ boardId }: CanvasProps) {
       }
     },
     [connectorStart, objects, user, boardId, upsertObject, setConnectorStart]
+  );
+
+  // --- Anchor drag start for drag-based connector creation ---
+  const handleAnchorDragStart = useCallback(
+    (objectId: string) => {
+      if (!user) return;
+      connectorDragRef.current = objectId;
+      setConnectorStart(objectId);
+      setConnectorDragging(true);
+      setConnectorHoverTarget(null);
+    },
+    [user, setConnectorStart, setConnectorDragging, setConnectorHoverTarget]
   );
 
   // --- Click (connector cancel / select clear only) ---
@@ -641,9 +658,11 @@ export default function Canvas({ boardId }: CanvasProps) {
         }
       }
 
-      // Track hovered object for anchor points (connector mode)
+      // Track hovered object for anchor points (connector mode) and drag target detection
       if (mode === "create" && creationTool === "connector") {
         const target = e.target;
+        let hitObjectId: string | null = null;
+
         if (target !== stage) {
           // Walk up to find group with ID
           let node: Konva.Node | null = target;
@@ -651,10 +670,22 @@ export default function Canvas({ boardId }: CanvasProps) {
             node = node.parent;
           }
           if (node && node.id()) {
-            setHoveredObjectId(node.id());
+            hitObjectId = node.id();
+            setHoveredObjectId(hitObjectId);
           }
         } else {
           setHoveredObjectId(null);
+        }
+
+        // During connector drag: update hover target for glow highlighting
+        if (connectorDragRef.current) {
+          const validTarget =
+            hitObjectId &&
+            hitObjectId !== connectorDragRef.current &&
+            objects[hitObjectId]?.type !== "connector"
+              ? hitObjectId
+              : null;
+          setConnectorHoverTarget(validTarget);
         }
 
         // Update temp connector endpoint
@@ -749,9 +780,11 @@ export default function Canvas({ boardId }: CanvasProps) {
       stageY,
       stageScale,
       lastUsedColors,
+      objects,
       upsertObject,
       updateObjectLocal,
       setViewport,
+      setConnectorHoverTarget,
     ]
   );
 
@@ -804,6 +837,69 @@ export default function Canvas({ boardId }: CanvasProps) {
       borderResizeRef.current = null;
       borderResizeLatestRef.current = null;
       setCursorOverride(null);
+      return;
+    }
+
+    // --- Connector drag finalization ---
+    if (connectorDragRef.current && user) {
+      const startObjectId = connectorDragRef.current;
+      const hoverTarget = useCanvasStore.getState().connectorHoverTarget;
+
+      // Reset all drag state
+      connectorDragRef.current = null;
+      setConnectorStart(null);
+      setConnectorDragging(false);
+      setConnectorHoverTarget(null);
+      setConnectorEndpoint(null);
+
+      if (hoverTarget && hoverTarget !== startObjectId) {
+        // Check for duplicate connector
+        const isDuplicate = Object.values(objects).some(
+          (o) =>
+            o.type === "connector" &&
+            o.connectedTo &&
+            ((o.connectedTo[0] === startObjectId &&
+              o.connectedTo[1] === hoverTarget) ||
+              (o.connectedTo[0] === hoverTarget &&
+                o.connectedTo[1] === startObjectId))
+        );
+
+        if (!isDuplicate) {
+          const newId = generateObjectId(boardId);
+          const newConnector = {
+            id: newId,
+            type: "connector" as const,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            color: CONNECTOR_DEFAULTS.color,
+            connectedTo: [startObjectId, hoverTarget],
+            createdBy: user.uid,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+          };
+
+          upsertObject(newConnector);
+          createObject(
+            boardId,
+            {
+              type: "connector",
+              x: 0,
+              y: 0,
+              width: 0,
+              height: 0,
+              color: CONNECTOR_DEFAULTS.color,
+              connectedTo: [startObjectId, hoverTarget],
+              createdBy: user.uid,
+              metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+            },
+            newId
+          ).catch(console.error);
+        }
+      }
+
       return;
     }
 
@@ -932,7 +1028,7 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       pointerInteractionRef.current = null;
     }
-  }, [mode, creationTool, user, boardId, objects, lastUsedColors, upsertObject, updateObjectLocal]);
+  }, [mode, creationTool, user, boardId, objects, lastUsedColors, upsertObject, updateObjectLocal, setConnectorStart, setConnectorDragging, setConnectorHoverTarget]);
 
   // --- Right-click (context menu) ---
   const handleContextMenu = useCallback(
@@ -1126,6 +1222,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             height={dimensions.height}
             hoveredObjectId={hoveredObjectId}
             onAnchorClick={handleAnchorClick}
+            onAnchorDragStart={handleAnchorDragStart}
           />
 
           {/* Ghost preview for shape creation */}

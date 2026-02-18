@@ -29,6 +29,10 @@ interface CanvasState {
   // Connector creation (Phase 3)
   connectorStart: string | null;
 
+  // Connector drag creation (Phase 4)
+  connectorDragging: boolean;
+  connectorHoverTarget: string | null;
+
   // Color memory
   lastUsedColors: Record<string, string>;
 
@@ -52,6 +56,8 @@ interface CanvasState {
   showContextMenu: (state: ContextMenuState) => void;
   hideContextMenu: () => void;
   setConnectorStart: (id: string | null) => void;
+  setConnectorDragging: (dragging: boolean) => void;
+  setConnectorHoverTarget: (id: string | null) => void;
   setLastUsedColor: (type: string, color: string) => void;
   bumpBorderResizeGeneration: () => void;
 }
@@ -76,6 +82,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   pasteCount: 0,
   contextMenu: INITIAL_CONTEXT_MENU,
   connectorStart: null,
+  connectorDragging: false,
+  connectorHoverTarget: null,
   lastUsedColors: {},
   borderResizeGeneration: 0,
 
@@ -91,6 +99,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       creationTool: tool,
       selectedObjectIds: [],
       connectorStart: null,
+      connectorDragging: false,
+      connectorHoverTarget: null,
     }),
 
   exitToPointer: () =>
@@ -99,6 +109,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       creationTool: null,
       selectedObjectIds: [],
       connectorStart: null,
+      connectorDragging: false,
+      connectorHoverTarget: null,
     }),
 
   selectObject: (id) => {
@@ -141,6 +153,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   hideContextMenu: () => set({ contextMenu: INITIAL_CONTEXT_MENU }),
 
   setConnectorStart: (id) => set({ connectorStart: id }),
+
+  setConnectorDragging: (dragging) => set({ connectorDragging: dragging }),
+
+  setConnectorHoverTarget: (id) => set({ connectorHoverTarget: id }),
 
   setLastUsedColor: (type, color) =>
     set((s) => ({

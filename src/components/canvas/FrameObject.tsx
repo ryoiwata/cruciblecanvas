@@ -17,6 +17,7 @@ interface FrameObjectProps {
   boardId: string;
   isLocked: boolean;
   lockedByName: string | null;
+  isConnectorTarget?: boolean;
 }
 
 interface ChildSnapshot {
@@ -30,6 +31,7 @@ export default memo(function FrameObject({
   boardId,
   isLocked,
   lockedByName,
+  isConnectorTarget,
 }: FrameObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const childSnapshots = useRef<ChildSnapshot[]>([]);
@@ -188,6 +190,9 @@ export default memo(function FrameObject({
         stroke={object.color}
         strokeWidth={2}
         cornerRadius={4}
+        shadowColor={isConnectorTarget ? "#6366f1" : undefined}
+        shadowBlur={isConnectorTarget ? 15 : 0}
+        shadowEnabled={!!isConnectorTarget}
       />
 
       {/* Title bar */}
@@ -243,6 +248,7 @@ export default memo(function FrameObject({
     prevProps.object === nextProps.object &&
     prevProps.boardId === nextProps.boardId &&
     prevProps.isLocked === nextProps.isLocked &&
-    prevProps.lockedByName === nextProps.lockedByName
+    prevProps.lockedByName === nextProps.lockedByName &&
+    prevProps.isConnectorTarget === nextProps.isConnectorTarget
   );
 });

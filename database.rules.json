@@ -17,6 +17,10 @@
         "locks": {
           ".read": "auth != null",
           ".write": "auth != null"
+        },
+        "privacy": {
+          ".read": "auth != null",
+          ".write": "auth != null"
         }
       }
     }

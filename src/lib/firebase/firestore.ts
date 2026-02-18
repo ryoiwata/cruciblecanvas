@@ -1,12 +1,18 @@
 import {
   collection,
+  collectionGroup,
   doc,
   setDoc,
   getDoc,
+  getDocs,
   updateDoc,
   deleteDoc,
   serverTimestamp,
   writeBatch,
+  query,
+  where,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import { db } from "./config";
 import type { BoardObject, BoardMetadata } from "../types";
@@ -224,4 +230,36 @@ export async function updateBoardMetadata(
     }
   }
   await updateDoc(docRef, cleaned);
+}
+
+/**
+ * Fetches all boards created by a given user.
+ * Uses collectionGroup query on "metadata" with createdBy filter.
+ * Returns boards ordered by createdAt descending, limited to 50.
+ *
+ * Note: requires a Firestore composite index on metadata collection
+ * (createdBy ASC, createdAt DESC). Firebase will auto-prompt with a
+ * link to create it on the first query error.
+ */
+export async function getUserBoards(
+  userId: string
+): Promise<(BoardMetadata & { boardId: string })[]> {
+  const q = query(
+    collectionGroup(db, "metadata"),
+    where("createdBy", "==", userId),
+    orderBy("createdAt", "desc"),
+    limit(50)
+  );
+
+  const snapshot = await getDocs(q);
+  const boards: (BoardMetadata & { boardId: string })[] = [];
+
+  for (const docSnap of snapshot.docs) {
+    // Path: boards/{boardId}/metadata/config
+    const pathSegments = docSnap.ref.path.split("/");
+    const boardId = pathSegments[1]; // Extract boardId from path
+    boards.push({ ...(docSnap.data() as BoardMetadata), boardId });
+  }
+
+  return boards;
 }

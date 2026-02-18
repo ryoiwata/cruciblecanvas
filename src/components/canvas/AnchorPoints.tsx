@@ -6,15 +6,19 @@ import type { BoardObject } from "@/lib/types";
 interface AnchorPointsProps {
   object: BoardObject;
   onAnchorClick: (objectId: string) => void;
+  onAnchorDragStart?: (objectId: string) => void;
 }
 
 /**
  * Renders 4 small circles at edge midpoints for connector creation.
  * Only shown when in connector create mode and hovering an object.
+ *
+ * Supports both click (tap/accessibility) and mouseDown (drag-based) creation.
  */
 export default function AnchorPoints({
   object,
   onAnchorClick,
+  onAnchorDragStart,
 }: AnchorPointsProps) {
   const anchors = [
     { x: object.width / 2, y: 0 }, // Top
@@ -41,6 +45,12 @@ export default function AnchorPoints({
           onTap={(e) => {
             e.cancelBubble = true;
             onAnchorClick(object.id);
+          }}
+          onMouseDown={(e) => {
+            if (onAnchorDragStart) {
+              e.cancelBubble = true;
+              onAnchorDragStart(object.id);
+            }
           }}
           onMouseEnter={(e) => {
             const container = e.target.getStage()?.container();

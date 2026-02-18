@@ -338,6 +338,22 @@ export function removePresence(boardId: string, userId: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Privacy — /boards/{boardId}/privacy
+// ---------------------------------------------------------------------------
+
+/**
+ * Mirrors the board's public/private state into RTDB so real-time listeners
+ * can gate access without a Firestore read.
+ */
+export function setBoardPrivacy(boardId: string, isPublic: boolean): void {
+  const privacyRef = ref(rtdb, `boards/${boardId}/privacy`);
+  set(privacyRef, { isPublic }).catch((err) => {
+    console.error("[RTDB] setBoardPrivacy failed:", err.message);
+    presenceLogger.writeError("setBoardPrivacy", err);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Locks — /boards/{boardId}/locks/{objectId}
 // ---------------------------------------------------------------------------
 

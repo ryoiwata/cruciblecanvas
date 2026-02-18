@@ -19,6 +19,7 @@ interface BoardObjectsProps {
   height: number;
   hoveredObjectId: string | null;
   onAnchorClick: (objectId: string) => void;
+  onAnchorDragStart?: (objectId: string) => void;
 }
 
 /** Convert createdAt to milliseconds for z-index sorting. */
@@ -45,6 +46,7 @@ export default function BoardObjects({
   height,
   hoveredObjectId,
   onAnchorClick,
+  onAnchorDragStart,
 }: BoardObjectsProps) {
   const objects = useObjectStore((s) => s.objects);
   const locks = useObjectStore((s) => s.locks);
@@ -55,6 +57,7 @@ export default function BoardObjects({
   const stageScale = useCanvasStore((s) => s.stageScale);
   const mode = useCanvasStore((s) => s.mode);
   const creationTool = useCanvasStore((s) => s.creationTool);
+  const connectorHoverTarget = useCanvasStore((s) => s.connectorHoverTarget);
 
   // Memoized viewport culling + sort — only recomputes when objects or viewport change.
   // For 500+ objects this avoids O(N) scan + sort on every unrelated re-render.
@@ -98,6 +101,7 @@ export default function BoardObjects({
     const lock = locks[obj.id];
     const isLockedByOther = !!lock && lock.userId !== userId;
     const lockedByName = isLockedByOther ? lock.userName : null;
+    const isTarget = connectorHoverTarget === obj.id;
 
     switch (obj.type) {
       case "stickyNote":
@@ -108,6 +112,7 @@ export default function BoardObjects({
             boardId={boardId}
             isLocked={isLockedByOther}
             lockedByName={lockedByName}
+            isConnectorTarget={isTarget}
           />
         );
       case "rectangle":
@@ -119,6 +124,7 @@ export default function BoardObjects({
             boardId={boardId}
             isLocked={isLockedByOther}
             lockedByName={lockedByName}
+            isConnectorTarget={isTarget}
           />
         );
       case "frame":
@@ -129,6 +135,7 @@ export default function BoardObjects({
             boardId={boardId}
             isLocked={isLockedByOther}
             lockedByName={lockedByName}
+            isConnectorTarget={isTarget}
           />
         );
       case "connector":
@@ -174,6 +181,7 @@ export default function BoardObjects({
                 key={`anchor-${obj.id}`}
                 object={obj}
                 onAnchorClick={onAnchorClick}
+                onAnchorDragStart={onAnchorDragStart}
               />
             );
           }

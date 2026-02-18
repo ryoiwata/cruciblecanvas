@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------------
+    // Board metadata: boards/{boardId}/metadata/config
+    // -----------------------------------------------------------------------
+    match /boards/{boardId}/metadata/config {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.createdBy == request.auth.uid;
+      allow update, delete: if request.auth != null
+                            && resource.data.createdBy == request.auth.uid;
+    }
+
+    // -----------------------------------------------------------------------
+    // Board objects: boards/{boardId}/objects/{objectId}
+    // Auth users can read/write if:
+    //   - board is public, OR
+    //   - they are the board creator, OR
+    //   - their email is in invitedEmails
+    // -----------------------------------------------------------------------
+    match /boards/{boardId}/objects/{objectId} {
+      function boardMeta() {
+        return get(/databases/$(database)/documents/boards/$(boardId)/metadata/config).data;
+      }
+
+      allow read, write: if request.auth != null
+                         && (boardMeta().isPublic == true
+                             || boardMeta().createdBy == request.auth.uid
+                             || request.auth.token.email in boardMeta().invitedEmails);
+    }
+
+    // -----------------------------------------------------------------------
+    // User profiles: users/{userId}/profile/info
+    // Users can only read/write their own profile.
+    // -----------------------------------------------------------------------
+    match /users/{userId}/profile/info {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+    }
+  }
+}

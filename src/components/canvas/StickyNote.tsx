@@ -17,6 +17,7 @@ interface StickyNoteProps {
   boardId: string;
   isLocked: boolean;
   lockedByName: string | null;
+  isConnectorTarget?: boolean;
 }
 
 export default memo(function StickyNote({
@@ -24,6 +25,7 @@ export default memo(function StickyNote({
   boardId,
   isLocked,
   lockedByName,
+  isConnectorTarget,
 }: StickyNoteProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const groupRef = useRef<Konva.Group>(null);
@@ -136,9 +138,10 @@ export default memo(function StickyNote({
         height={object.height}
         fill={object.color}
         cornerRadius={4}
-        shadowColor="rgba(0,0,0,0.1)"
-        shadowBlur={4}
-        shadowOffsetY={2}
+        shadowColor={isConnectorTarget ? "#6366f1" : "rgba(0,0,0,0.1)"}
+        shadowBlur={isConnectorTarget ? 15 : 4}
+        shadowOffsetY={isConnectorTarget ? 0 : 2}
+        shadowEnabled={true}
         stroke={isSelected ? "#2196F3" : undefined}
         strokeWidth={isSelected ? 2 : 0}
       />
@@ -196,6 +199,7 @@ export default memo(function StickyNote({
     prevProps.object === nextProps.object &&
     prevProps.boardId === nextProps.boardId &&
     prevProps.isLocked === nextProps.isLocked &&
-    prevProps.lockedByName === nextProps.lockedByName
+    prevProps.lockedByName === nextProps.lockedByName &&
+    prevProps.isConnectorTarget === nextProps.isConnectorTarget
   );
 });
