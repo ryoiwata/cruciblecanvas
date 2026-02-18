@@ -1,23 +1,30 @@
 import { useEffect } from "react";
-import { onPresenceChange } from "@/lib/firebase/rtdb";
+import { onPresenceChildEvents } from "@/lib/firebase/rtdb";
 import { usePresenceStore } from "@/lib/store/presenceStore";
 
 /**
  * Subscribes to RTDB presence changes for a board and syncs to presenceStore.
  *
- * - Converts null snapshot (no presence data) to empty object.
- * - Cleans up listener on unmount.
+ * Uses granular child listeners (onChildAdded/Changed/Removed) so that each
+ * user's heartbeat only triggers a targeted store update for that user,
+ * not a full replacement of the entire presence map. This prevents unnecessary
+ * re-renders of all presence subscribers when any single user's heartbeat fires.
  */
 export function usePresenceSync(boardId: string | undefined): void {
   useEffect(() => {
     if (!boardId) return;
 
-    const unsubscribe = onPresenceChange(boardId, (presence) => {
-      usePresenceStore.getState().setPresence(presence ?? {});
+    const store = usePresenceStore.getState();
+
+    const unsubscribe = onPresenceChildEvents(boardId, {
+      onAdd: (userId, data) => store.upsertPresence(userId, data),
+      onChange: (userId, data) => store.upsertPresence(userId, data),
+      onRemove: (userId) => store.removePresence(userId),
     });
 
     return () => {
       unsubscribe();
+      usePresenceStore.getState().setPresence({});
     };
   }, [boardId]);
 }

@@ -37,8 +37,8 @@ interface CanvasProps {
   boardId: string;
 }
 
-const CURSOR_THROTTLE_MS = 33; // ~30 Hz
-const CURSOR_MIN_DISTANCE = 5; // px
+const CURSOR_THROTTLE_MS = 16; // ~60 Hz — minimizes throttle contribution to <50ms sync latency
+const CURSOR_MIN_DISTANCE = 3; // px — tighter threshold for smoother remote cursor movement
 
 // --- Helper: get last-used or default color for a tool ---
 function getColorForTool(

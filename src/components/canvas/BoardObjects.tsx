@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useAuthStore } from "@/lib/store/authStore";
@@ -55,38 +56,41 @@ export default function BoardObjects({
   const mode = useCanvasStore((s) => s.mode);
   const creationTool = useCanvasStore((s) => s.creationTool);
 
-  // Viewport culling bounds in canvas-space
-  const padding = 200;
-  const vpLeft = -stageX / stageScale - padding;
-  const vpTop = -stageY / stageScale - padding;
-  const vpRight = vpLeft + width / stageScale + padding * 2;
-  const vpBottom = vpTop + height / stageScale + padding * 2;
+  // Memoized viewport culling + sort — only recomputes when objects or viewport change.
+  // For 500+ objects this avoids O(N) scan + sort on every unrelated re-render.
+  const { layeredObjects, connectors } = useMemo(() => {
+    const padding = 200;
+    const vpLeft = -stageX / stageScale - padding;
+    const vpTop = -stageY / stageScale - padding;
+    const vpRight = vpLeft + width / stageScale + padding * 2;
+    const vpBottom = vpTop + height / stageScale + padding * 2;
 
-  const allObjects = Object.values(objects);
+    const allObjects = Object.values(objects);
+    const layered: BoardObject[] = [];
+    const conns: BoardObject[] = [];
 
-  // Separate connectors (always on top) from everything else
-  const layeredObjects: BoardObject[] = [];
-  const connectors: BoardObject[] = [];
+    for (const obj of allObjects) {
+      // Viewport culling (connectors skip culling — they're derived from endpoints)
+      if (obj.type !== "connector") {
+        if (obj.x + obj.width < vpLeft) continue;
+        if (obj.x > vpRight) continue;
+        if (obj.y + obj.height < vpTop) continue;
+        if (obj.y > vpBottom) continue;
+      }
 
-  for (const obj of allObjects) {
-    // Viewport culling (connectors skip culling — they're derived from endpoints)
-    if (obj.type !== "connector") {
-      if (obj.x + obj.width < vpLeft) continue;
-      if (obj.x > vpRight) continue;
-      if (obj.y + obj.height < vpTop) continue;
-      if (obj.y > vpBottom) continue;
+      if (obj.type === "connector") {
+        conns.push(obj);
+      } else {
+        layered.push(obj);
+      }
     }
 
-    if (obj.type === "connector") {
-      connectors.push(obj);
-    } else {
-      layeredObjects.push(obj);
-    }
-  }
+    // Sort by zIndex first, then createdAt as tiebreaker
+    layered.sort(zSort);
+    conns.sort(zSort);
 
-  // Sort by zIndex first, then createdAt as tiebreaker
-  layeredObjects.sort(zSort);
-  connectors.sort(zSort);
+    return { layeredObjects: layered, connectors: conns };
+  }, [objects, stageX, stageY, stageScale, width, height]);
 
   const isConnectorMode = mode === "create" && creationTool === "connector";
 

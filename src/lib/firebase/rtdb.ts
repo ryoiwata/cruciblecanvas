@@ -138,6 +138,47 @@ export function onPresenceChange(
   });
 }
 
+/**
+ * Subscribes to individual presence changes using granular child listeners.
+ * More efficient than onPresenceChange — only fires for the specific user
+ * that changed, preventing all presence subscribers from re-rendering on
+ * every heartbeat write by any user.
+ */
+export function onPresenceChildEvents(
+  boardId: string,
+  callbacks: {
+    onAdd: (userId: string, data: PresenceData) => void;
+    onChange: (userId: string, data: PresenceData) => void;
+    onRemove: (userId: string) => void;
+  }
+): Unsubscribe {
+  const presenceRef = ref(rtdb, `boards/${boardId}/presence`);
+
+  const unsubAdd = onChildAdded(presenceRef, (snapshot) => {
+    if (snapshot.key && snapshot.val()) {
+      callbacks.onAdd(snapshot.key, snapshot.val());
+    }
+  });
+
+  const unsubChange = onChildChanged(presenceRef, (snapshot) => {
+    if (snapshot.key && snapshot.val()) {
+      callbacks.onChange(snapshot.key, snapshot.val());
+    }
+  });
+
+  const unsubRemove = onChildRemoved(presenceRef, (snapshot) => {
+    if (snapshot.key) {
+      callbacks.onRemove(snapshot.key);
+    }
+  });
+
+  return () => {
+    unsubAdd();
+    unsubChange();
+    unsubRemove();
+  };
+}
+
 export function removePresence(boardId: string, userId: string): void {
   const presenceRef = ref(rtdb, `boards/${boardId}/presence/${userId}`);
   remove(presenceRef);
