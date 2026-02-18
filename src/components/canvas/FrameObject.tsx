@@ -63,6 +63,12 @@ export default memo(function FrameObject({
       y: c.y,
     }));
 
+    const { startLocalEdit } = useObjectStore.getState();
+    startLocalEdit(object.id);
+    for (const snap of childSnapshots.current) {
+      startLocalEdit(snap.id);
+    }
+
     acquireLock(boardId, object.id, user.uid, displayName || "Guest");
   };
 
@@ -101,6 +107,12 @@ export default memo(function FrameObject({
     }
 
     releaseLock(boardId, object.id);
+
+    const { endLocalEdit } = useObjectStore.getState();
+    endLocalEdit(object.id);
+    for (const snap of childSnapshots.current) {
+      endLocalEdit(snap.id);
+    }
 
     try {
       await updateObjects(boardId, [

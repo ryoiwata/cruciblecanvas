@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useFirestoreSync } from "@/hooks/useFirestoreSync";
 import { useLockSync } from "@/hooks/useLockSync";
+import { usePresenceSync } from "@/hooks/usePresenceSync";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import {
   setPresence,
@@ -20,6 +21,7 @@ import ShortcutLegend from "@/components/ui/ShortcutLegend";
 import ContextMenu from "@/components/ui/ContextMenu";
 import ColorPicker from "@/components/ui/ColorPicker";
 import DeleteDialog from "@/components/ui/DeleteDialog";
+import PresenceIndicator from "@/components/ui/PresenceIndicator";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -58,23 +60,54 @@ export default function BoardPage() {
   // RTDB lock sync — only after auth resolves
   useLockSync(user ? boardId : undefined);
 
-  // Presence + cursor cleanup
+  // RTDB presence sync — subscribe to other users' presence
+  usePresenceSync(user ? boardId : undefined);
+
+  // Presence + cursor cleanup + heartbeat
   useEffect(() => {
     if (!user) return;
 
     const color = getUserColor(user.uid);
 
-    setPresence(boardId, user.uid, {
+    const presenceData = {
       name: displayName || "Guest",
       email: user.email || undefined,
       photoURL: user.photoURL || undefined,
       color,
       isAnonymous: user.isAnonymous,
-    });
+    };
 
+    setPresence(boardId, user.uid, presenceData);
     setupCursorDisconnect(boardId, user.uid);
 
+    // Heartbeat: update lastSeen every 15 seconds while tab is visible
+    let heartbeatId: ReturnType<typeof setInterval> | null = setInterval(() => {
+      setPresence(boardId, user.uid, presenceData);
+    }, 15_000);
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        // Tab hidden — stop heartbeat
+        if (heartbeatId) {
+          clearInterval(heartbeatId);
+          heartbeatId = null;
+        }
+      } else {
+        // Tab visible — resume heartbeat + immediate presence update
+        setPresence(boardId, user.uid, presenceData);
+        if (!heartbeatId) {
+          heartbeatId = setInterval(() => {
+            setPresence(boardId, user.uid, presenceData);
+          }, 15_000);
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+
     return () => {
+      if (heartbeatId) clearInterval(heartbeatId);
+      document.removeEventListener("visibilitychange", handleVisibility);
       removePresence(boardId, user.uid);
       removeCursor(boardId, user.uid);
     };
@@ -108,6 +141,7 @@ export default function BoardPage() {
     <>
       <Toolbar boardId={boardId} />
       <ShortcutLegend />
+      <PresenceIndicator />
       <Canvas boardId={boardId} />
       <ContextMenu boardId={boardId} />
       <ColorPicker boardId={boardId} />

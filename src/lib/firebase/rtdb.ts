@@ -3,6 +3,9 @@ import {
   set,
   remove,
   onValue,
+  onChildAdded,
+  onChildChanged,
+  onChildRemoved,
   onDisconnect,
   serverTimestamp,
   type Unsubscribe,
@@ -31,6 +34,46 @@ export function onCursorsChange(
   return onValue(cursorsRef, (snapshot) => {
     callback(snapshot.val());
   });
+}
+
+/**
+ * Subscribes to individual cursor changes using granular child listeners.
+ * More efficient than onCursorsChange — only fires for the specific cursor that changed.
+ * Returns a cleanup function that unsubscribes all three listeners.
+ */
+export function onCursorChildEvents(
+  boardId: string,
+  callbacks: {
+    onAdd: (userId: string, data: CursorData) => void;
+    onChange: (userId: string, data: CursorData) => void;
+    onRemove: (userId: string) => void;
+  }
+): Unsubscribe {
+  const cursorsRef = ref(rtdb, `boards/${boardId}/cursors`);
+
+  const unsubAdd = onChildAdded(cursorsRef, (snapshot) => {
+    if (snapshot.key && snapshot.val()) {
+      callbacks.onAdd(snapshot.key, snapshot.val());
+    }
+  });
+
+  const unsubChange = onChildChanged(cursorsRef, (snapshot) => {
+    if (snapshot.key && snapshot.val()) {
+      callbacks.onChange(snapshot.key, snapshot.val());
+    }
+  });
+
+  const unsubRemove = onChildRemoved(cursorsRef, (snapshot) => {
+    if (snapshot.key) {
+      callbacks.onRemove(snapshot.key);
+    }
+  });
+
+  return () => {
+    unsubAdd();
+    unsubChange();
+    unsubRemove();
+  };
 }
 
 export function removeCursor(boardId: string, userId: string): void {

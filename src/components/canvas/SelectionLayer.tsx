@@ -6,6 +6,8 @@ import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
+import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
+import { useAuthStore } from "@/lib/store/authStore";
 import { setTransforming, borderResizingIds } from "@/lib/resizeState";
 import { syncKonvaChildren } from "@/lib/konvaSync";
 
@@ -197,8 +199,13 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
     activeAnchorRef.current = transformer.getActiveAnchor() || null;
     setTransforming(true);
     const { startLocalEdit } = useObjectStore.getState();
+    const { user, displayName } = useAuthStore.getState();
+    const boardId = getBoardIdFromUrl();
     for (const node of transformer.nodes()) {
       startLocalEdit(node.id());
+      if (user && boardId) {
+        acquireLock(boardId, node.id(), user.uid, displayName || "Guest");
+      }
     }
   }, []);
 
@@ -271,8 +278,12 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         updateObjectLocal(id, updates);
         updateObject(getBoardIdFromUrl(), id, updates).catch(console.error);
 
-        // Release local edit guard after persisting
+        // Release local edit guard and soft lock after persisting
         endLocalEdit(id);
+        const boardId = getBoardIdFromUrl();
+        if (boardId) {
+          releaseLock(boardId, id);
+        }
       }
 
       // Force a synchronous draw of the objects layer to paint correct dimensions

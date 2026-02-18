@@ -51,6 +51,7 @@ export default memo(function StickyNote({
     if (!user) return;
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
+    useObjectStore.getState().startLocalEdit(object.id);
     acquireLock(boardId, object.id, user.uid, displayName || "Guest");
   };
 
@@ -67,6 +68,7 @@ export default memo(function StickyNote({
     node.y(finalY);
     updateObjectLocal(object.id, { x: finalX, y: finalY });
     releaseLock(boardId, object.id);
+    useObjectStore.getState().endLocalEdit(object.id);
 
     try {
       await updateObject(boardId, object.id, { x: finalX, y: finalY });
