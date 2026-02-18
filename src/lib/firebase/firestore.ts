@@ -2,13 +2,14 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
   updateDoc,
   deleteDoc,
   serverTimestamp,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "./config";
-import type { BoardObject } from "../types";
+import type { BoardObject, BoardMetadata } from "../types";
 
 /**
  * Generates a new Firestore document ID without writing anything.
@@ -194,4 +195,33 @@ export async function createBoardMetadata(
     aiCommandsResetAt: serverTimestamp(),
     analysisHistory: [],
   });
+}
+
+/**
+ * Reads the board metadata document.
+ * Returns null if the document doesn't exist.
+ */
+export async function getBoardMetadata(
+  boardId: string
+): Promise<BoardMetadata | null> {
+  const docRef = doc(db, "boards", boardId, "metadata", "config");
+  const snap = await getDoc(docRef);
+  return snap.exists() ? (snap.data() as BoardMetadata) : null;
+}
+
+/**
+ * Partial update to the board metadata document.
+ */
+export async function updateBoardMetadata(
+  boardId: string,
+  updates: Partial<BoardMetadata>
+): Promise<void> {
+  const docRef = doc(db, "boards", boardId, "metadata", "config");
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) {
+      cleaned[key] = value;
+    }
+  }
+  await updateDoc(docRef, cleaned);
 }

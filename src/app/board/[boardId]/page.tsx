@@ -22,6 +22,8 @@ import ContextMenu from "@/components/ui/ContextMenu";
 import ColorPicker from "@/components/ui/ColorPicker";
 import DeleteDialog from "@/components/ui/DeleteDialog";
 import PresenceIndicator from "@/components/ui/PresenceIndicator";
+import PrivacyToggle from "@/components/ui/PrivacyToggle";
+import ShareButton from "@/components/ui/ShareButton";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -141,7 +143,14 @@ export default function BoardPage() {
     <>
       <Toolbar boardId={boardId} />
       <ShortcutLegend />
-      <PresenceIndicator />
+
+      {/* Top-right header controls: Privacy toggle, Share button, Presence */}
+      <div className="fixed top-4 right-4 z-50 flex items-center gap-3">
+        <PrivacyToggle boardId={boardId} />
+        <ShareButton boardId={boardId} />
+        <PresenceIndicator />
+      </div>
+
       <Canvas boardId={boardId} />
       <ContextMenu boardId={boardId} />
       <ColorPicker boardId={boardId} />

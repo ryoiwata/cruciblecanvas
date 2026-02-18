@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Circle, Text, Group } from "react-konva";
+import { Path, Rect, Text, Group } from "react-konva";
 import { onCursorChildEvents } from "@/lib/firebase/rtdb";
 import { useAuthStore } from "@/lib/store/authStore";
 import type { CursorData } from "@/lib/types";
@@ -11,6 +11,16 @@ interface CursorLayerProps {
 }
 
 const STALE_THRESHOLD_MS = 10_000; // Ignore cursors older than 10 seconds
+
+// Standard cursor arrow pointer path (points top-left)
+const CURSOR_ARROW_PATH =
+  "M0,0 L0,16 L4.5,12.5 L8,20 L10.5,19 L7,11.5 L12,11.5 Z";
+
+const NAME_TAG_Y = 22;
+const NAME_TAG_FONT_SIZE = 11;
+const NAME_TAG_PADDING_X = 6;
+const NAME_TAG_PADDING_Y = 3;
+const NAME_TAG_CORNER_RADIUS = 4;
 
 /**
  * Renders remote user cursors from RTDB.
@@ -59,19 +69,43 @@ export default function CursorLayer({ boardId }: CursorLayerProps) {
 
   return (
     <>
-      {remoteCursors.map(([id, cursor]) => (
-        <Group key={id} x={cursor.x} y={cursor.y}>
-          <Circle radius={6} fill={cursor.color} />
-          <Text
-            text={cursor.name}
-            y={10}
-            fontSize={12}
-            fontFamily="sans-serif"
-            fill={cursor.color}
-            offsetX={0}
-          />
-        </Group>
-      ))}
+      {remoteCursors.map(([id, cursor]) => {
+        // Estimate name tag width based on character count
+        const nameWidth =
+          cursor.name.length * (NAME_TAG_FONT_SIZE * 0.6) +
+          NAME_TAG_PADDING_X * 2;
+        const nameHeight = NAME_TAG_FONT_SIZE + NAME_TAG_PADDING_Y * 2;
+
+        return (
+          <Group key={id} x={cursor.x} y={cursor.y}>
+            {/* Pointer arrow icon */}
+            <Path
+              data={CURSOR_ARROW_PATH}
+              fill={cursor.color}
+              stroke="#ffffff"
+              strokeWidth={1}
+            />
+
+            {/* Name tag */}
+            <Group y={NAME_TAG_Y} x={2}>
+              <Rect
+                width={nameWidth}
+                height={nameHeight}
+                fill={cursor.color}
+                cornerRadius={NAME_TAG_CORNER_RADIUS}
+              />
+              <Text
+                text={cursor.name}
+                x={NAME_TAG_PADDING_X}
+                y={NAME_TAG_PADDING_Y}
+                fontSize={NAME_TAG_FONT_SIZE}
+                fontFamily="sans-serif"
+                fill="#ffffff"
+              />
+            </Group>
+          </Group>
+        );
+      })}
     </>
   );
 }
