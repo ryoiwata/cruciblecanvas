@@ -13,6 +13,7 @@ import {
   where,
   orderBy,
   limit,
+  Timestamp,
 } from "firebase/firestore";
 import { db } from "./config";
 import type { BoardObject, BoardMetadata } from "../types";
@@ -259,6 +260,53 @@ export async function getUserBoards(
     const pathSegments = docSnap.ref.path.split("/");
     const boardId = pathSegments[1]; // Extract boardId from path
     boards.push({ ...(docSnap.data() as BoardMetadata), boardId });
+  }
+
+  return boards;
+}
+
+// ---------------------------------------------------------------------------
+// Board visit tracking (users/{userId}/visitedBoards/{boardId})
+// ---------------------------------------------------------------------------
+
+/**
+ * Records that a user visited a board. Updates the lastVisited timestamp.
+ */
+export async function recordBoardVisit(
+  userId: string,
+  boardId: string
+): Promise<void> {
+  const docRef = doc(db, "users", userId, "visitedBoards", boardId);
+  await setDoc(
+    docRef,
+    { boardId, lastVisited: serverTimestamp() },
+    { merge: true }
+  );
+}
+
+/**
+ * Fetches boards the user has visited (that they didn't create).
+ * Returns board metadata + boardId for display on the dashboard.
+ */
+export async function getVisitedBoards(
+  userId: string
+): Promise<(BoardMetadata & { boardId: string; lastVisited?: Timestamp | number })[]> {
+  const q = query(
+    collection(db, "users", userId, "visitedBoards"),
+    orderBy("lastVisited", "desc"),
+    limit(50)
+  );
+  const snapshot = await getDocs(q);
+  const boards: (BoardMetadata & { boardId: string; lastVisited?: Timestamp | number })[] = [];
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data();
+    const boardId = data.boardId as string;
+    // Fetch the board metadata to get the title and other info
+    const meta = await getBoardMetadata(boardId);
+    if (meta) {
+      boards.push({ ...meta, boardId, lastVisited: data.lastVisited });
+    }
   }
 
   return boards;

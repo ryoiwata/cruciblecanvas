@@ -3,7 +3,7 @@
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
-import type { ObjectType } from "@/lib/types";
+import type { ObjectType, StickyFontFamily } from "@/lib/types";
 import AlignMenu from "./AlignMenu";
 import ArrangeMenu from "./ArrangeMenu";
 
@@ -73,6 +73,11 @@ export default function Toolbar({ boardId }: ToolbarProps) {
   const objects = useObjectStore((s) => s.objects);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
+  // Selected sticky notes (for font selector)
+  const selectedStickies = selectedObjectIds
+    .map((id) => objects[id])
+    .filter((o) => o && o.type === "stickyNote");
+
   // Compute average opacity of selected non-connector objects
   const selectedNonConnectors = selectedObjectIds
     .map((id) => objects[id])
@@ -82,6 +87,13 @@ export default function Toolbar({ boardId }: ToolbarProps) {
       ? selectedNonConnectors.reduce((sum, o) => sum + (o.opacity ?? 1), 0) /
         selectedNonConnectors.length
       : 1;
+
+  const handleFontChange = (font: StickyFontFamily) => {
+    for (const obj of selectedStickies) {
+      updateObjectLocal(obj.id, { fontFamily: font });
+      updateObject(boardId, obj.id, { fontFamily: font }).catch(console.error);
+    }
+  };
 
   const handleOpacityChange = (value: number) => {
     const opacity = Math.round(value) / 100;
@@ -130,6 +142,25 @@ export default function Toolbar({ boardId }: ToolbarProps) {
       {/* Align & Arrange dropdowns */}
       <AlignMenu boardId={boardId} />
       <ArrangeMenu boardId={boardId} />
+
+      {/* Font selector (visible when sticky notes are selected) */}
+      {selectedStickies.length > 0 && (
+        <>
+          <div className="mx-1 h-6 w-px bg-gray-200" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-500">Font</span>
+            <select
+              value={selectedStickies[0].fontFamily || "sans-serif"}
+              onChange={(e) => handleFontChange(e.target.value as StickyFontFamily)}
+              className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-xs text-gray-700 focus:border-indigo-500 focus:outline-none"
+            >
+              <option value="sans-serif">Sans-Serif</option>
+              <option value="handwritten">Handwritten</option>
+              <option value="monospace">Monospace</option>
+            </select>
+          </div>
+        </>
+      )}
 
       {/* Opacity slider (visible when non-connector objects are selected) */}
       {selectedNonConnectors.length > 0 && (

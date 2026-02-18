@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, memo } from "react";
-import { Group, Rect, Text } from "react-konva";
+import { Group, Rect, Text, Line } from "react-konva";
 import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
@@ -10,6 +10,7 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
+import { FONT_FAMILY_MAP } from "@/lib/types";
 import { borderResizingIds } from "@/lib/resizeState";
 
 interface StickyNoteProps {
@@ -48,6 +49,16 @@ export default memo(function StickyNote({
 
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
+  const fontFamily = FONT_FAMILY_MAP[object.fontFamily || "sans-serif"];
+
+  // Generate notepad lines
+  const lineSpacing = 22;
+  const lineStartY = 30; // Start below top padding
+  const lineMarginX = 8;
+  const notepadLines: number[] = [];
+  for (let y = lineStartY; y < object.height - 10; y += lineSpacing) {
+    notepadLines.push(y);
+  }
 
   const handleDragStart = () => {
     if (!user) return;
@@ -146,6 +157,17 @@ export default memo(function StickyNote({
         strokeWidth={isSelected ? 2 : 0}
       />
 
+      {/* Notepad lines */}
+      {notepadLines.map((y) => (
+        <Line
+          key={y}
+          points={[lineMarginX, y, object.width - lineMarginX, y]}
+          stroke="rgba(0,0,0,0.08)"
+          strokeWidth={1}
+          listening={false}
+        />
+      ))}
+
       {/* Text content */}
       {object.text !== undefined && object.text !== "" && (
         <Text
@@ -154,7 +176,7 @@ export default memo(function StickyNote({
           x={10}
           y={10}
           fontSize={14}
-          fontFamily="sans-serif"
+          fontFamily={fontFamily}
           fill="#1a1a1a"
           ellipsis={true}
           wrap="word"

@@ -22,6 +22,14 @@ export type AnalyticalRole =
 
 export type ConnectorStyle = "solid" | "dashed" | "dotted";
 
+export type StickyFontFamily = "sans-serif" | "handwritten" | "monospace";
+
+export const FONT_FAMILY_MAP: Record<StickyFontFamily, string> = {
+  "sans-serif": "sans-serif",
+  handwritten: "Segoe Print, Comic Sans MS, cursive",
+  monospace: "Courier New, monospace",
+} as const;
+
 // ---------------------------------------------------------------------------
 // Board Object (Firestore: boards/{boardId}/objects/{objectId})
 // ---------------------------------------------------------------------------
@@ -58,6 +66,7 @@ export interface BoardObject {
   text?: string;
   opacity?: number; // 0-1, defaults to 1
   zIndex?: number;  // explicit layer order; higher = in front
+  fontFamily?: StickyFontFamily; // font for text content
 
   // Ownership & timestamps
   createdBy: string;

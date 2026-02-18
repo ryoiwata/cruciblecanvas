@@ -4,7 +4,11 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/lib/store/authStore";
 import { signOutUser } from "@/lib/firebase/auth";
-import { createBoardMetadata, getUserBoards } from "@/lib/firebase/firestore";
+import {
+  createBoardMetadata,
+  getUserBoards,
+  getVisitedBoards,
+} from "@/lib/firebase/firestore";
 import type { BoardMetadata } from "@/lib/types";
 import type { Timestamp } from "firebase/firestore";
 
@@ -38,6 +42,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [boards, setBoards] = useState<(BoardMetadata & { boardId: string })[]>([]);
+  const [visitedBoards, setVisitedBoards] = useState<(BoardMetadata & { boardId: string })[]>([]);
   const [boardsLoading, setBoardsLoading] = useState(true);
   const [joinInput, setJoinInput] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -46,12 +51,25 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
     setBoardsLoading(true);
-    getUserBoards(user.uid)
-      .then(setBoards)
-      .catch((err) => {
+
+    const fetchBoards = async () => {
+      try {
+        const [created, visited] = await Promise.all([
+          getUserBoards(user.uid),
+          user.isAnonymous ? Promise.resolve([]) : getVisitedBoards(user.uid),
+        ]);
+        setBoards(created);
+        // Filter out boards the user created (already shown in "Your Boards")
+        const createdIds = new Set(created.map((b) => b.boardId));
+        setVisitedBoards(visited.filter((b) => !createdIds.has(b.boardId)));
+      } catch (err) {
         console.error("Failed to fetch boards:", err);
-      })
-      .finally(() => setBoardsLoading(false));
+      } finally {
+        setBoardsLoading(false);
+      }
+    };
+
+    fetchBoards();
   }, [user]);
 
   if (isLoading) {
@@ -190,6 +208,34 @@ export default function DashboardPage() {
               </button>
             ))}
           </div>
+        )}
+
+        {/* Visited boards */}
+        {visitedBoards.length > 0 && (
+          <>
+            <h2 className="mt-10 mb-4 text-xl font-semibold text-gray-900">
+              Recently Visited
+            </h2>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {visitedBoards.map((board) => (
+                <button
+                  key={board.boardId}
+                  onClick={() => router.push(`/board/${board.boardId}`)}
+                  className="flex flex-col rounded-lg border border-gray-200 bg-white p-5 text-left transition-shadow hover:shadow-md"
+                >
+                  <div className="mb-2 flex items-center gap-2">
+                    <span className="text-base font-medium text-gray-900 truncate">
+                      {board.title || "Untitled Board"}
+                    </span>
+                    <span className="text-xs text-indigo-400">visited</span>
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {board.createdAt ? timeAgo(board.createdAt) : ""}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </main>
     </div>

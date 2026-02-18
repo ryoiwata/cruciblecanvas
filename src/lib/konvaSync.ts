@@ -42,6 +42,12 @@ export function syncKonvaChildren(
       break;
     }
     case "stickyNote": {
+      // Recalculate notepad line positions for new height
+      const lineSpacing = 22;
+      const lineStartY = 30;
+      const lineMarginX = 8;
+      let lineIndex = 0;
+
       for (const child of children) {
         const cls = child.getClassName();
         if (cls === "Rect") {
@@ -51,7 +57,19 @@ export function syncKonvaChildren(
           const t = child as unknown as Konva.Text;
           if (t.wrap() === "word") {
             t.width(w - 20);
+            t.height(h - 20);
           }
+        } else if (cls === "Line") {
+          // Update notepad line endpoints for new width and show/hide based on height
+          const lineY = lineStartY + lineIndex * lineSpacing;
+          const line = child as unknown as Konva.Line;
+          if (lineY < h - 10) {
+            line.points([lineMarginX, lineY, w - lineMarginX, lineY]);
+            line.visible(true);
+          } else {
+            line.visible(false);
+          }
+          lineIndex++;
         }
       }
       break;

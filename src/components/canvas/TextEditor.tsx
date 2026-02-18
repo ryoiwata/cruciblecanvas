@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
-import { STICKY_NOTE_SIZE_LIMITS } from "@/lib/types";
+import { STICKY_NOTE_SIZE_LIMITS, FONT_FAMILY_MAP } from "@/lib/types";
 
 interface TextEditorProps {
   boardId: string;
@@ -130,7 +130,9 @@ export default function TextEditor({ boardId }: TextEditorProps) {
           transform: `scale(1)`,
           transformOrigin: "top left",
           fontSize: `${14 * stageScale}px`,
-          fontFamily: "sans-serif",
+          fontFamily: object.type === "stickyNote"
+            ? FONT_FAMILY_MAP[object.fontFamily || "sans-serif"]
+            : "sans-serif",
           fontWeight: isFrame ? "bold" : "normal",
           padding: `${10 * stageScale}px`,
           border: "2px solid #6366f1",
