@@ -5,6 +5,8 @@ import {
   removeCursor,
   setupPresenceDisconnect,
   setupCursorDisconnect,
+  cancelPresenceDisconnect,
+  cancelCursorDisconnect,
   updatePresenceTimestamp,
   getPresenceSnapshot,
   onPresenceChildEvents,
@@ -235,6 +237,10 @@ export function useMultiplayer({
     return () => {
       stopHeartbeat();
       document.removeEventListener("visibilitychange", handleVisibility);
+      // Cancel onDisconnect handlers BEFORE removing nodes to prevent
+      // ghost re-creation (onDisconnect would re-create partial nodes)
+      cancelPresenceDisconnect(boardId, user.uid);
+      cancelCursorDisconnect(boardId, user.uid);
       removePresence(boardId, user.uid);
       removeCursor(boardId, user.uid);
       presenceLogger.presenceRemoved(user.uid);

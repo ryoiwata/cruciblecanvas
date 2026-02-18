@@ -1,0 +1,24 @@
+{
+  "rules": {
+    "boards": {
+      "$boardId": {
+        "cursors": {
+          ".read": "auth != null",
+          "$userId": {
+            ".write": "auth != null && auth.uid === $userId"
+          }
+        },
+        "presence": {
+          ".read": "auth != null",
+          "$userId": {
+            ".write": "auth != null && auth.uid === $userId"
+          }
+        },
+        "locks": {
+          ".read": "auth != null",
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}

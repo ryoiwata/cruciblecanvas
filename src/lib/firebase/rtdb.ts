@@ -17,6 +17,20 @@ import { presenceLogger } from "../debug/presenceLogger";
 import type { CursorData, PresenceData, ObjectLock } from "../types";
 
 // ---------------------------------------------------------------------------
+// Shared error handler — surfaces RTDB permission errors visibly
+// ---------------------------------------------------------------------------
+
+function handleListenerError(context: string) {
+  return (error: Error) => {
+    console.error(
+      `[RTDB] Listener cancelled (${context}): ${error.message}.\n` +
+        "Check Firebase RTDB security rules — authenticated users need read access to /boards/{boardId}/*."
+    );
+    presenceLogger.writeError(context, error);
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Connection monitoring — .info/connected
 // ---------------------------------------------------------------------------
 
@@ -46,6 +60,7 @@ export function setCursor(
 ): void {
   const cursorRef = ref(rtdb, `boards/${boardId}/cursors/${userId}`);
   set(cursorRef, data).catch((err) => {
+    console.error("[RTDB] setCursor failed:", err.message);
     presenceLogger.writeError("setCursor", err);
   });
 }
@@ -74,27 +89,40 @@ export function onCursorChildEvents(
   }
 ): Unsubscribe {
   const cursorsRef = ref(rtdb, `boards/${boardId}/cursors`);
+  const onError = handleListenerError("onCursorChildEvents");
 
-  const unsubAdd = onChildAdded(cursorsRef, (snapshot) => {
-    if (snapshot.key && snapshot.val()) {
-      presenceLogger.cursorReceived(snapshot.key, snapshot.val());
-      callbacks.onAdd(snapshot.key, snapshot.val());
-    }
-  });
+  const unsubAdd = onChildAdded(
+    cursorsRef,
+    (snapshot) => {
+      if (snapshot.key && snapshot.val()) {
+        presenceLogger.cursorReceived(snapshot.key, snapshot.val());
+        callbacks.onAdd(snapshot.key, snapshot.val());
+      }
+    },
+    onError
+  );
 
-  const unsubChange = onChildChanged(cursorsRef, (snapshot) => {
-    if (snapshot.key && snapshot.val()) {
-      presenceLogger.cursorReceived(snapshot.key, snapshot.val());
-      callbacks.onChange(snapshot.key, snapshot.val());
-    }
-  });
+  const unsubChange = onChildChanged(
+    cursorsRef,
+    (snapshot) => {
+      if (snapshot.key && snapshot.val()) {
+        presenceLogger.cursorReceived(snapshot.key, snapshot.val());
+        callbacks.onChange(snapshot.key, snapshot.val());
+      }
+    },
+    onError
+  );
 
-  const unsubRemove = onChildRemoved(cursorsRef, (snapshot) => {
-    if (snapshot.key) {
-      presenceLogger.cursorChildRemoved(snapshot.key);
-      callbacks.onRemove(snapshot.key);
-    }
-  });
+  const unsubRemove = onChildRemoved(
+    cursorsRef,
+    (snapshot) => {
+      if (snapshot.key) {
+        presenceLogger.cursorChildRemoved(snapshot.key);
+        callbacks.onRemove(snapshot.key);
+      }
+    },
+    onError
+  );
 
   return () => {
     unsubAdd();
@@ -127,6 +155,20 @@ export function setupCursorDisconnect(
     });
 }
 
+/**
+ * Cancels any pending onDisconnect handler for this user's cursor.
+ * Call before removing the cursor node to prevent ghost re-creation.
+ */
+export function cancelCursorDisconnect(
+  boardId: string,
+  userId: string
+): void {
+  const cursorRef = ref(rtdb, `boards/${boardId}/cursors/${userId}`);
+  onDisconnect(cursorRef).cancel().catch((err) => {
+    presenceLogger.writeError("cancelCursorDisconnect", err);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Presence — /boards/{boardId}/presence/{userId}
 // ---------------------------------------------------------------------------
@@ -155,6 +197,7 @@ export function setPresence(
     online: true,
     lastSeen: Date.now(),
   }).catch((err) => {
+    console.error("[RTDB] setPresence failed:", err.message);
     presenceLogger.writeError("setPresence", err);
   });
 }
@@ -177,6 +220,20 @@ export function setupPresenceDisconnect(
     .catch((err) => {
       presenceLogger.writeError("setupPresenceDisconnect", err);
     });
+}
+
+/**
+ * Cancels any pending onDisconnect handler for this user's presence.
+ * Call before removing the presence node to prevent ghost re-creation.
+ */
+export function cancelPresenceDisconnect(
+  boardId: string,
+  userId: string
+): void {
+  const presenceRef = ref(rtdb, `boards/${boardId}/presence/${userId}`);
+  onDisconnect(presenceRef).cancel().catch((err) => {
+    presenceLogger.writeError("cancelPresenceDisconnect", err);
+  });
 }
 
 /**
@@ -231,27 +288,40 @@ export function onPresenceChildEvents(
   }
 ): Unsubscribe {
   const presenceRef = ref(rtdb, `boards/${boardId}/presence`);
+  const onError = handleListenerError("onPresenceChildEvents");
 
-  const unsubAdd = onChildAdded(presenceRef, (snapshot) => {
-    if (snapshot.key && snapshot.val()) {
-      presenceLogger.presenceAdded(snapshot.key, snapshot.val());
-      callbacks.onAdd(snapshot.key, snapshot.val());
-    }
-  });
+  const unsubAdd = onChildAdded(
+    presenceRef,
+    (snapshot) => {
+      if (snapshot.key && snapshot.val()) {
+        presenceLogger.presenceAdded(snapshot.key, snapshot.val());
+        callbacks.onAdd(snapshot.key, snapshot.val());
+      }
+    },
+    onError
+  );
 
-  const unsubChange = onChildChanged(presenceRef, (snapshot) => {
-    if (snapshot.key && snapshot.val()) {
-      presenceLogger.presenceChanged(snapshot.key, snapshot.val());
-      callbacks.onChange(snapshot.key, snapshot.val());
-    }
-  });
+  const unsubChange = onChildChanged(
+    presenceRef,
+    (snapshot) => {
+      if (snapshot.key && snapshot.val()) {
+        presenceLogger.presenceChanged(snapshot.key, snapshot.val());
+        callbacks.onChange(snapshot.key, snapshot.val());
+      }
+    },
+    onError
+  );
 
-  const unsubRemove = onChildRemoved(presenceRef, (snapshot) => {
-    if (snapshot.key) {
-      presenceLogger.presenceChildRemoved(snapshot.key);
-      callbacks.onRemove(snapshot.key);
-    }
-  });
+  const unsubRemove = onChildRemoved(
+    presenceRef,
+    (snapshot) => {
+      if (snapshot.key) {
+        presenceLogger.presenceChildRemoved(snapshot.key);
+        callbacks.onRemove(snapshot.key);
+      }
+    },
+    onError
+  );
 
   return () => {
     unsubAdd();

@@ -13,6 +13,14 @@ const firebaseConfig = {
   databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
 };
 
+if (typeof window !== "undefined" && !firebaseConfig.databaseURL) {
+  console.warn(
+    "[Firebase] NEXT_PUBLIC_FIREBASE_DATABASE_URL is not set. " +
+      "Realtime Database features (presence, cursors, locks) will not work. " +
+      "Set this environment variable to your RTDB URL, e.g. https://<project-id>-default-rtdb.firebaseio.com"
+  );
+}
+
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
