@@ -43,10 +43,12 @@ service cloud.firestore {
       }
 
       allow read: if request.auth != null && canAccessBoard();
+      // Users may only create messages under their own uid (BaaS-First security).
+      // AI response messages are persisted by the client using the requester's uid,
+      // distinguished from group messages by type == 'ai_response'.
       allow create: if request.auth != null
                     && canAccessBoard()
-                    && (request.resource.data.senderId == request.auth.uid
-                        || request.resource.data.senderId == 'ai');
+                    && request.resource.data.senderId == request.auth.uid;
       // Allow sender to update their own messages, or anyone to update AI status fields
       allow update: if request.auth != null
                     && (request.auth.uid == resource.data.senderId

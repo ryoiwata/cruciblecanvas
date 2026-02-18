@@ -170,7 +170,8 @@ export interface ChatMessage {
   aiError?: string;
 
   // Timestamps
-  createdAt: Timestamp | number;
+  // null occurs when Firestore's serverTimestamp() is still pending on the optimistic snapshot
+  createdAt: Timestamp | number | null;
 }
 
 // RTDB AI stream — /boards/{boardId}/aiStreams/{commandId}

@@ -90,11 +90,13 @@ export function useAICommand(boardId: string): UseAICommandReturn {
       addMessage(commandMsg);
 
       // Build optimistic ai_response placeholder
+      // senderId uses the requester's uid so the Firestore rule (senderId == request.auth.uid)
+      // is satisfied. The 'ai_response' type distinguishes it from group messages in the UI.
       const responseMsgId = `optimistic-resp-${aiCommandId}`;
       const responseMsg: ChatMessage = {
         id: responseMsgId,
         boardId,
-        senderId: 'ai',
+        senderId: user.uid,
         senderName: 'AI Assistant',
         type: 'ai_response',
         content: '',
@@ -223,7 +225,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         // Write the final ai_response message to Firestore
         const finalMsgId = await sendChatMessage(boardId, {
           boardId,
-          senderId: 'ai',
+          senderId: user.uid,
           senderName: 'AI Assistant',
           type: 'ai_response',
           content: accumulatedContent,
@@ -266,7 +268,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         // Persist the failure to Firestore
         sendChatMessage(boardId, {
           boardId,
-          senderId: 'ai',
+          senderId: user.uid,
           senderName: 'AI Assistant',
           type: 'ai_response',
           content: accumulatedContent,

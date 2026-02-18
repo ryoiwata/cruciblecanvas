@@ -1,6 +1,7 @@
 /**
  * tools.ts — Vercel AI SDK v6 tool definitions for the CrucibleCanvas AI board agent.
- * Each tool maps to a board manipulation operation backed by Firebase Admin SDK writes.
+ * Each tool maps to a board manipulation operation backed by Firestore REST API writes.
+ * Uses the requesting user's ID token so writes flow through Security Rules (BaaS pattern).
  * Tools are called as Claude streams its response — each execute() call writes to Firestore
  * with isAIPending: true for soft-commit rendering at 50% opacity.
  */
@@ -9,12 +10,12 @@ import { tool, zodSchema } from 'ai';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  adminCreateObject,
-  adminUpdateObject,
-  adminDeleteObject,
-  adminBatchUpdate,
-  adminGetObjects,
-} from '@/lib/firebase/admin';
+  restCreateObject,
+  restUpdateObject,
+  restDeleteObject,
+  restGetObjects,
+  restBatchUpdateObjects,
+} from '@/lib/firebase/firestoreRest';
 import {
   snapToGrid,
   clampSize,
@@ -31,14 +32,16 @@ interface ToolContext {
   boardId: string;
   userId: string;
   aiCommandId: string;
+  /** Firebase ID token used to authenticate Firestore REST API calls. */
+  userToken: string;
 }
 
 /**
  * Creates the full set of AI tool definitions, each bound to a board context.
- * The context (boardId, userId, aiCommandId) is closed over by each execute() function.
+ * The context (boardId, userId, aiCommandId, userToken) is closed over by each execute() function.
  */
 export function createAITools(ctx: ToolContext) {
-  const { boardId, userId, aiCommandId } = ctx;
+  const { boardId, userId, aiCommandId, userToken } = ctx;
 
   return {
     // -------------------------------------------------------------------------
@@ -58,7 +61,7 @@ export function createAITools(ctx: ToolContext) {
       execute: async ({ text, x, y, color }: { text: string; x: number; y: number; color: string }) => {
         const coords = validateCoordinates(snapToGrid(x), snapToGrid(y));
         const id = uuidv4();
-        await adminCreateObject(boardId, {
+        await restCreateObject(boardId, {
           id,
           type: 'stickyNote',
           text,
@@ -71,7 +74,7 @@ export function createAITools(ctx: ToolContext) {
           isAIGenerated: true,
           isAIPending: true,
           aiCommandId,
-        });
+        }, userToken);
         return { success: true, objectId: id };
       },
     }),
@@ -92,7 +95,7 @@ export function createAITools(ctx: ToolContext) {
         const coords = validateCoordinates(snapToGrid(x), snapToGrid(y));
         const clamped = clampSize(type as ObjectType, width, height);
         const id = uuidv4();
-        await adminCreateObject(boardId, {
+        await restCreateObject(boardId, {
           id,
           type,
           x: coords.x,
@@ -104,7 +107,7 @@ export function createAITools(ctx: ToolContext) {
           isAIGenerated: true,
           isAIPending: true,
           aiCommandId,
-        });
+        }, userToken);
         return { success: true, objectId: id };
       },
     }),
@@ -124,7 +127,7 @@ export function createAITools(ctx: ToolContext) {
         const coords = validateCoordinates(snapToGrid(x), snapToGrid(y));
         const clamped = clampSize('frame', width, height);
         const id = uuidv4();
-        await adminCreateObject(boardId, {
+        await restCreateObject(boardId, {
           id,
           type: 'frame',
           text: title,
@@ -137,7 +140,7 @@ export function createAITools(ctx: ToolContext) {
           isAIGenerated: true,
           isAIPending: true,
           aiCommandId,
-        });
+        }, userToken);
         return { success: true, objectId: id };
       },
     }),
@@ -155,7 +158,7 @@ export function createAITools(ctx: ToolContext) {
       ),
       execute: async ({ fromObjectId, toObjectId, style = 'solid', color = CONNECTOR_DEFAULTS.color, label }: { fromObjectId: string; toObjectId: string; style?: string; color?: string; label?: string }) => {
         const id = uuidv4();
-        await adminCreateObject(boardId, {
+        await restCreateObject(boardId, {
           id,
           type: 'connector',
           x: 0,
@@ -170,7 +173,7 @@ export function createAITools(ctx: ToolContext) {
           isAIGenerated: true,
           isAIPending: true,
           aiCommandId,
-        });
+        }, userToken);
         return { success: true, objectId: id };
       },
     }),
@@ -190,7 +193,7 @@ export function createAITools(ctx: ToolContext) {
       ),
       execute: async ({ objectId, x, y }: { objectId: string; x: number; y: number }) => {
         const coords = validateCoordinates(snapToGrid(x), snapToGrid(y));
-        await adminUpdateObject(boardId, objectId, { x: coords.x, y: coords.y });
+        await restUpdateObject(boardId, objectId, { x: coords.x, y: coords.y }, userToken);
         return { success: true };
       },
     }),
@@ -207,7 +210,7 @@ export function createAITools(ctx: ToolContext) {
       execute: async ({ objectId, width, height }: { objectId: string; width: number; height: number }) => {
         const w = Math.max(1, Math.min(4000, snapToGrid(width)));
         const h = Math.max(1, Math.min(4000, snapToGrid(height)));
-        await adminUpdateObject(boardId, objectId, { width: w, height: h });
+        await restUpdateObject(boardId, objectId, { width: w, height: h }, userToken);
         return { success: true };
       },
     }),
@@ -221,7 +224,7 @@ export function createAITools(ctx: ToolContext) {
         })
       ),
       execute: async ({ objectId, newText }: { objectId: string; newText: string }) => {
-        await adminUpdateObject(boardId, objectId, { text: newText });
+        await restUpdateObject(boardId, objectId, { text: newText }, userToken);
         return { success: true };
       },
     }),
@@ -235,7 +238,7 @@ export function createAITools(ctx: ToolContext) {
         })
       ),
       execute: async ({ objectId, color }: { objectId: string; color: string }) => {
-        await adminUpdateObject(boardId, objectId, { color });
+        await restUpdateObject(boardId, objectId, { color }, userToken);
         return { success: true };
       },
     }),
@@ -248,7 +251,7 @@ export function createAITools(ctx: ToolContext) {
         })
       ),
       execute: async ({ objectId }: { objectId: string }) => {
-        await adminDeleteObject(boardId, objectId);
+        await restDeleteObject(boardId, objectId, userToken);
         return { success: true };
       },
     }),
@@ -266,14 +269,18 @@ export function createAITools(ctx: ToolContext) {
           columns: z.number().optional().describe('Columns for grid layout (default: auto)'),
           spacing: z.number().optional().describe('Spacing between objects in pixels (default: 20)'),
           originX: z.number().optional().describe('X coordinate of the layout origin (default: 0)'),
-          originY: z.number().optional().describe('Y coordinate of the layout origin (default: 0)'),
+          originY: z.number().optional().describe('Y position for layout origin (default: 0)'),
         })
       ),
       execute: async ({ objectIds, layout, columns, spacing = 20, originX = 0, originY = 0 }: { objectIds: string[]; layout: 'grid' | 'horizontal' | 'vertical'; columns?: number; spacing?: number; originX?: number; originY?: number }) => {
-        const allObjects = await adminGetObjects(boardId);
+        const allObjects = await restGetObjects(boardId, userToken);
         const targetObjects = allObjects
-          .filter((o) => objectIds.includes(o.id))
-          .map((o) => ({ id: o.id, width: o.width, height: o.height }));
+          .filter((o) => objectIds.includes(o.id as string))
+          .map((o) => ({
+            id: o.id as string,
+            width: o.width as number,
+            height: o.height as number,
+          }));
 
         if (targetObjects.length === 0) {
           return { success: false, error: 'No matching objects found' };
@@ -302,9 +309,10 @@ export function createAITools(ctx: ToolContext) {
           });
         }
 
-        await adminBatchUpdate(
+        await restBatchUpdateObjects(
           boardId,
-          positions.map(({ id, x, y }) => ({ id, data: { x, y } }))
+          positions.map(({ id, x, y }) => ({ id, data: { x, y } })),
+          userToken
         );
 
         return { success: true, arranged: positions.length };
@@ -320,9 +328,15 @@ export function createAITools(ctx: ToolContext) {
       inputSchema: zodSchema(z.object({})),
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       execute: async (_args: Record<string, never>) => {
-        const objects = await adminGetObjects(boardId);
-        const objectsMap = Object.fromEntries(objects.map((o) => [o.id, o]));
-        const context = serializeBoardState(objectsMap, { x: -2000, y: -2000, width: 10000, height: 10000 }, []);
+        const objects = await restGetObjects(boardId, userToken);
+        const objectsMap = Object.fromEntries(objects.map((o) => [o.id as string, o]));
+        // Wide viewport to capture all objects for full board context.
+        // Cast through unknown because REST response is Record<string, unknown> at runtime.
+        const context = serializeBoardState(
+          objectsMap as unknown as Parameters<typeof serializeBoardState>[0],
+          { x: -2000, y: -2000, width: 10000, height: 10000 },
+          []
+        );
         return { boardState: context };
       },
     }),
@@ -335,7 +349,7 @@ export function createAITools(ctx: ToolContext) {
         })
       ),
       execute: async ({ frameId }: { frameId: string }) => {
-        const objects = await adminGetObjects(boardId);
+        const objects = await restGetObjects(boardId, userToken);
         const children = objects.filter((o) => o.parentFrame === frameId);
         return {
           frameId,
@@ -343,10 +357,10 @@ export function createAITools(ctx: ToolContext) {
             id: o.id,
             type: o.type,
             text: o.text,
-            x: Math.round(o.x),
-            y: Math.round(o.y),
-            width: Math.round(o.width),
-            height: Math.round(o.height),
+            x: Math.round(o.x as number),
+            y: Math.round(o.y as number),
+            width: Math.round(o.width as number),
+            height: Math.round(o.height as number),
             color: o.color,
           })),
         };
@@ -368,8 +382,8 @@ export function createAITools(ctx: ToolContext) {
         })
       ),
       execute: async ({ targetObjectIds, focusAreas, outputX = 600, outputY = 100 }: { targetObjectIds: string[]; focusAreas: string[]; outputX?: number; outputY?: number }) => {
-        const objects = await adminGetObjects(boardId);
-        const targets = objects.filter((o) => targetObjectIds.includes(o.id));
+        const objects = await restGetObjects(boardId, userToken);
+        const targets = objects.filter((o) => targetObjectIds.includes(o.id as string));
         return {
           instruction: `Analyze the following ${targets.length} object(s) for: ${focusAreas.join(', ')}. Create pink (#FF7EB9) sticky notes at approximately (${outputX}, ${outputY}) with your critiques. Target objects: ${JSON.stringify(targets.map((t) => ({ id: t.id, text: t.text, type: t.type })))}`,
         };
@@ -407,11 +421,11 @@ export function createAITools(ctx: ToolContext) {
         })
       ),
       execute: async ({ scope, targetIds, gapTypes, outputX = 800, outputY = 100 }: { scope: string; targetIds?: string[]; gapTypes: string[]; outputX?: number; outputY?: number }) => {
-        const objects = await adminGetObjects(boardId);
+        const objects = await restGetObjects(boardId, userToken);
         const relevant =
           scope === 'entire_board'
             ? objects
-            : objects.filter((o) => targetIds?.includes(o.id) || targetIds?.includes(o.parentFrame ?? ''));
+            : objects.filter((o) => targetIds?.includes(o.id as string) || targetIds?.includes(o.parentFrame as string ?? ''));
         return {
           instruction: `Find gaps (${gapTypes.join(', ')}) in the following ${relevant.length} objects. Create coral (#FFAB91) sticky notes at (${outputX}, ${outputY}) for each gap found. Content: ${JSON.stringify(relevant.slice(0, 20).map((o) => ({ id: o.id, type: o.type, text: o.text })))}`,
         };

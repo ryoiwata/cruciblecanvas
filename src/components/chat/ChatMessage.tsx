@@ -17,10 +17,12 @@ interface ChatMessageProps {
 }
 
 function formatTimestamp(createdAt: ChatMessageType['createdAt']): string {
+  // createdAt is null when Firestore's serverTimestamp() sentinel is still pending
+  // (optimistic update not yet acknowledged by the server). Fall back to now.
   const date =
     typeof createdAt === 'number'
       ? new Date(createdAt)
-      : createdAt && typeof createdAt === 'object' && 'toDate' in createdAt
+      : createdAt != null && typeof createdAt === 'object' && 'toDate' in createdAt
         ? createdAt.toDate()
         : new Date();
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
