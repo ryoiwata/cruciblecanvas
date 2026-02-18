@@ -1,7 +1,8 @@
 /**
  * ChatInput — text input for the chat sidebar.
- * Detects @ai prefix to route commands to the AI agent.
- * Supports object reference insertion when isInsertingRef is active.
+ * Routes messages based on the active chatMode from the store:
+ *   - 'ai'    → always dispatches to the AI agent (no @ai prefix required)
+ *   - 'group' → always writes to Firestore as a group message
  * Send on Enter, newline on Shift+Enter.
  */
 
@@ -21,7 +22,6 @@ interface ChatInputProps {
 
 export default function ChatInput({ boardId, onSendAICommand, isAILoading }: ChatInputProps) {
   const [inputText, setInputText] = useState('');
-  const [isAIMode, setIsAIMode] = useState(false);
   const [pendingRefs, setPendingRefs] = useState<ObjectReference[]>([]);
   const [rateLimitError, setRateLimitError] = useState<string | null>(null);
 
@@ -33,7 +33,11 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
   const setChatInputRef = useChatStore((s) => s.setChatInputRef);
   const isInsertingRef = useChatStore((s) => s.isInsertingRef);
   const setIsInsertingRef = useChatStore((s) => s.setIsInsertingRef);
+  const chatMode = useChatStore((s) => s.chatMode);
   const persona = usePersonaStore((s) => s.persona);
+
+  // The visual "AI mode" styling follows the active chat mode, not the @ai prefix.
+  const isAIMode = chatMode === 'ai';
 
   // Register input ref for / shortcut focus
   useEffect(() => {
@@ -41,11 +45,6 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
       setChatInputRef(inputRef as React.RefObject<HTMLInputElement>);
     }
   }, [setChatInputRef]);
-
-  // Detect @ai prefix as user types
-  useEffect(() => {
-    setIsAIMode(inputText.startsWith('@ai'));
-  }, [inputText]);
 
   // When isInsertingRef becomes true, focus the input and signal ref mode
   useEffect(() => {
@@ -63,8 +62,8 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
     setIsInsertingRef(false);
     setRateLimitError(null);
 
-    if (isAIMode) {
-      // Check rate limit before sending AI command
+    if (chatMode === 'ai') {
+      // AI mode — check rate limit then dispatch to the AI agent
       try {
         const { allowed, remaining } = await checkRateLimit(boardId, user.uid, isAnonymous);
         if (!allowed) {
@@ -76,13 +75,14 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
           setRateLimitError(`${remaining} AI commands remaining this hour`);
         }
       } catch {
-        // If rate limit check fails, allow command to proceed
+        // If the rate limit check fails, allow the command to proceed
       }
 
+      // Strip a leading @ai prefix in case the user typed it from habit
       const command = text.replace(/^@ai\s*/i, '');
       onSendAICommand?.(command);
     } else {
-      // Standard group message
+      // Group mode — write directly to Firestore
       const messageData: Omit<ChatMessage, 'id' | 'createdAt'> = {
         boardId,
         senderId: user.uid,
@@ -96,7 +96,7 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
 
       sendChatMessage(boardId, messageData).catch(console.error);
     }
-  }, [inputText, user, displayName, isAnonymous, boardId, isAIMode, pendingRefs, persona, onSendAICommand, setIsInsertingRef]);
+  }, [inputText, user, displayName, isAnonymous, boardId, chatMode, pendingRefs, persona, onSendAICommand, setIsInsertingRef]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -109,7 +109,6 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
   );
 
   const handleFocus = () => {
-    // Signal that we are potentially inserting refs
     setIsInsertingRef(true);
   };
 
@@ -118,12 +117,18 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
     setTimeout(() => setIsInsertingRef(false), 200);
   };
 
+  const placeholder = isAILoading
+    ? 'AI is thinking…'
+    : isAIMode
+      ? 'Ask the AI agent…'
+      : 'Message the group…';
+
   return (
     <div
       className="border-t border-gray-200 bg-white cursor-text"
       onClick={() => inputRef.current?.focus()}
     >
-      {/* Rate limit warning */}
+      {/* Rate limit warning — only relevant in AI mode */}
       {rateLimitError && (
         <div className="px-3 py-1.5 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
           {rateLimitError}
@@ -146,18 +151,22 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
           onKeyDown={handleKeyDown}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          placeholder={isAILoading ? 'AI is thinking…' : 'Message or @ai command'}
+          placeholder={placeholder}
           disabled={isAILoading}
           className={`flex-1 text-sm outline-none rounded-lg px-3 py-2 transition-colors ${
             isAIMode
               ? 'bg-indigo-50 placeholder-indigo-300 text-indigo-900 border border-indigo-200'
-              : 'bg-gray-100 placeholder-gray-400 text-gray-900 border border-transparent'
+              : 'bg-emerald-50 placeholder-emerald-400 text-gray-900 border border-emerald-200'
           } disabled:opacity-50`}
         />
         <button
           onClick={handleSend}
           disabled={!inputText.trim() || isAILoading}
-          className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-500 text-white text-sm flex items-center justify-center hover:bg-indigo-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className={`flex-shrink-0 w-8 h-8 rounded-full text-white text-sm flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+            isAIMode
+              ? 'bg-indigo-500 hover:bg-indigo-600'
+              : 'bg-emerald-500 hover:bg-emerald-600'
+          }`}
         >
           {isAILoading ? (
             <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />

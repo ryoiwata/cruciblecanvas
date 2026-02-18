@@ -8,6 +8,9 @@ import { persist } from 'zustand/middleware';
 import type { RefObject } from 'react';
 import type { ChatMessage, AIStream, AiPersona } from '@/lib/types';
 
+/** Controls which message list and input behaviour the chat sidebar presents. */
+export type ChatMode = 'ai' | 'group';
+
 interface ChatState {
   // Sidebar open/close state
   sidebarOpen: boolean;
@@ -15,6 +18,10 @@ interface ChatState {
   setSidebarOpen: (open: boolean) => void;
   setSidebarWidth: (w: number) => void;
   toggleSidebar: () => void;
+
+  // Active chat mode: 'ai' for AI agent commands, 'group' for multiplayer chat
+  chatMode: ChatMode;
+  setChatMode: (mode: ChatMode) => void;
 
   // Messages loaded from Firestore
   messages: ChatMessage[];
@@ -55,6 +62,9 @@ export const useChatStore = create<ChatState>()((set) => ({
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
   setSidebarWidth: (w) => set({ sidebarWidth: w }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+
+  chatMode: 'ai',
+  setChatMode: (mode) => set({ chatMode: mode }),
 
   messages: [],
   setMessages: (msgs) => set({ messages: msgs }),

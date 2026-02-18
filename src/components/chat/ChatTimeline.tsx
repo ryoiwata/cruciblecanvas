@@ -8,12 +8,13 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useChatStore } from '@/lib/store/chatStore';
+import type { ChatMode } from '@/lib/store/chatStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import { loadOlderMessages } from '@/lib/firebase/firestore';
 import { Timestamp } from 'firebase/firestore';
 import ChatMessageComponent from './ChatMessage';
 import AIStreamMessage from './AIStreamMessage';
-import type { ChatMessage } from '@/lib/types';
+import type { ChatMessage, ChatMessageType } from '@/lib/types';
 
 interface ChatTimelineProps {
   boardId: string;
@@ -24,10 +25,20 @@ function isFirestoreTimestamp(val: unknown): val is Timestamp {
   return val instanceof Timestamp;
 }
 
+/** Message types surfaced in each chat mode. */
+const MODE_TYPES: Record<ChatMode, ChatMessageType[]> = {
+  ai: ['ai_command', 'ai_response', 'system'],
+  group: ['group', 'system'],
+};
+
 export default function ChatTimeline({ boardId }: ChatTimelineProps) {
-  const messages = useChatStore((s) => s.messages);
+  const allMessages = useChatStore((s) => s.messages);
+  const chatMode = useChatStore((s) => s.chatMode);
   const setMessages = useChatStore((s) => s.setMessages);
   const userId = useAuthStore((s) => s.user?.uid);
+
+  // Only show messages that belong to the active chat mode
+  const messages = allMessages.filter((m) => MODE_TYPES[chatMode].includes(m.type));
 
   const timelineRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -122,11 +133,24 @@ export default function ChatTimeline({ boardId }: ChatTimelineProps) {
       <div ref={sentinelRef} className="h-px" />
 
       {messages.length === 0 && (
-        <div className="flex flex-col items-center justify-center h-32 text-center">
-          <p className="text-sm text-gray-400">No messages yet</p>
-          <p className="text-xs text-gray-300 mt-1">
-            Type a message or try <span className="font-mono">@ai</span> to chat with the AI
-          </p>
+        <div className="flex flex-col items-center justify-center h-32 text-center px-4">
+          {chatMode === 'ai' ? (
+            <>
+              <p className="text-2xl mb-1">✨</p>
+              <p className="text-sm text-gray-400">No AI messages yet</p>
+              <p className="text-xs text-gray-300 mt-1">
+                Type a command and the AI agent will respond here
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl mb-1">👥</p>
+              <p className="text-sm text-gray-400">No group messages yet</p>
+              <p className="text-xs text-gray-300 mt-1">
+                Send a message to start the conversation
+              </p>
+            </>
+          )}
         </div>
       )}
 
