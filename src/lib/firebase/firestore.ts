@@ -13,10 +13,13 @@ import {
   where,
   orderBy,
   limit,
+  onSnapshot,
+  getCountFromServer,
   Timestamp,
+  type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "./config";
-import type { BoardObject, BoardMetadata } from "../types";
+import type { BoardObject, BoardMetadata, ChatMessage } from "../types";
 
 /**
  * Generates a new Firestore document ID without writing anything.
@@ -282,6 +285,205 @@ export async function recordBoardVisit(
     { boardId, lastVisited: serverTimestamp() },
     { merge: true }
   );
+}
+
+// ---------------------------------------------------------------------------
+// Chat message helpers (boards/{boardId}/messages/{messageId})
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes a chat message to Firestore. Returns the generated message ID.
+ * Automatically sets createdAt to server timestamp.
+ */
+export async function sendChatMessage(
+  boardId: string,
+  message: Omit<ChatMessage, 'id' | 'createdAt'>
+): Promise<string> {
+  const colRef = collection(db, 'boards', boardId, 'messages');
+  const docRef = doc(colRef);
+
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(message)) {
+    if (value !== undefined) {
+      cleaned[key] = value;
+    }
+  }
+
+  await setDoc(docRef, {
+    ...cleaned,
+    id: docRef.id,
+    createdAt: serverTimestamp(),
+  });
+
+  // Enforce message cap after writing
+  await enforceMessageCap(boardId, 500);
+
+  return docRef.id;
+}
+
+/**
+ * Subscribes to the most recent `messageLimit` messages for a board.
+ * Fires the callback with a sorted (oldest-first) array on each change.
+ */
+export function onChatMessages(
+  boardId: string,
+  messageLimit: number,
+  callback: (msgs: ChatMessage[]) => void
+): Unsubscribe {
+  const messagesRef = collection(db, 'boards', boardId, 'messages');
+  const q = query(messagesRef, orderBy('createdAt', 'desc'), limit(messageLimit));
+
+  return onSnapshot(q, (snapshot) => {
+    const msgs = snapshot.docs
+      .map((d) => d.data() as ChatMessage)
+      .reverse(); // Show oldest first in timeline
+    callback(msgs);
+  });
+}
+
+/**
+ * Loads older messages before a given timestamp for infinite scroll pagination.
+ */
+export async function loadOlderMessages(
+  boardId: string,
+  beforeTimestamp: Timestamp,
+  messageLimit: number
+): Promise<ChatMessage[]> {
+  const messagesRef = collection(db, 'boards', boardId, 'messages');
+  const q = query(
+    messagesRef,
+    orderBy('createdAt', 'desc'),
+    where('createdAt', '<', beforeTimestamp),
+    limit(messageLimit)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => d.data() as ChatMessage).reverse();
+}
+
+/**
+ * Deletes a single chat message by ID.
+ */
+export async function deleteChatMessage(
+  boardId: string,
+  messageId: string
+): Promise<void> {
+  await deleteDoc(doc(db, 'boards', boardId, 'messages', messageId));
+}
+
+/**
+ * Updates fields on an existing chat message.
+ */
+export async function updateChatMessage(
+  boardId: string,
+  messageId: string,
+  updates: Partial<ChatMessage>
+): Promise<void> {
+  const docRef = doc(db, 'boards', boardId, 'messages', messageId);
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) {
+      cleaned[key] = value;
+    }
+  }
+  await updateDoc(docRef, cleaned);
+}
+
+/**
+ * Enforces a maximum message count per board by deleting the oldest messages
+ * when the cap is exceeded. Called after each new message write.
+ */
+export async function enforceMessageCap(
+  boardId: string,
+  cap: number
+): Promise<void> {
+  const messagesRef = collection(db, 'boards', boardId, 'messages');
+  const countSnap = await getCountFromServer(messagesRef);
+  const count = countSnap.data().count;
+
+  if (count <= cap) return;
+
+  const excess = count - cap;
+  const oldestQuery = query(
+    messagesRef,
+    orderBy('createdAt', 'asc'),
+    limit(excess)
+  );
+  const oldestSnap = await getDocs(oldestQuery);
+  const batch = writeBatch(db);
+  oldestSnap.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+}
+
+/**
+ * Deletes all board objects that were created by a specific AI command.
+ * Used for AI undo functionality.
+ */
+export async function deleteObjectsByAiCommand(
+  boardId: string,
+  aiCommandId: string
+): Promise<void> {
+  const objectsRef = collection(db, 'boards', boardId, 'objects');
+  const q = query(objectsRef, where('aiCommandId', '==', aiCommandId));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return;
+  const batch = writeBatch(db);
+  snapshot.forEach((d) => batch.delete(d.ref));
+  await batch.commit();
+}
+
+/**
+ * Confirms all pending AI objects by setting isAIPending to false.
+ * Called when an AI command stream completes successfully.
+ */
+export async function confirmAIPendingObjects(
+  boardId: string,
+  aiCommandId: string
+): Promise<void> {
+  const objectsRef = collection(db, 'boards', boardId, 'objects');
+  const q = query(
+    objectsRef,
+    where('aiCommandId', '==', aiCommandId),
+    where('isAIPending', '==', true)
+  );
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return;
+  const batch = writeBatch(db);
+  snapshot.forEach((d) =>
+    batch.update(d.ref, { isAIPending: false, updatedAt: serverTimestamp() })
+  );
+  await batch.commit();
+}
+
+/**
+ * Checks if a user has exceeded the AI command rate limit.
+ * Authenticated: 20 commands/hour. Anonymous: 5 commands/hour.
+ * Board-wide: 50 commands/day.
+ */
+export async function checkRateLimit(
+  boardId: string,
+  userId: string,
+  isAnonymous: boolean
+): Promise<{ allowed: boolean; remaining: number }> {
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const hourAgoTimestamp = Timestamp.fromDate(hourAgo);
+  const messagesRef = collection(db, 'boards', boardId, 'messages');
+
+  // Count per-user AI commands in the last hour
+  const userHourQuery = query(
+    messagesRef,
+    where('senderId', '==', userId),
+    where('type', '==', 'ai_command'),
+    where('createdAt', '>=', hourAgoTimestamp)
+  );
+  const userCountSnap = await getCountFromServer(userHourQuery);
+  const userCount = userCountSnap.data().count;
+
+  const userLimit = isAnonymous ? 5 : 20;
+  if (userCount >= userLimit) {
+    return { allowed: false, remaining: 0 };
+  }
+
+  return { allowed: true, remaining: userLimit - userCount };
 }
 
 /**

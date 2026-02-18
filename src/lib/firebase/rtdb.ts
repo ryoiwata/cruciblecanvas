@@ -14,7 +14,7 @@ import {
 } from "firebase/database";
 import { rtdb } from "./config";
 import { presenceLogger } from "../debug/presenceLogger";
-import type { CursorData, PresenceData, ObjectLock } from "../types";
+import type { CursorData, PresenceData, ObjectLock, AIStream } from "../types";
 
 // ---------------------------------------------------------------------------
 // Shared error handler — surfaces RTDB permission errors visibly
@@ -398,4 +398,110 @@ export function onLocksChange(
   return onValue(locksRef, (snapshot) => {
     callback(snapshot.val());
   });
+}
+
+// ---------------------------------------------------------------------------
+// AI Stream relay — /boards/{boardId}/aiStreams/{commandId}
+// Ephemeral: written during streaming, deleted on completion.
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the initial AI stream node. Called by the requester when streaming begins.
+ */
+export async function setAIStream(
+  boardId: string,
+  commandId: string,
+  stream: AIStream
+): Promise<void> {
+  const streamRef = ref(rtdb, `boards/${boardId}/aiStreams/${commandId}`);
+  await set(streamRef, stream);
+}
+
+/**
+ * Partially updates an AI stream node — typically to append content or change status.
+ */
+export async function updateAIStream(
+  boardId: string,
+  commandId: string,
+  updates: Partial<AIStream>
+): Promise<void> {
+  const streamRef = ref(rtdb, `boards/${boardId}/aiStreams/${commandId}`);
+  await update(streamRef, updates);
+}
+
+/**
+ * Removes the AI stream node after completion or failure.
+ */
+export async function removeAIStream(
+  boardId: string,
+  commandId: string
+): Promise<void> {
+  const streamRef = ref(rtdb, `boards/${boardId}/aiStreams/${commandId}`);
+  await remove(streamRef);
+}
+
+/**
+ * Subscribes to all AI streams for a board.
+ * Other users use this to render live streaming AI responses.
+ */
+export function onAIStreams(
+  boardId: string,
+  callback: (streams: Record<string, AIStream>) => void
+): Unsubscribe {
+  const streamsRef = ref(rtdb, `boards/${boardId}/aiStreams`);
+  return onValue(streamsRef, (snapshot) => {
+    callback(snapshot.val() ?? {});
+  });
+}
+
+/**
+ * Subscribes to AI stream child events for efficient individual stream handling.
+ * More efficient than onAIStreams for tracking individual command lifecycles.
+ */
+export function onAIStreamChildEvents(
+  boardId: string,
+  callbacks: {
+    onAdded: (commandId: string, stream: AIStream) => void;
+    onChanged: (commandId: string, stream: AIStream) => void;
+    onRemoved: (commandId: string) => void;
+  }
+): Unsubscribe {
+  const streamsRef = ref(rtdb, `boards/${boardId}/aiStreams`);
+  const onError = handleListenerError('onAIStreamChildEvents');
+
+  const unsubAdd = onChildAdded(
+    streamsRef,
+    (snapshot) => {
+      if (snapshot.key && snapshot.val()) {
+        callbacks.onAdded(snapshot.key, snapshot.val());
+      }
+    },
+    onError
+  );
+
+  const unsubChange = onChildChanged(
+    streamsRef,
+    (snapshot) => {
+      if (snapshot.key && snapshot.val()) {
+        callbacks.onChanged(snapshot.key, snapshot.val());
+      }
+    },
+    onError
+  );
+
+  const unsubRemove = onChildRemoved(
+    streamsRef,
+    (snapshot) => {
+      if (snapshot.key) {
+        callbacks.onRemoved(snapshot.key);
+      }
+    },
+    onError
+  );
+
+  return () => {
+    unsubAdd();
+    unsubChange();
+    unsubRemove();
+  };
 }

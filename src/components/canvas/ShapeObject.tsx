@@ -123,8 +123,18 @@ export default memo(function ShapeObject({
       onClick={handleClick}
       onTap={handleClick}
       onContextMenu={handleContextMenu}
-      opacity={(isLocked ? 0.6 : 1) * (object.opacity ?? 1)}
+      opacity={(isLocked ? 0.6 : object.isAIPending ? 0.5 : 1) * (object.opacity ?? 1)}
     >
+      {/* AI badge */}
+      {object.isAIGenerated && (
+        <Text
+          text="✨"
+          x={object.width - 22}
+          y={4}
+          fontSize={14}
+          listening={false}
+        />
+      )}
       {object.type === "rectangle" ? (
         <Rect
           width={object.width}

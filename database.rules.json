@@ -21,6 +21,12 @@
         "privacy": {
           ".read": "auth != null",
           ".write": "auth != null"
+        },
+        "aiStreams": {
+          ".read": "auth != null",
+          "$commandId": {
+            ".write": "auth != null"
+          }
         }
       }
     }

@@ -32,6 +32,30 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
+    // Chat messages: boards/{boardId}/messages/{messageId}
+    // -----------------------------------------------------------------------
+    match /boards/{boardId}/messages/{messageId} {
+      function canAccessBoard() {
+        let meta = get(/databases/$(database)/documents/boards/$(boardId)/metadata/config).data;
+        return meta.isPublic == true
+            || meta.createdBy == request.auth.uid
+            || request.auth.token.email in meta.invitedEmails;
+      }
+
+      allow read: if request.auth != null && canAccessBoard();
+      allow create: if request.auth != null
+                    && canAccessBoard()
+                    && (request.resource.data.senderId == request.auth.uid
+                        || request.resource.data.senderId == 'ai');
+      // Allow sender to update their own messages, or anyone to update AI status fields
+      allow update: if request.auth != null
+                    && (request.auth.uid == resource.data.senderId
+                        || request.resource.data.keys().hasOnly(['aiStatus', 'content', 'aiError']));
+      allow delete: if request.auth != null
+                    && get(/databases/$(database)/documents/boards/$(boardId)/metadata/config).data.createdBy == request.auth.uid;
+    }
+
+    // -----------------------------------------------------------------------
     // User profiles: users/{userId}/profile/info
     // Users can only read/write their own profile.
     // -----------------------------------------------------------------------

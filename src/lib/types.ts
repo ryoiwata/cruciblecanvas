@@ -76,6 +76,7 @@ export interface BoardObject {
   // AI attribution
   isAIGenerated?: boolean;
   aiCommandId?: string;
+  isAIPending?: boolean; // true while AI command is streaming — renders at 50% opacity
 
   // Relationships
   parentFrame?: string;
@@ -131,6 +132,54 @@ export interface BoardMetadata {
 
   // Board context / AI Lore (sidecar pattern)
   boardContext?: BoardContext;
+}
+
+// ---------------------------------------------------------------------------
+// Chat message types (Firestore: boards/{boardId}/messages/{messageId})
+// ---------------------------------------------------------------------------
+
+export type ChatMessageType = 'group' | 'ai_command' | 'ai_response' | 'system';
+export type AIStatus = 'streaming' | 'completed' | 'failed';
+
+export interface ObjectReference {
+  objectId: string;
+  objectText: string;       // Snapshot of object text at reference time
+  objectType: ObjectType;
+}
+
+export interface ChatMessage {
+  id: string;
+  boardId: string;
+
+  // Sender
+  senderId: string;
+  senderName: string;
+  senderPhotoURL?: string;
+
+  // Content
+  type: ChatMessageType;
+  content: string;
+
+  // Object references for group messages
+  objectReferences?: ObjectReference[];
+
+  // AI-specific fields
+  aiCommandId?: string;
+  aiPersona?: AiPersona;
+  aiStatus?: AIStatus;
+  aiError?: string;
+
+  // Timestamps
+  createdAt: Timestamp | number;
+}
+
+// RTDB AI stream — /boards/{boardId}/aiStreams/{commandId}
+export interface AIStream {
+  requesterId: string;
+  requesterName: string;
+  content: string;
+  status: 'streaming' | 'completed' | 'failed';
+  timestamp: number;
 }
 
 // ---------------------------------------------------------------------------

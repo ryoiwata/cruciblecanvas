@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
+import { useChatStore } from "@/lib/store/chatStore";
 import {
   deleteObject,
   deleteObjects,
@@ -228,6 +229,14 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
         case "Escape":
           exitToPointer();
           return;
+        case "/": {
+          // Open chat sidebar and focus the input field
+          e.preventDefault();
+          const chatStore = useChatStore.getState();
+          chatStore.setSidebarOpen(true);
+          setTimeout(() => chatStore.chatInputRef?.current?.focus(), 100);
+          return;
+        }
       }
 
       // Delete
