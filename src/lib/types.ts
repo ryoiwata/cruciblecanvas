@@ -180,7 +180,7 @@ export const STICKY_NOTE_COLORS = [
 export const STICKY_NOTE_DEFAULT = {
   width: 200,
   height: 150,
-  color: "#FEFF9C", // Yellow
+  color: "#FEF3C7", // Light Yellow
 } as const;
 
 export const GRID_SIZE = 20;

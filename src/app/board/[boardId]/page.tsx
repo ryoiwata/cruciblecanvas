@@ -14,7 +14,6 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import Toolbar from "@/components/ui/Toolbar";
 import ShortcutLegend from "@/components/ui/ShortcutLegend";
 import ContextMenu from "@/components/ui/ContextMenu";
-import ColorPicker from "@/components/ui/ColorPicker";
 import DeleteDialog from "@/components/ui/DeleteDialog";
 import PresenceIndicator from "@/components/ui/PresenceIndicator";
 import PrivacyToggle from "@/components/ui/PrivacyToggle";
@@ -124,7 +123,6 @@ export default function BoardPage() {
 
       <Canvas boardId={boardId} />
       <ContextMenu boardId={boardId} />
-      <ColorPicker boardId={boardId} />
       <SelectionCounter />
 
       {pendingDelete && (

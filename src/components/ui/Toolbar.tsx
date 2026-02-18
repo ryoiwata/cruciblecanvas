@@ -6,6 +6,7 @@ import { updateObject } from "@/lib/firebase/firestore";
 import type { ObjectType, StickyFontFamily } from "@/lib/types";
 import AlignMenu from "./AlignMenu";
 import ArrangeMenu from "./ArrangeMenu";
+import ColorPickerPopup from "./ColorPickerPopup";
 
 interface ToolbarProps {
   boardId: string;
@@ -135,6 +136,12 @@ export default function Toolbar({ boardId }: ToolbarProps) {
           <span className="hidden sm:inline">{tool.label}</span>
         </button>
       ))}
+
+      {/* Separator */}
+      <div className="mx-1 h-6 w-px bg-gray-200" />
+
+      {/* Color picker */}
+      <ColorPickerPopup boardId={boardId} />
 
       {/* Separator */}
       <div className="mx-1 h-6 w-px bg-gray-200" />

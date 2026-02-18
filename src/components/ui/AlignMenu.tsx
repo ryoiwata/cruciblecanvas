@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
@@ -126,6 +127,7 @@ const distributeItems: MenuItem[] = [
 export default function AlignMenu({ boardId }: AlignMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
 
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const objects = useObjectStore((s) => s.objects);
@@ -137,7 +139,11 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        menuRef.current && !menuRef.current.contains(target) &&
+        popupRef.current && !popupRef.current.contains(target)
+      ) {
         setOpen(false);
       }
     };
@@ -246,9 +252,32 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
     [selectedObjectIds, objects, updateObjectLocal, boardId]
   );
 
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  const getPopupStyle = (): React.CSSProperties => {
+    if (!triggerRef.current) return { display: "none" };
+    const rect = triggerRef.current.getBoundingClientRect();
+    const popupWidth = 224; // w-56
+    let left = rect.left + rect.width / 2 - popupWidth / 2;
+    if (left < 8) left = 8;
+    if (left + popupWidth > window.innerWidth - 8) left = window.innerWidth - 8 - popupWidth;
+    let bottom = window.innerHeight - rect.top + 8;
+    if (bottom > window.innerHeight - 16) bottom = window.innerHeight - 16;
+    return { position: "fixed", left, bottom, width: popupWidth, zIndex: 200 };
+  };
+
+  const getArrowStyle = (): React.CSSProperties => {
+    if (!triggerRef.current) return { display: "none" };
+    const rect = triggerRef.current.getBoundingClientRect();
+    const popupStyle = getPopupStyle();
+    const arrowLeft = rect.left + rect.width / 2 - (popupStyle.left as number) - 6;
+    return { left: arrowLeft };
+  };
+
   return (
-    <div ref={menuRef} className="relative">
+    <div ref={menuRef}>
       <button
+        ref={triggerRef}
         onClick={() => setOpen(!open)}
         disabled={selCount < 2}
         title="Align & Distribute"
@@ -267,55 +296,67 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
         <span className="hidden sm:inline">Align</span>
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full mt-1 z-[100] w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          {/* Align section header */}
-          <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Align
-          </div>
-          <div className="grid grid-cols-2 gap-0">
-            {alignItems.map((item) => (
-              <button
-                key={item.action}
-                onClick={() => perform(item.action)}
-                disabled={selCount < item.minObjects}
-                className={`flex items-center gap-2 px-3 py-1.5 text-sm ${
-                  selCount >= item.minObjects
-                    ? "text-gray-700 hover:bg-gray-50"
-                    : "cursor-not-allowed text-gray-300"
-                }`}
-              >
-                <span className="text-gray-500">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </div>
+      {open &&
+        createPortal(
+          <div
+            ref={popupRef}
+            style={getPopupStyle()}
+            className="rounded-xl border border-white/20 bg-white/80 py-1 shadow-xl backdrop-blur-lg transition-all"
+          >
+            {/* Downward-pointing arrow nub */}
+            <div
+              className="absolute -bottom-[6px] h-3 w-3 rotate-45 border-b border-r border-white/20 bg-white/80 backdrop-blur-lg"
+              style={getArrowStyle()}
+            />
 
-          <div className="my-1 border-t border-gray-100" />
+            {/* Align section header */}
+            <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Align
+            </div>
+            <div className="grid grid-cols-2 gap-0">
+              {alignItems.map((item) => (
+                <button
+                  key={item.action}
+                  onClick={() => perform(item.action)}
+                  disabled={selCount < item.minObjects}
+                  className={`flex items-center gap-2 px-3 py-1.5 text-sm ${
+                    selCount >= item.minObjects
+                      ? "text-gray-700 hover:bg-gray-50/60"
+                      : "cursor-not-allowed text-gray-300"
+                  }`}
+                >
+                  <span className="text-gray-500">{item.icon}</span>
+                  {item.label}
+                </button>
+              ))}
+            </div>
 
-          {/* Distribute section header */}
-          <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Distribute evenly
-          </div>
-          <div className="grid grid-cols-2 gap-0">
-            {distributeItems.map((item) => (
-              <button
-                key={item.action}
-                onClick={() => perform(item.action)}
-                disabled={selCount < item.minObjects}
-                className={`flex items-center gap-2 px-3 py-1.5 text-sm ${
-                  selCount >= item.minObjects
-                    ? "text-gray-700 hover:bg-gray-50"
-                    : "cursor-not-allowed text-gray-300"
-                }`}
-              >
-                <span className="text-gray-500">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+            <div className="my-1 border-t border-gray-200/60" />
+
+            {/* Distribute section header */}
+            <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+              Distribute evenly
+            </div>
+            <div className="grid grid-cols-2 gap-0">
+              {distributeItems.map((item) => (
+                <button
+                  key={item.action}
+                  onClick={() => perform(item.action)}
+                  disabled={selCount < item.minObjects}
+                  className={`flex items-center gap-2 px-3 py-1.5 text-sm ${
+                    selCount >= item.minObjects
+                      ? "text-gray-700 hover:bg-gray-50/60"
+                      : "cursor-not-allowed text-gray-300"
+                  }`}
+                >
+                  <span className="text-gray-500">{item.icon}</span>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

@@ -34,6 +34,7 @@ interface CanvasState {
   connectorHoverTarget: string | null;
 
   // Color memory
+  activeColor: string;
   lastUsedColors: Record<string, string>;
 
   // Border resize generation counter — incremented on border resize start/end
@@ -58,6 +59,7 @@ interface CanvasState {
   setConnectorStart: (id: string | null) => void;
   setConnectorDragging: (dragging: boolean) => void;
   setConnectorHoverTarget: (id: string | null) => void;
+  setActiveColor: (color: string) => void;
   setLastUsedColor: (type: string, color: string) => void;
   bumpBorderResizeGeneration: () => void;
 }
@@ -84,6 +86,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   connectorStart: null,
   connectorDragging: false,
   connectorHoverTarget: null,
+  activeColor: "#FEF3C7",
   lastUsedColors: {},
   borderResizeGeneration: 0,
 
@@ -158,8 +161,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   setConnectorHoverTarget: (id) => set({ connectorHoverTarget: id }),
 
+  setActiveColor: (color) => set({ activeColor: color }),
+
   setLastUsedColor: (type, color) =>
     set((s) => ({
+      activeColor: color,
       lastUsedColors: { ...s.lastUsedColors, [type]: color },
     })),
 

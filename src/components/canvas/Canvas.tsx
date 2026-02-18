@@ -44,16 +44,17 @@ const CURSOR_MIN_DISTANCE = 3; // px — tighter threshold for smoother remote c
 // --- Helper: get last-used or default color for a tool ---
 function getColorForTool(
   tool: ObjectType,
-  lastUsedColors: Record<string, string>
+  lastUsedColors: Record<string, string>,
+  activeColor?: string
 ): string {
   if (lastUsedColors[tool]) return lastUsedColors[tool];
   switch (tool) {
     case "stickyNote":
-      return STICKY_NOTE_DEFAULT.color;
+      return activeColor || STICKY_NOTE_DEFAULT.color;
     case "rectangle":
-      return SHAPE_DEFAULTS.rectangle.color;
+      return activeColor || SHAPE_DEFAULTS.rectangle.color;
     case "circle":
-      return SHAPE_DEFAULTS.circle.color;
+      return activeColor || SHAPE_DEFAULTS.circle.color;
     case "frame":
       return FRAME_DEFAULTS.color;
     case "colorLegend":
@@ -288,6 +289,7 @@ export default function Canvas({ boardId }: CanvasProps) {
   const setConnectorDragging = useCanvasStore((s) => s.setConnectorDragging);
   const setConnectorHoverTarget = useCanvasStore((s) => s.setConnectorHoverTarget);
   const lastUsedColors = useCanvasStore((s) => s.lastUsedColors);
+  const activeColor = useCanvasStore((s) => s.activeColor);
 
   const objects = useObjectStore((s) => s.objects);
   const upsertObject = useObjectStore((s) => s.upsertObject);
@@ -580,7 +582,7 @@ export default function Canvas({ boardId }: CanvasProps) {
 
           if (!drawingRef.current.created && dist > MIN_DRAG_THRESHOLD && user) {
             // First time past threshold — create object
-            const color = getColorForTool(creationTool, lastUsedColors);
+            const color = getColorForTool(creationTool, lastUsedColors, activeColor);
             const newObject = {
               id: drawingRef.current.objectId,
               type: creationTool,
@@ -932,7 +934,7 @@ export default function Canvas({ boardId }: CanvasProps) {
       } else {
         // Click (no drag) — create at default size
         const defaults = getDefaultsForTool(creationTool);
-        const color = getColorForTool(creationTool, lastUsedColors);
+        const color = getColorForTool(creationTool, lastUsedColors, activeColor);
         const maxZ = getMaxZIndex() + 1;
 
         const newObject = {
@@ -1028,7 +1030,7 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       pointerInteractionRef.current = null;
     }
-  }, [mode, creationTool, user, boardId, objects, lastUsedColors, upsertObject, updateObjectLocal, setConnectorStart, setConnectorDragging, setConnectorHoverTarget]);
+  }, [mode, creationTool, user, boardId, objects, lastUsedColors, activeColor, upsertObject, updateObjectLocal, setConnectorStart, setConnectorDragging, setConnectorHoverTarget]);
 
   // --- Right-click (context menu) ---
   const handleContextMenu = useCallback(
@@ -1231,7 +1233,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               tool={creationTool!}
               x={ghostPos!.x}
               y={ghostPos!.y}
-              color={getColorForTool(creationTool!, lastUsedColors)}
+              color={getColorForTool(creationTool!, lastUsedColors, activeColor)}
             />
           )}
 
