@@ -20,16 +20,21 @@
 
 ## Naming Conventions
 
-| Category | Convention | Example |
-|----------|------------|---------|
-| Variables & Functions | Descriptive, intention-revealing | `calculateClampedStageZoom` not `calcZoom` |
-| Booleans | Prefix with `is`, `has`, or `should` | `isObjectLocked`, `shouldTriggerRollback` |
-| Files | `camelCase.ts` or `PascalCase.tsx` | `useFirestoreSync.ts`, `Canvas.tsx` |
-| React Components | `PascalCase` | `PresencePanel`, `CursorLayer` |
-| Hooks | `use` prefix + `camelCase` | `useFirestoreSync`, `usePresenceSync` |
-| Constants | `SCREAMING_SNAKE_CASE` | `GRID_SIZE`, `ZOOM_MAX` |
-| Types & Interfaces | `PascalCase` | `BoardObject`, `PresenceData` |
-| Store Slices | Suffix with `Store` | `canvasStore`, `objectStore` |
+- Self-Documenting Names: Variables and functions must have descriptive, intention-revealing names (e.g., calculateClampedStageZoom instead of calcZoom).
+
+- Boolean Clarity: Suffix booleans with is, has, or should (e.g., isObjectLocked, shouldTriggerRollback).
+
+- Files: Use camelCase.ts or PascalCase.tsx for components.
+
+- React Components: Use PascalCase.
+
+- Hooks: Use the use prefix with camelCase (e.g., useFirestoreSync, usePresenceSync).
+
+- Constants: Use SCREAMING_SNAKE_CASE (e.g., GRID_SIZE, ZOOM_MAX).
+
+- Types/Interfaces: Use PascalCase.
+
+- Store Slices: Suffix with Store (e.g., canvasStore, objectStore).
 
 ---
 
