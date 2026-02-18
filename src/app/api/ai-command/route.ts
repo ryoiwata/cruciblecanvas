@@ -3,35 +3,25 @@
  * Accepts @ai commands from authenticated users, streams Claude's response
  * with tool calling for board manipulation.
  *
- * Runs on the Vercel Edge runtime for low-latency streaming. Authentication
- * uses jose (lightweight JWT verification against Google's public JWKS) instead
- * of firebase-admin, which requires Node.js APIs unavailable in Edge.
+ * Runs on the Node.js runtime so that the OpenTelemetry NodeSDK (initialised in
+ * src/instrumentation.ts) is available. Authentication uses jose (lightweight JWT
+ * verification against Google's public JWKS) — no firebase-admin dependency needed.
  *
- * LangSmith tracing is applied via wrapAISDK so every streamText invocation
- * (including multi-step tool calls) is recorded as a run in LangSmith.
- *
- * NOTE: The `after()` hook for post-response trace flushing requires Next.js 15+.
- * On Next.js 14.x, pending traces are flushed asynchronously in the background.
- * Upgrade to Next.js 15 and import `after` from `next/server` to use the proper
- * post-response callback (add `experimental: { after: true }` to next.config.mjs).
+ * Langfuse observability is provided via OpenTelemetry. The NodeSDK (with
+ * LangfuseSpanProcessor) is started in src/instrumentation.ts at server startup.
+ * Passing `experimental_telemetry: { isEnabled: true }` to streamText causes the
+ * Vercel AI SDK to emit OTel spans that LangfuseSpanProcessor forwards to Langfuse.
  *
  * Request: POST with Authorization: Bearer <Firebase ID Token>
  * Body: { message, boardId, boardState, selectedObjectIds, persona, aiCommandId }
  * Response: SSE stream (text/event-stream via Vercel AI SDK)
  */
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 
-import {
-  streamText as baseStreamText,
-  generateText,
-  wrapLanguageModel,
-  stepCountIs,
-} from 'ai';
+import { streamText, stepCountIs } from 'ai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { Client } from 'langsmith';
-import { wrapAISDK } from 'langsmith/experimental/vercel';
 
 // Explicitly target Anthropic's API, bypassing the ANTHROPIC_BASE_URL env var
 // which may be set to Vercel's AI Gateway (requires separate AI_GATEWAY_API_KEY).
@@ -43,21 +33,6 @@ import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
 import type { AIBoardContext } from '@/lib/ai/context';
 import type { AiPersona } from '@/lib/types';
-
-// ---------------------------------------------------------------------------
-// LangSmith setup — module-level client and wrapped streamText
-// ---------------------------------------------------------------------------
-// Reads LANGSMITH_API_KEY automatically from environment variables.
-// Set LANGSMITH_TRACING=true and LANGSMITH_API_KEY in .env.local to enable.
-const langsmithClient = new Client();
-
-// wrapAISDK returns drop-in replacements for the AI SDK functions that
-// record each call (including streamed tool-use steps) as a LangSmith run.
-// All required SDK functions must be provided so wrapAISDK can patch them.
-const { streamText } = wrapAISDK(
-  { streamText: baseStreamText, generateText, wrapLanguageModel },
-  { client: langsmithClient }
-);
 
 // Firebase publishes its token-signing keys at this JWKS endpoint.
 // jose caches the key set and re-fetches when keys rotate.
@@ -195,17 +170,14 @@ export async function POST(req: Request): Promise<Response> {
       messages: [{ role: 'user', content: message }],
       tools,
       stopWhen: stepCountIs(15),
+      // OTel spans are emitted by the AI SDK and captured by LangfuseSpanProcessor
+      // (initialised in src/instrumentation.ts) for Langfuse observability.
+      experimental_telemetry: { isEnabled: true },
       onError: ({ error }: { error: unknown }) => {
         // Client-side useAICommand handles rollback via deleteObjectsByAiCommand
         console.error('[AI] streamText error:', error);
       },
     });
-
-    // Flush buffered LangSmith trace events after this invocation.
-    // Fire-and-forget so it does not delay the response stream.
-    // On Next.js 15+, use the `after()` hook from `next/server` instead
-    // so the flush runs after the edge function response is fully sent.
-    void langsmithClient.awaitPendingTraceBatches();
 
     return result.toTextStreamResponse({
       headers: {
