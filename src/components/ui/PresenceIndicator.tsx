@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { usePresenceStore } from "@/lib/store/presenceStore";
 import { useAuthStore } from "@/lib/store/authStore";
 
@@ -32,16 +32,20 @@ export default function PresenceIndicator() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [isExpanded]);
 
-  const onlineUsers = Object.entries(presence)
-    .filter(([, data]) => data.online)
-    .map(([id, data]) => ({ id, ...data }));
+  const onlineUsers = useMemo(() => {
+    const entries = Object.entries(presence)
+      .filter(([, data]) => data.online)
+      .map(([id, data]) => ({ id, ...data }));
 
-  // Put current user first
-  onlineUsers.sort((a, b) => {
-    if (a.id === currentUserId) return -1;
-    if (b.id === currentUserId) return 1;
-    return a.name.localeCompare(b.name);
-  });
+    // Current user first, then alphabetical by name
+    entries.sort((a, b) => {
+      if (a.id === currentUserId) return -1;
+      if (b.id === currentUserId) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return entries;
+  }, [presence, currentUserId]);
 
   const visibleUsers = onlineUsers.slice(0, MAX_VISIBLE_AVATARS);
   const overflowCount = Math.max(0, onlineUsers.length - MAX_VISIBLE_AVATARS);
@@ -78,13 +82,18 @@ export default function PresenceIndicator() {
               }}
               title={
                 user.id === currentUserId
-                  ? `${user.name} (You)`
+                  ? `${user.name} (You) — Online`
                   : isInactive
-                    ? `${user.name} (Inactive)`
-                    : user.name
+                    ? `${user.name} — Inactive`
+                    : `${user.name} — Online`
               }
             >
               {user.name.charAt(0).toUpperCase()}
+              {/* Green online indicator dot */}
+              <span
+                className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white"
+                style={{ backgroundColor: isInactive ? "#9CA3AF" : "#22C55E" }}
+              />
             </div>
           );
         })}

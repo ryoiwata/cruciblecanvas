@@ -81,7 +81,7 @@ const RemoteCursor = memo(function RemoteCursor({ data }: RemoteCursorProps) {
  * Each cursor is a memoized sub-component so updating one cursor's position
  * does not re-render the Konva nodes of other cursors.
  */
-export default function CursorLayer({ boardId }: CursorLayerProps) {
+const CursorLayer = memo(function CursorLayer({ boardId }: CursorLayerProps) {
   const [cursors, setCursors] = useState<Record<string, CursorData>>({});
   const [, setTick] = useState(0); // forces re-render for stale cleanup
   const userId = useAuthStore((s) => s.user?.uid);
@@ -148,11 +148,14 @@ export default function CursorLayer({ boardId }: CursorLayerProps) {
   return (
     <>
       {Object.entries(cursors).map(([id, cursor]) => {
-        // Filter out local user and stale cursors
+        // Filter out local user, stale cursors, and invalid coordinates
         if (id === userId) return null;
         if (now - cursor.timestamp > STALE_THRESHOLD_MS) return null;
+        if (!isFinite(cursor.x) || !isFinite(cursor.y)) return null;
         return <RemoteCursor key={id} data={cursor} />;
       })}
     </>
   );
-}
+});
+
+export default CursorLayer;
