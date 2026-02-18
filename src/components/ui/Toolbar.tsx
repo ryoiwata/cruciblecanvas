@@ -119,7 +119,7 @@ export default function Toolbar({ boardId }: ToolbarProps) {
   };
 
   return (
-    <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-white/80 px-2 py-1.5 shadow-md backdrop-blur-md">
+    <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-xl bg-white/80 px-2 py-1.5 shadow-lg backdrop-blur-md">
       {tools.map((tool) => (
         <button
           key={tool.id}

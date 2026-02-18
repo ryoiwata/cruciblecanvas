@@ -42,7 +42,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [creating, setCreating] = useState(false);
   const [boards, setBoards] = useState<(BoardMetadata & { boardId: string })[]>([]);
-  const [visitedBoards, setVisitedBoards] = useState<(BoardMetadata & { boardId: string })[]>([]);
+  const [visitedBoards, setVisitedBoards] = useState<(BoardMetadata & { boardId: string; lastVisited?: Timestamp | number })[]>([]);
   const [boardsLoading, setBoardsLoading] = useState(true);
   const [joinInput, setJoinInput] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export default function DashboardPage() {
       try {
         const [created, visited] = await Promise.all([
           getUserBoards(user.uid),
-          user.isAnonymous ? Promise.resolve([]) : getVisitedBoards(user.uid),
+          getVisitedBoards(user.uid),
         ]);
         setBoards(created);
         // Filter out boards the user created (already shown in "Your Boards")
@@ -230,7 +230,11 @@ export default function DashboardPage() {
                     <span className="text-xs text-indigo-400">visited</span>
                   </div>
                   <span className="text-xs text-gray-400">
-                    {board.createdAt ? timeAgo(board.createdAt) : ""}
+                    {board.lastVisited
+                      ? `Last visited ${timeAgo(board.lastVisited)}`
+                      : board.createdAt
+                        ? timeAgo(board.createdAt)
+                        : ""}
                   </span>
                 </button>
               ))}

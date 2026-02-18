@@ -53,9 +53,9 @@ export default function BoardPage() {
     }
   }, [user, isLoading, router, boardId]);
 
-  // Record board visit for dashboard
+  // Record board visit for dashboard (all authenticated users)
   useEffect(() => {
-    if (user && !user.isAnonymous) {
+    if (user) {
       recordBoardVisit(user.uid, boardId).catch(console.error);
     }
   }, [user, boardId]);
