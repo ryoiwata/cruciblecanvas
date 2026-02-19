@@ -186,7 +186,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
           throw new Error('No response body');
         }
 
-        // Parse the Vercel AI SDK data stream
+        // The API uses toTextStreamResponse() — plain text chunks, no protocol framing
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
 
@@ -195,27 +195,16 @@ export function useAICommand(boardId: string): UseAICommandReturn {
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
-
-          // Vercel AI SDK format: lines starting with "0:" contain text tokens
-          for (const line of chunk.split('\n')) {
-            if (line.startsWith('0:')) {
-              try {
-                const token = JSON.parse(line.slice(2));
-                if (typeof token === 'string') {
-                  accumulatedContent += token;
-                  // Update local state
-                  updateMessage(responseMsgId, { content: accumulatedContent });
-                  // Relay to RTDB for other users (throttled — every 100ms)
-                  updateAIStream(boardId, aiCommandId, {
-                    content: accumulatedContent,
-                    status: 'streaming',
-                    timestamp: Date.now(),
-                  }).catch(console.error);
-                }
-              } catch {
-                // Non-JSON token chunks are fine to skip
-              }
-            }
+          if (chunk) {
+            accumulatedContent += chunk;
+            // Update local state
+            updateMessage(responseMsgId, { content: accumulatedContent });
+            // Relay to RTDB for other users
+            updateAIStream(boardId, aiCommandId, {
+              content: accumulatedContent,
+              status: 'streaming',
+              timestamp: Date.now(),
+            }).catch(console.error);
           }
         }
 
