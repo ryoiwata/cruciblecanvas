@@ -17,13 +17,19 @@
 export async function register() {
   // NodeSDK is Node.js-only; skip in Edge or browser environments.
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { NodeSDK } = await import('@opentelemetry/sdk-node');
-    const { LangfuseSpanProcessor } = await import('@langfuse/otel');
+    try {
+      const { NodeSDK } = await import('@opentelemetry/sdk-node');
+      const { LangfuseSpanProcessor } = await import('@langfuse/otel');
 
-    const sdk = new NodeSDK({
-      spanProcessors: [new LangfuseSpanProcessor()],
-    });
+      const sdk = new NodeSDK({
+        spanProcessors: [new LangfuseSpanProcessor()],
+      });
 
-    sdk.start();
+      sdk.start();
+    } catch (err) {
+      // OTel/Langfuse initialization is non-critical — log and continue
+      // so that server startup and request handling are not blocked.
+      console.warn('[Instrumentation] OpenTelemetry setup failed:', err);
+    }
   }
 }
