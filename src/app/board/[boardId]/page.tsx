@@ -37,6 +37,9 @@ const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
   ),
 });
 
+// Skip auth guard and loading checks when running perf benchmarks (dev only).
+const IS_PERF_BYPASS = process.env.NEXT_PUBLIC_PERF_BYPASS === "true";
+
 export default function BoardPage() {
   const params = useParams<{ boardId: string }>();
   const router = useRouter();
@@ -66,8 +69,11 @@ export default function BoardPage() {
   // AI command hook
   const { sendAICommand, isAILoading } = useAICommand(boardId);
 
-  // Auth guard — pass redirect so guests return here after sign-in
+  // Auth guard — pass redirect so guests return here after sign-in.
+  // Bypassed in perf test mode (NEXT_PUBLIC_PERF_BYPASS=true) to allow
+  // Playwright to load the canvas without OAuth flow.
   useEffect(() => {
+    if (IS_PERF_BYPASS) return;
     if (!isLoading && !user) {
       router.replace(`/auth?redirect=/board/${boardId}`);
     }
@@ -96,8 +102,8 @@ export default function BoardPage() {
     [sendAICommand]
   );
 
-  // Loading states
-  if (isLoading) {
+  // Loading states — skipped in perf bypass mode to render canvas immediately
+  if (!IS_PERF_BYPASS && isLoading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-gray-50">
         <p className="text-gray-400">Authenticating...</p>
@@ -105,11 +111,11 @@ export default function BoardPage() {
     );
   }
 
-  if (!user) {
+  if (!IS_PERF_BYPASS && !user) {
     return null; // Redirect in progress
   }
 
-  if (!isObjectsLoaded) {
+  if (!IS_PERF_BYPASS && !isObjectsLoaded) {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-gray-50">
         <div className="text-center">

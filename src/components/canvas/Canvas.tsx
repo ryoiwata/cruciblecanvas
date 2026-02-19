@@ -1222,6 +1222,7 @@ export default function Canvas({ boardId }: CanvasProps) {
 
   return (
     <div
+      data-testid="canvas-ready"
       style={{
         width: "100vw",
         height: "100vh",
