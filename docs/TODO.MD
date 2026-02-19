@@ -13,15 +13,15 @@
 
 ## MVP Requirements *(Hard Gate — All Required)*
 
-- [ ] Infinite board with pan/zoom
+- [x] Infinite board with pan/zoom
 - [x] Sticky notes with editable text
 - [x] At least one shape type (rectangle, circle, or line)
-- [ ] Create, move, and edit objects
-- [ ] Real-time sync between 2+ users
-- [ ] Multiplayer cursors with name labels
-- [ ] Presence awareness (who's online)
+- [x] Create, move, and edit objects
+- [x] Real-time sync between 2+ users
+- [x] Multiplayer cursors with name labels
+- [x] Presence awareness (who's online)
 - [ ] User authentication
-- [ ] Deployed and publicly accessible
+- [x] Deployed and publicly accessible
 
 ---
 
