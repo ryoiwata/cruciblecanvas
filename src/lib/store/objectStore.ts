@@ -20,6 +20,8 @@ interface ObjectState {
 
   // Lock actions
   setLocks: (locks: Record<string, ObjectLock>) => void;
+  upsertLock: (id: string, lock: ObjectLock) => void;
+  removeLock: (id: string) => void;
 
   // Loading state
   setIsLoaded: (loaded: boolean) => void;
@@ -83,6 +85,16 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
     }),
 
   setLocks: (locks) => set({ locks }),
+
+  // Granular lock mutations — avoid replacing the entire locks map on every change
+  upsertLock: (id, lock) =>
+    set((s) => ({ locks: { ...s.locks, [id]: lock } })),
+  removeLock: (id) =>
+    set((s) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [id]: _removed, ...rest } = s.locks;
+      return { locks: rest };
+    }),
 
   setIsLoaded: (loaded) => set({ isLoaded: loaded }),
 

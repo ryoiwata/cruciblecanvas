@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useAuthStore } from "@/lib/store/authStore";
@@ -52,12 +53,19 @@ export default function BoardObjects({
   const locks = useObjectStore((s) => s.locks);
   const userId = useAuthStore((s) => s.user?.uid);
 
-  const stageX = useCanvasStore((s) => s.stageX);
-  const stageY = useCanvasStore((s) => s.stageY);
-  const stageScale = useCanvasStore((s) => s.stageScale);
-  const mode = useCanvasStore((s) => s.mode);
-  const creationTool = useCanvasStore((s) => s.creationTool);
-  const connectorHoverTarget = useCanvasStore((s) => s.connectorHoverTarget);
+  // useShallow combines 6 individual subscriptions into one, preventing redundant
+  // re-renders when unrelated store slices change between these values.
+  const { stageX, stageY, stageScale, mode, creationTool, connectorHoverTarget } =
+    useCanvasStore(
+      useShallow((s) => ({
+        stageX: s.stageX,
+        stageY: s.stageY,
+        stageScale: s.stageScale,
+        mode: s.mode,
+        creationTool: s.creationTool,
+        connectorHoverTarget: s.connectorHoverTarget,
+      }))
+    );
 
   // Memoized viewport culling + sort — only recomputes when objects or viewport change.
   // For 500+ objects this avoids O(N) scan + sort on every unrelated re-render.
@@ -70,21 +78,34 @@ export default function BoardObjects({
 
     const allObjects = Object.values(objects);
     const layered: BoardObject[] = [];
-    const conns: BoardObject[] = [];
+    const pendingConnectors: BoardObject[] = [];
+    // Track visible non-connector IDs so connectors can be culled by endpoint visibility
+    const visibleIds = new Set<string>();
 
     for (const obj of allObjects) {
-      // Viewport culling (connectors skip culling — they're derived from endpoints)
-      if (obj.type !== "connector") {
-        if (obj.x + obj.width < vpLeft) continue;
-        if (obj.x > vpRight) continue;
-        if (obj.y + obj.height < vpTop) continue;
-        if (obj.y > vpBottom) continue;
+      if (obj.type === "connector") {
+        pendingConnectors.push(obj);
+        continue;
       }
 
-      if (obj.type === "connector") {
-        conns.push(obj);
-      } else {
-        layered.push(obj);
+      // Viewport culling for non-connector objects
+      if (obj.x + obj.width < vpLeft) continue;
+      if (obj.x > vpRight) continue;
+      if (obj.y + obj.height < vpTop) continue;
+      if (obj.y > vpBottom) continue;
+
+      layered.push(obj);
+      visibleIds.add(obj.id);
+    }
+
+    // Cull connectors based on endpoint visibility — connectors store x=0,y=0,w=0,h=0
+    // so bounding-box culling is meaningless; use endpoint presence instead.
+    const conns: BoardObject[] = [];
+    for (const conn of pendingConnectors) {
+      const endpoints = conn.connectedTo;
+      if (!endpoints || endpoints.length < 2) continue;
+      if (visibleIds.has(endpoints[0]) || visibleIds.has(endpoints[1])) {
+        conns.push(conn);
       }
     }
 

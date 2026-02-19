@@ -400,6 +400,60 @@ export function onLocksChange(
   });
 }
 
+/**
+ * Subscribes to individual lock changes using granular child listeners.
+ * More efficient than onLocksChange — only fires for the specific lock that
+ * changed, preventing all lock subscribers from re-rendering when any object
+ * is locked or unlocked by another user.
+ */
+export function onLockChildEvents(
+  boardId: string,
+  callbacks: {
+    onAdd: (objectId: string, lock: ObjectLock) => void;
+    onChange: (objectId: string, lock: ObjectLock) => void;
+    onRemove: (objectId: string) => void;
+  }
+): Unsubscribe {
+  const locksRef = ref(rtdb, `boards/${boardId}/locks`);
+  const onError = handleListenerError('onLockChildEvents');
+
+  const unsubAdd = onChildAdded(
+    locksRef,
+    (snapshot) => {
+      if (snapshot.key && snapshot.val()) {
+        callbacks.onAdd(snapshot.key, snapshot.val());
+      }
+    },
+    onError
+  );
+
+  const unsubChange = onChildChanged(
+    locksRef,
+    (snapshot) => {
+      if (snapshot.key && snapshot.val()) {
+        callbacks.onChange(snapshot.key, snapshot.val());
+      }
+    },
+    onError
+  );
+
+  const unsubRemove = onChildRemoved(
+    locksRef,
+    (snapshot) => {
+      if (snapshot.key) {
+        callbacks.onRemove(snapshot.key);
+      }
+    },
+    onError
+  );
+
+  return () => {
+    unsubAdd();
+    unsubChange();
+    unsubRemove();
+  };
+}
+
 // ---------------------------------------------------------------------------
 // AI Stream relay — /boards/{boardId}/aiStreams/{commandId}
 // Ephemeral: written during streaming, deleted on completion.
