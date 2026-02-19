@@ -15,21 +15,45 @@
  * intercepts those spans and forwards them to Langfuse.
  */
 export async function register() {
+  // Instrumentation is observability-only and must never block local startup.
+  // Skip in dev to avoid compiling heavy Node-only telemetry dependencies
+  // during the first request/hydration path.
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
+
   // NodeSDK is Node.js-only; skip in Edge or browser environments.
-  if (process.env.NEXT_RUNTIME === 'nodejs') {
-    try {
-      const { NodeSDK } = await import('@opentelemetry/sdk-node');
-      const { LangfuseSpanProcessor } = await import('@langfuse/otel');
+  if (process.env.NEXT_RUNTIME !== "nodejs") {
+    return;
+  }
 
-      const sdk = new NodeSDK({
-        spanProcessors: [new LangfuseSpanProcessor()],
-      });
+  // Missing keys are expected in some environments; startup should continue.
+  if (!process.env.LANGFUSE_PUBLIC_KEY || !process.env.LANGFUSE_SECRET_KEY) {
+    return;
+  }
 
-      sdk.start();
-    } catch (err) {
-      // OTel/Langfuse initialization is non-critical — log and continue
-      // so that server startup and request handling are not blocked.
-      console.warn('[Instrumentation] OpenTelemetry setup failed:', err);
-    }
+  try {
+    // Use an opaque runtime import so Next.js does not statically resolve these
+    // Node-only dependencies while compiling instrumentation for non-Node runtimes.
+    const dynamicImport = new Function("m", "return import(m)") as (
+      moduleName: string
+    ) => Promise<Record<string, unknown>>;
+
+    const { NodeSDK } = (await dynamicImport("@opentelemetry/sdk-node")) as {
+      NodeSDK: new (options: { spanProcessors: unknown[] }) => { start: () => void };
+    };
+    const { LangfuseSpanProcessor } = (await dynamicImport("@langfuse/otel")) as {
+      LangfuseSpanProcessor: new () => unknown;
+    };
+
+    const sdk = new NodeSDK({
+      spanProcessors: [new LangfuseSpanProcessor()],
+    });
+
+    sdk.start();
+  } catch (err) {
+    // OTel/Langfuse initialization is non-critical — log and continue
+    // so that server startup and request handling are not blocked.
+    console.warn("[Instrumentation] OpenTelemetry setup failed:", err);
   }
 }
