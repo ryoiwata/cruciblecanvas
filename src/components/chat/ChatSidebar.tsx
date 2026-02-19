@@ -1,7 +1,7 @@
 /**
  * ChatSidebar — collapsible, resizable right-side chat panel.
- * Contains the chat header (title + persona selector), a mode toggle
- * (AI ✨ vs Group 👥), the message timeline, and the input area.
+ * Contains the chat header (title + persona selector), a unified message
+ * timeline (all types), and the input area with an inline send-target toggle.
  * Pushes the canvas left when opened via flex layout.
  * Resets unread count when opened. Auto-focuses the input on open.
  * Exposes a drag handle on the left edge to resize width (200–600px).
@@ -11,7 +11,6 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useChatStore } from '@/lib/store/chatStore';
-import type { ChatMode } from '@/lib/store/chatStore';
 import ChatTimeline from './ChatTimeline';
 import ChatInput from './ChatInput';
 import PersonaSelector from './PersonaSelector';
@@ -25,38 +24,6 @@ interface ChatSidebarProps {
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 600;
 
-/** Segmented control that switches between AI and Group chat modes. */
-function ChatModeToggle({ chatMode, onModeChange }: { chatMode: ChatMode; onModeChange: (mode: ChatMode) => void }) {
-  return (
-    <div className="flex items-center rounded-lg border border-gray-200 overflow-hidden bg-gray-50 shrink-0">
-      <button
-        onClick={() => onModeChange('ai')}
-        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-          chatMode === 'ai'
-            ? 'bg-indigo-500 text-white shadow-sm'
-            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-        }`}
-        title="AI agent mode — send commands to Claude"
-      >
-        <span aria-hidden>✨</span>
-        <span>AI</span>
-      </button>
-      <button
-        onClick={() => onModeChange('group')}
-        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-          chatMode === 'group'
-            ? 'bg-emerald-500 text-white shadow-sm'
-            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-        }`}
-        title="Group chat mode — message collaborators"
-      >
-        <span aria-hidden>👥</span>
-        <span>Group</span>
-      </button>
-    </div>
-  );
-}
-
 export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: ChatSidebarProps) {
   const sidebarOpen = useChatStore((s) => s.sidebarOpen);
   const sidebarWidth = useChatStore((s) => s.sidebarWidth);
@@ -64,8 +31,8 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
   const setSidebarWidth = useChatStore((s) => s.setSidebarWidth);
   const resetUnread = useChatStore((s) => s.resetUnread);
   const chatInputRef = useChatStore((s) => s.chatInputRef);
+  // chatMode here reflects the send-target toggle in ChatInput (AI vs Group)
   const chatMode = useChatStore((s) => s.chatMode);
-  const setChatMode = useChatStore((s) => s.setChatMode);
 
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartX = useRef(0);
@@ -155,7 +122,7 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
               <h2 className="text-sm font-semibold text-gray-800">Chat</h2>
             </div>
             <div className="flex items-center gap-3">
-              {/* Persona selector is only relevant when talking to the AI */}
+              {/* Persona selector — shown when send target is AI */}
               {chatMode === 'ai' && <PersonaSelector />}
               <button
                 onClick={() => setSidebarOpen(false)}
@@ -167,12 +134,7 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
             </div>
           </div>
 
-          {/* Mode toggle — sits between the header and the message list */}
-          <div className="flex items-center justify-center px-4 py-2 border-b border-gray-100 bg-white">
-            <ChatModeToggle chatMode={chatMode} onModeChange={setChatMode} />
-          </div>
-
-          {/* Message timeline — filtered to the active mode */}
+          {/* Unified message timeline — all types in one stream */}
           <ChatTimeline boardId={boardId} />
 
           {/* Input area — behaviour driven by active mode */}
