@@ -1,3 +1,12 @@
+/**
+ * useKeyboardShortcuts — global keyboard event handler for canvas interactions.
+ *
+ * Performance note: all reactive store reads inside the keydown handler use
+ * getState() instead of closure captures, so the useEffect dependency array
+ * is stable ([mode, editingObjectId]) and the handler only re-registers when
+ * the canvas mode or active text editor changes — not on every object/selection update.
+ */
+
 import { useEffect, useCallback, useState } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
@@ -11,6 +20,7 @@ import {
   updateObject,
 } from "@/lib/firebase/firestore";
 import { performLayerAction } from "@/components/ui/ArrangeMenu";
+import type { BoardObject } from "@/lib/types";
 
 interface UseKeyboardShortcutsOptions {
   boardId: string;
@@ -19,29 +29,24 @@ interface UseKeyboardShortcutsOptions {
 export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
   const [pendingDelete, setPendingDelete] = useState(false);
 
+  // Minimal reactive subscriptions — only values used outside of the keydown handler.
+  // mode is kept reactive so the useEffect dep array re-triggers on mode change.
+  // editingObjectId is kept reactive to gate the handler when a text editor is open.
+  // selectedObjectIds is kept reactive solely to expose deleteCount to the parent.
   const mode = useCanvasStore((s) => s.mode);
-  const setMode = useCanvasStore((s) => s.setMode);
-  const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
-  const exitToPointer = useCanvasStore((s) => s.exitToPointer);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
-  const clearSelection = useCanvasStore((s) => s.clearSelection);
-  const setSelectedObjectIds = useCanvasStore((s) => s.setSelectedObjectIds);
-  const copyToClipboard = useCanvasStore((s) => s.copyToClipboard);
-  const clipboard = useCanvasStore((s) => s.clipboard);
   const editingObjectId = useCanvasStore((s) => s.editingObjectId);
+  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
 
-  const objects = useObjectStore((s) => s.objects);
-  const batchRemove = useObjectStore((s) => s.batchRemove);
-  const upsertObject = useObjectStore((s) => s.upsertObject);
-  const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
-  const getChildrenOfFrame = useObjectStore((s) => s.getChildrenOfFrame);
-
-  const user = useAuthStore((s) => s.user);
-
+  // Exposed to parent (DeleteDialog). Uses getState() so it doesn't re-create
+  // when selection or objects change — only when boardId changes (stable).
   const performDelete = useCallback(() => {
-    if (selectedObjectIds.length === 0) return;
+    const { selectedObjectIds: ids, clearSelection } = useCanvasStore.getState();
+    const { objects, batchRemove, getChildrenOfFrame, updateObjectLocal } =
+      useObjectStore.getState();
 
-    const idsToDelete = [...selectedObjectIds];
+    if (ids.length === 0) return;
+
+    const idsToDelete = [...ids];
     const orphanConnectorIds: string[] = [];
 
     for (const id of idsToDelete) {
@@ -51,13 +56,11 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
         const children = getChildrenOfFrame(id);
         for (const child of children) {
           updateObjectLocal(child.id, { parentFrame: undefined });
-          updateObject(boardId, child.id, { parentFrame: "" }).catch(
-            console.error
-          );
+          updateObject(boardId, child.id, { parentFrame: "" }).catch(console.error);
         }
       }
 
-      // Find orphan connectors
+      // Collect orphan connectors whose endpoint is being deleted
       for (const o of Object.values(objects)) {
         if (
           o.type === "connector" &&
@@ -74,167 +77,46 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
     batchRemove(allIds);
     clearSelection();
 
-    // Persist
     for (const id of idsToDelete) {
       deleteObject(boardId, id).catch(console.error);
     }
     if (orphanConnectorIds.length > 0) {
       deleteObjects(boardId, orphanConnectorIds).catch(console.error);
     }
-  }, [
-    selectedObjectIds,
-    objects,
-    boardId,
-    batchRemove,
-    clearSelection,
-    getChildrenOfFrame,
-    updateObjectLocal,
-  ]);
-
-  const handleCopy = useCallback(() => {
-    if (selectedObjectIds.length === 0) return;
-    const selected = selectedObjectIds
-      .map((id) => objects[id])
-      .filter(Boolean);
-    copyToClipboard(selected);
-  }, [selectedObjectIds, objects, copyToClipboard]);
-
-  const handlePaste = useCallback(() => {
-    if (!user || clipboard.length === 0) return;
-
-    // Cascading offset: each paste adds +20px diagonal from previous
-    const pasteCount = useCanvasStore.getState().pasteCount + 1;
-    useCanvasStore.setState({ pasteCount });
-    const offset = pasteCount * 20;
-
-    // Compute max zIndex for placing pasted objects on top
-    const allObjects = useObjectStore.getState().objects;
-    let maxZ = 0;
-    for (const o of Object.values(allObjects)) {
-      const z = o.zIndex ?? 0;
-      if (z > maxZ) maxZ = z;
-    }
-
-    const newIds: string[] = [];
-
-    for (let i = 0; i < clipboard.length; i++) {
-      const obj = clipboard[i];
-      const newId = generateObjectId(boardId);
-      newIds.push(newId);
-      const newObj = {
-        ...obj,
-        id: newId,
-        x: obj.x + offset,
-        y: obj.y + offset,
-        zIndex: maxZ + 1 + i,
-        createdBy: user.uid,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        parentFrame: undefined,
-      };
-      upsertObject(newObj);
-      createObject(
-        boardId,
-        {
-          type: newObj.type,
-          x: newObj.x,
-          y: newObj.y,
-          width: newObj.width,
-          height: newObj.height,
-          color: newObj.color,
-          text: newObj.text,
-          zIndex: newObj.zIndex,
-          createdBy: user.uid,
-        },
-        newId
-      ).catch(console.error);
-    }
-  }, [user, clipboard, boardId, upsertObject]);
-
-  const handleSelectAll = useCallback(() => {
-    if (mode !== "pointer") return;
-    const allIds = Object.keys(objects);
-    setSelectedObjectIds(allIds);
-  }, [mode, objects, setSelectedObjectIds]);
-
-  const handleDuplicate = useCallback(() => {
-    if (!user || selectedObjectIds.length === 0) return;
-
-    // Compute max zIndex so duplicates appear on top
-    const allObjects = useObjectStore.getState().objects;
-    let maxZ = 0;
-    for (const o of Object.values(allObjects)) {
-      const z = o.zIndex ?? 0;
-      if (z > maxZ) maxZ = z;
-    }
-
-    let idx = 0;
-    for (const id of selectedObjectIds) {
-      const obj = objects[id];
-      if (!obj) continue;
-
-      const newId = generateObjectId(boardId);
-      const newZIndex = maxZ + 1 + idx;
-      idx++;
-      const newObj = {
-        ...obj,
-        id: newId,
-        x: obj.x + 20,
-        y: obj.y + 20,
-        zIndex: newZIndex,
-        createdBy: user.uid,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        parentFrame: undefined,
-      };
-      upsertObject(newObj);
-      createObject(
-        boardId,
-        {
-          type: newObj.type,
-          x: newObj.x,
-          y: newObj.y,
-          width: newObj.width,
-          height: newObj.height,
-          color: newObj.color,
-          text: newObj.text,
-          zIndex: newZIndex,
-          createdBy: user.uid,
-        },
-        newId
-      ).catch(console.error);
-    }
-  }, [user, selectedObjectIds, objects, boardId, upsertObject]);
+  }, [boardId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Skip when editing text
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
+      // editingObjectId from reactive closure — re-registers when it changes
       if (editingObjectId) return;
+
+      const canvasState = useCanvasStore.getState();
 
       // Tool switching
       switch (e.key) {
         case "1":
-          setMode("pointer");
+          canvasState.setMode("pointer");
           return;
         case "2":
-          enterCreateMode("stickyNote");
+          canvasState.enterCreateMode("stickyNote");
           return;
         case "3":
-          enterCreateMode("rectangle");
+          canvasState.enterCreateMode("rectangle");
           return;
         case "4":
-          enterCreateMode("circle");
+          canvasState.enterCreateMode("circle");
           return;
         case "5":
-          enterCreateMode("frame");
+          canvasState.enterCreateMode("frame");
           return;
         case "6":
-          enterCreateMode("connector");
+          canvasState.enterCreateMode("connector");
           return;
         case "Escape":
-          exitToPointer();
+          canvasState.exitToPointer();
           return;
         case "/": {
           // Open chat sidebar and focus the input field
@@ -246,11 +128,13 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
         }
       }
 
+      // All remaining shortcuts read state imperatively to avoid re-registration
+      const { selectedObjectIds: ids } = useCanvasStore.getState();
+
       // Delete
       if (e.key === "Delete" || e.key === "Backspace") {
-        if (selectedObjectIds.length === 0) return;
+        if (ids.length === 0) return;
         if (e.ctrlKey || e.metaKey) {
-          // Ctrl+Delete: bypass confirmation
           performDelete();
         } else {
           setPendingDelete(true);
@@ -260,27 +144,124 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
 
       // Copy
       if ((e.ctrlKey || e.metaKey) && e.key === "c") {
-        handleCopy();
+        if (ids.length === 0) return;
+        const { objects } = useObjectStore.getState();
+        const selected = ids
+          .map((id) => objects[id])
+          .filter((obj): obj is BoardObject => obj !== undefined);
+        useCanvasStore.getState().copyToClipboard(selected);
         return;
       }
 
       // Paste
       if ((e.ctrlKey || e.metaKey) && e.key === "v") {
-        handlePaste();
+        const user = useAuthStore.getState().user;
+        const { clipboard } = useCanvasStore.getState();
+        if (!user || clipboard.length === 0) return;
+
+        const pasteCount = useCanvasStore.getState().pasteCount + 1;
+        useCanvasStore.setState({ pasteCount });
+        const offset = pasteCount * 20;
+
+        const allObjects = useObjectStore.getState().objects;
+        let maxZ = 0;
+        for (const o of Object.values(allObjects)) {
+          const z = o.zIndex ?? 0;
+          if (z > maxZ) maxZ = z;
+        }
+
+        const { upsertObject } = useObjectStore.getState();
+        for (let i = 0; i < clipboard.length; i++) {
+          const obj = clipboard[i];
+          const newId = generateObjectId(boardId);
+          const newObj = {
+            ...obj,
+            id: newId,
+            x: obj.x + offset,
+            y: obj.y + offset,
+            zIndex: maxZ + 1 + i,
+            createdBy: user.uid,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            parentFrame: undefined,
+          };
+          upsertObject(newObj);
+          createObject(
+            boardId,
+            {
+              type: newObj.type,
+              x: newObj.x,
+              y: newObj.y,
+              width: newObj.width,
+              height: newObj.height,
+              color: newObj.color,
+              text: newObj.text,
+              zIndex: newObj.zIndex,
+              createdBy: user.uid,
+            },
+            newId
+          ).catch(console.error);
+        }
         return;
       }
 
       // Select all
       if ((e.ctrlKey || e.metaKey) && e.key === "a") {
         e.preventDefault();
-        handleSelectAll();
+        const { mode: currentMode, setSelectedObjectIds } = useCanvasStore.getState();
+        if (currentMode !== "pointer") return;
+        setSelectedObjectIds(Object.keys(useObjectStore.getState().objects));
         return;
       }
 
       // Duplicate
       if ((e.ctrlKey || e.metaKey) && e.key === "d") {
         e.preventDefault();
-        handleDuplicate();
+        const user = useAuthStore.getState().user;
+        const { selectedObjectIds: dupIds } = useCanvasStore.getState();
+        const { objects: allObjs, upsertObject: upsert } = useObjectStore.getState();
+        if (!user || dupIds.length === 0) return;
+
+        let maxZ = 0;
+        for (const o of Object.values(allObjs)) {
+          const z = o.zIndex ?? 0;
+          if (z > maxZ) maxZ = z;
+        }
+
+        let idx = 0;
+        for (const id of dupIds) {
+          const obj = allObjs[id];
+          if (!obj) continue;
+          const newId = generateObjectId(boardId);
+          const newZIndex = maxZ + 1 + idx++;
+          const newObj = {
+            ...obj,
+            id: newId,
+            x: obj.x + 20,
+            y: obj.y + 20,
+            zIndex: newZIndex,
+            createdBy: user.uid,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            parentFrame: undefined,
+          };
+          upsert(newObj);
+          createObject(
+            boardId,
+            {
+              type: newObj.type,
+              x: newObj.x,
+              y: newObj.y,
+              width: newObj.width,
+              height: newObj.height,
+              color: newObj.color,
+              text: newObj.text,
+              zIndex: newZIndex,
+              createdBy: user.uid,
+            },
+            newId
+          ).catch(console.error);
+        }
         return;
       }
 
@@ -288,32 +269,22 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
       if ((e.ctrlKey || e.metaKey) && e.key === "]") {
         e.preventDefault();
         const action = e.shiftKey ? "bringToFront" : "bringForward";
-        performLayerAction(action, selectedObjectIds, objects, updateObjectLocal, boardId);
+        const { objects: layerObjs, updateObjectLocal } = useObjectStore.getState();
+        performLayerAction(action, ids, layerObjs, updateObjectLocal, boardId);
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "[") {
         e.preventDefault();
         const action = e.shiftKey ? "sendToBack" : "sendBackward";
-        performLayerAction(action, selectedObjectIds, objects, updateObjectLocal, boardId);
+        const { objects: layerObjs, updateObjectLocal } = useObjectStore.getState();
+        performLayerAction(action, ids, layerObjs, updateObjectLocal, boardId);
         return;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    mode,
-    setMode,
-    enterCreateMode,
-    exitToPointer,
-    selectedObjectIds,
-    editingObjectId,
-    performDelete,
-    handleCopy,
-    handlePaste,
-    handleDuplicate,
-    handleSelectAll,
-  ]);
+  }, [mode, editingObjectId, performDelete, boardId]);
 
   return {
     pendingDelete,

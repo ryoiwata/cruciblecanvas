@@ -89,41 +89,17 @@ export default function ColorPickerPopup({ boardId }: ColorPickerPopupProps) {
     }
   };
 
-  // Calculate popup position (above the trigger button)
+  // Calculate popup position (to the right of the trigger button)
   const getPopupStyle = (): React.CSSProperties => {
     if (!triggerRef.current) return { display: "none" };
     const rect = triggerRef.current.getBoundingClientRect();
     const popupWidth = 260;
-    let left = rect.left + rect.width / 2 - popupWidth / 2;
-
-    // Clamp to viewport edges
-    if (left < 8) left = 8;
-    if (left + popupWidth > window.innerWidth - 8) {
-      left = window.innerWidth - 8 - popupWidth;
-    }
-
-    // Position above the toolbar, ensure it doesn't go above viewport
-    let bottom = window.innerHeight - rect.top + 8;
-    if (bottom > window.innerHeight - 16) {
-      bottom = window.innerHeight - 16;
-    }
-
-    return {
-      position: "fixed" as const,
-      left,
-      bottom,
-      width: popupWidth,
-      zIndex: 200,
-    };
-  };
-
-  // Arrow nub position
-  const getArrowStyle = (): React.CSSProperties => {
-    if (!triggerRef.current) return { display: "none" };
-    const rect = triggerRef.current.getBoundingClientRect();
-    const popupStyle = getPopupStyle();
-    const arrowLeft = rect.left + rect.width / 2 - (popupStyle.left as number) - 6;
-    return { left: arrowLeft };
+    const left = rect.right + 8;
+    const popupHeight = 400;
+    let top = rect.top + rect.height / 2 - popupHeight / 2;
+    if (top < 8) top = 8;
+    if (top + popupHeight > window.innerHeight - 8) top = window.innerHeight - 8 - popupHeight;
+    return { position: "fixed" as const, left, top, width: popupWidth, zIndex: 200 };
   };
 
   return (
@@ -147,14 +123,8 @@ export default function ColorPickerPopup({ boardId }: ColorPickerPopupProps) {
           <div
             ref={popupRef}
             style={getPopupStyle()}
-            className="animate-in fade-in slide-in-from-bottom-2 rounded-xl border border-white/20 bg-white/80 p-3 shadow-xl backdrop-blur-lg"
+            className="rounded-xl border border-white/20 bg-white/80 p-3 shadow-xl backdrop-blur-lg"
           >
-            {/* Downward-pointing arrow nub */}
-            <div
-              className="absolute -bottom-[6px] h-3 w-3 rotate-45 border-b border-r border-white/20 bg-white/80 backdrop-blur-lg"
-              style={getArrowStyle()}
-            />
-
             {/* Color presets grid */}
             <div className="mb-3">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">

@@ -18,6 +18,7 @@ interface ShapeObjectProps {
   isLocked: boolean;
   lockedByName: string | null;
   isConnectorTarget?: boolean;
+  isSimpleLod?: boolean;
 }
 
 export default memo(function ShapeObject({
@@ -26,6 +27,7 @@ export default memo(function ShapeObject({
   isLocked,
   lockedByName,
   isConnectorTarget,
+  isSimpleLod,
 }: ShapeObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const groupRef = useRef<Konva.Group>(null);
@@ -48,17 +50,34 @@ export default memo(function ShapeObject({
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
 
+  // LOD: simplified render for extreme zoom-out — no text, borders, shadows
+  if (isSimpleLod) {
+    return object.type === 'rectangle' ? (
+      <Rect
+        x={object.x}
+        y={object.y}
+        width={object.width}
+        height={object.height}
+        fill={object.color}
+        listening={false}
+      />
+    ) : (
+      <Circle
+        x={object.x + object.width / 2}
+        y={object.y + object.height / 2}
+        radius={object.width / 2}
+        fill={object.color}
+        listening={false}
+      />
+    );
+  }
+
   const handleDragStart = () => {
     if (!user) return;
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
     useObjectStore.getState().startLocalEdit(object.id);
     acquireLock(boardId, object.id, user.uid, displayName || "Guest");
-  };
-
-  const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const node = e.target;
-    updateObjectLocal(object.id, { x: node.x(), y: node.y() });
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -118,7 +137,6 @@ export default memo(function ShapeObject({
       height={object.height}
       draggable={isDraggable}
       onDragStart={handleDragStart}
-      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onTap={handleClick}
@@ -189,6 +207,7 @@ export default memo(function ShapeObject({
     prevProps.boardId === nextProps.boardId &&
     prevProps.isLocked === nextProps.isLocked &&
     prevProps.lockedByName === nextProps.lockedByName &&
-    prevProps.isConnectorTarget === nextProps.isConnectorTarget
+    prevProps.isConnectorTarget === nextProps.isConnectorTarget &&
+    prevProps.isSimpleLod === nextProps.isSimpleLod
   );
 });

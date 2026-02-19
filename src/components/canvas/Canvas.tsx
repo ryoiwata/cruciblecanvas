@@ -235,6 +235,10 @@ export default function Canvas({ boardId }: CanvasProps) {
   // RAF handle for border resize rendering — coalesces mouse events to display refresh rate
   const borderResizeRafRef = useRef(0);
 
+  // RAF handle for viewport updates — coalesces wheel/pan events to display refresh rate
+  const viewportRafRef = useRef<number | null>(null);
+  const pendingViewport = useRef<{ x: number; y: number; scale: number } | null>(null);
+
   // Pointer mode interaction tracking (pan or selection rect)
   const pointerInteractionRef = useRef<{
     type: "pan";
@@ -281,7 +285,6 @@ export default function Canvas({ boardId }: CanvasProps) {
   const stageX = useCanvasStore((s) => s.stageX);
   const stageY = useCanvasStore((s) => s.stageY);
   const stageScale = useCanvasStore((s) => s.stageScale);
-  const setViewport = useCanvasStore((s) => s.setViewport);
   const clearSelection = useCanvasStore((s) => s.clearSelection);
   const editingObjectId = useCanvasStore((s) => s.editingObjectId);
   const connectorStart = useCanvasStore((s) => s.connectorStart);
@@ -291,7 +294,12 @@ export default function Canvas({ boardId }: CanvasProps) {
   const lastUsedColors = useCanvasStore((s) => s.lastUsedColors);
   const activeColor = useCanvasStore((s) => s.activeColor);
 
-  const objects = useObjectStore((s) => s.objects);
+  // Narrow subscription: only the connector start object is needed reactively for the temp line.
+  // All other objects access happens inside event callbacks via getState(), avoiding
+  // N re-renders whenever any object changes in the store.
+  const connectorStartObj = useObjectStore((s) =>
+    connectorStart ? s.objects[connectorStart] : null
+  );
   const upsertObject = useObjectStore((s) => s.upsertObject);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
   const removeObject = useObjectStore((s) => s.removeObject);
@@ -300,6 +308,15 @@ export default function Canvas({ boardId }: CanvasProps) {
   const displayName = useAuthStore((s) => s.displayName);
 
   const { checkNesting } = useFrameNesting(boardId);
+
+  // --- Cleanup viewport RAF on unmount ---
+  useEffect(() => {
+    return () => {
+      if (viewportRafRef.current) {
+        cancelAnimationFrame(viewportRafRef.current);
+      }
+    };
+  }, []);
 
   // --- Clear ghost + cleanup drawing when mode changes ---
   useEffect(() => {
@@ -354,9 +371,21 @@ export default function Canvas({ boardId }: CanvasProps) {
       const newX = pointer.x - mousePointTo.x * newScale;
       const newY = pointer.y - mousePointTo.y * newScale;
 
-      setViewport(newX, newY, newScale);
+      // Coalesce rapid wheel events to one store update per animation frame.
+      // Multiple events between frames only apply the last computed viewport.
+      pendingViewport.current = { x: newX, y: newY, scale: newScale };
+      if (!viewportRafRef.current) {
+        viewportRafRef.current = requestAnimationFrame(() => {
+          viewportRafRef.current = null;
+          if (pendingViewport.current) {
+            const { x, y, scale } = pendingViewport.current;
+            pendingViewport.current = null;
+            useCanvasStore.getState().setViewport(x, y, scale);
+          }
+        });
+      }
     },
-    [stageX, stageY, stageScale, setViewport]
+    [stageX, stageY, stageScale]
   );
 
   // --- Anchor click for connector creation ---
@@ -375,8 +404,9 @@ export default function Canvas({ boardId }: CanvasProps) {
           return;
         }
 
-        // Check for duplicate connector
-        const isDuplicate = Object.values(objects).some(
+        // Check for duplicate connector — use getState() to avoid reactive subscription
+        const currentObjects = useObjectStore.getState().objects;
+        const isDuplicate = Object.values(currentObjects).some(
           (o) =>
             o.type === "connector" &&
             o.connectedTo &&
@@ -429,7 +459,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         setConnectorEndpoint(null);
       }
     },
-    [connectorStart, objects, user, boardId, upsertObject, setConnectorStart]
+    [connectorStart, user, boardId, upsertObject, setConnectorStart]
   );
 
   // --- Anchor drag start for drag-based connector creation ---
@@ -679,12 +709,14 @@ export default function Canvas({ boardId }: CanvasProps) {
           setHoveredObjectId(null);
         }
 
-        // During connector drag: update hover target for glow highlighting
+        // During connector drag: update hover target for glow highlighting.
+        // Use getState() to avoid a reactive subscription on the full objects map.
         if (connectorDragRef.current) {
+          const currentObjects = useObjectStore.getState().objects;
           const validTarget =
             hitObjectId &&
             hitObjectId !== connectorDragRef.current &&
-            objects[hitObjectId]?.type !== "connector"
+            currentObjects[hitObjectId]?.type !== "connector"
               ? hitObjectId
               : null;
           setConnectorHoverTarget(validTarget);
@@ -708,12 +740,23 @@ export default function Canvas({ boardId }: CanvasProps) {
         const interaction = pointerInteractionRef.current;
 
         if (interaction.type === "pan") {
-          // Manual pan: compute new viewport from mouse delta
+          // Manual pan: compute new viewport from mouse delta.
+          // RAF-throttle to coalesce rapid mousemove events to one store update per frame.
           const dx = pointer.x - interaction.startMouseX;
           const dy = pointer.y - interaction.startMouseY;
           const newX = interaction.startStageX + dx;
           const newY = interaction.startStageY + dy;
-          setViewport(newX, newY, stageScale);
+          pendingViewport.current = { x: newX, y: newY, scale: stageScale };
+          if (!viewportRafRef.current) {
+            viewportRafRef.current = requestAnimationFrame(() => {
+              viewportRafRef.current = null;
+              if (pendingViewport.current) {
+                const { x, y, scale } = pendingViewport.current;
+                pendingViewport.current = null;
+                useCanvasStore.getState().setViewport(x, y, scale);
+              }
+            });
+          }
         } else if (interaction.type === "selRect") {
           // Selection rect: RAF-gated direct Konva node manipulation
           const canvasPoint = getCanvasPoint(
@@ -782,10 +825,8 @@ export default function Canvas({ boardId }: CanvasProps) {
       stageY,
       stageScale,
       lastUsedColors,
-      objects,
       upsertObject,
       updateObjectLocal,
-      setViewport,
       setConnectorHoverTarget,
     ]
   );
@@ -855,8 +896,9 @@ export default function Canvas({ boardId }: CanvasProps) {
       setConnectorEndpoint(null);
 
       if (hoverTarget && hoverTarget !== startObjectId) {
-        // Check for duplicate connector
-        const isDuplicate = Object.values(objects).some(
+        // Check for duplicate connector — use getState() to avoid reactive subscription
+        const currentObjects = useObjectStore.getState().objects;
+        const isDuplicate = Object.values(currentObjects).some(
           (o) =>
             o.type === "connector" &&
             o.connectedTo &&
@@ -998,8 +1040,9 @@ export default function Canvas({ boardId }: CanvasProps) {
         if (w > 5 && h > 5) {
           const selBounds = { x, y, width: w, height: h };
           const matchingIds: string[] = [];
-
-          for (const obj of Object.values(objects)) {
+          // Use getState() for imperative read — no reactivity needed in event handler
+          const currentObjects = useObjectStore.getState().objects;
+          for (const obj of Object.values(currentObjects)) {
             if (obj.type === "connector") continue;
             if (boundsOverlap(selBounds, obj)) {
               matchingIds.push(obj.id);
@@ -1030,7 +1073,7 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       pointerInteractionRef.current = null;
     }
-  }, [mode, creationTool, user, boardId, objects, lastUsedColors, activeColor, upsertObject, updateObjectLocal, setConnectorStart, setConnectorDragging, setConnectorHoverTarget]);
+  }, [mode, creationTool, user, boardId, lastUsedColors, activeColor, upsertObject, updateObjectLocal, setConnectorStart, setConnectorDragging, setConnectorHoverTarget]);
 
   // --- Right-click (context menu) ---
   const handleContextMenu = useCallback(
@@ -1161,13 +1204,11 @@ export default function Canvas({ boardId }: CanvasProps) {
     }
   };
 
-  // Compute temp connector line
+  // Compute temp connector line using narrowly-subscribed start object
   const connectorTempLine = (() => {
-    if (!connectorStart || !connectorEndpoint) return null;
-    const startObj = objects[connectorStart];
-    if (!startObj) return null;
-    const startCx = startObj.x + startObj.width / 2;
-    const startCy = startObj.y + startObj.height / 2;
+    if (!connectorStart || !connectorEndpoint || !connectorStartObj) return null;
+    const startCx = connectorStartObj.x + connectorStartObj.width / 2;
+    const startCy = connectorStartObj.y + connectorStartObj.height / 2;
     return [startCx, startCy, connectorEndpoint.x, connectorEndpoint.y];
   })();
 
@@ -1181,6 +1222,7 @@ export default function Canvas({ boardId }: CanvasProps) {
 
   return (
     <div
+      data-testid="canvas-ready"
       style={{
         width: "100vw",
         height: "100vh",

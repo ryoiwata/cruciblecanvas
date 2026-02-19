@@ -157,21 +157,13 @@ export default function ArrangeMenu({ boardId }: ArrangeMenuProps) {
   const getPopupStyle = (): React.CSSProperties => {
     if (!triggerRef.current) return { display: "none" };
     const rect = triggerRef.current.getBoundingClientRect();
-    const popupWidth = 240; // w-60
-    let left = rect.left + rect.width / 2 - popupWidth / 2;
-    if (left < 8) left = 8;
-    if (left + popupWidth > window.innerWidth - 8) left = window.innerWidth - 8 - popupWidth;
-    let bottom = window.innerHeight - rect.top + 8;
-    if (bottom > window.innerHeight - 16) bottom = window.innerHeight - 16;
-    return { position: "fixed", left, bottom, width: popupWidth, zIndex: 200 };
-  };
-
-  const getArrowStyle = (): React.CSSProperties => {
-    if (!triggerRef.current) return { display: "none" };
-    const rect = triggerRef.current.getBoundingClientRect();
-    const popupStyle = getPopupStyle();
-    const arrowLeft = rect.left + rect.width / 2 - (popupStyle.left as number) - 6;
-    return { left: arrowLeft };
+    const popupWidth = 240;
+    const left = rect.right + 8;
+    const popupHeight = 160;
+    let top = rect.top + rect.height / 2 - popupHeight / 2;
+    if (top < 8) top = 8;
+    if (top + popupHeight > window.innerHeight - 8) top = window.innerHeight - 8 - popupHeight;
+    return { position: "fixed", left, top, width: popupWidth, zIndex: 200 };
   };
 
   return (
@@ -181,7 +173,7 @@ export default function ArrangeMenu({ boardId }: ArrangeMenuProps) {
         onClick={() => setOpen(!open)}
         disabled={!hasSelection}
         title="Arrange (Layer order)"
-        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+        className={`flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium transition-colors ${
           hasSelection
             ? "text-gray-600 hover:bg-gray-100"
             : "cursor-not-allowed text-gray-300"
@@ -192,7 +184,6 @@ export default function ArrangeMenu({ boardId }: ArrangeMenuProps) {
           <rect x="4" y="4" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
           <rect x="7" y="1" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
         </svg>
-        <span className="hidden sm:inline">Arrange</span>
       </button>
 
       {open &&
@@ -202,12 +193,6 @@ export default function ArrangeMenu({ boardId }: ArrangeMenuProps) {
             style={getPopupStyle()}
             className="rounded-xl border border-white/20 bg-white/80 py-1 shadow-xl backdrop-blur-lg transition-all"
           >
-            {/* Downward-pointing arrow nub */}
-            <div
-              className="absolute -bottom-[6px] h-3 w-3 rotate-45 border-b border-r border-white/20 bg-white/80 backdrop-blur-lg"
-              style={getArrowStyle()}
-            />
-
             {items.map((item) => (
               <button
                 key={item.action}

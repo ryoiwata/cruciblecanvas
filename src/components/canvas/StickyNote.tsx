@@ -19,6 +19,7 @@ interface StickyNoteProps {
   isLocked: boolean;
   lockedByName: string | null;
   isConnectorTarget?: boolean;
+  isSimpleLod?: boolean;
 }
 
 export default memo(function StickyNote({
@@ -27,6 +28,7 @@ export default memo(function StickyNote({
   isLocked,
   lockedByName,
   isConnectorTarget,
+  isSimpleLod,
 }: StickyNoteProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const groupRef = useRef<Konva.Group>(null);
@@ -51,6 +53,20 @@ export default memo(function StickyNote({
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
   const fontFamily = FONT_FAMILY_MAP[object.fontFamily || "sans-serif"];
 
+  // LOD: simplified render for extreme zoom-out — no text, lines, shadows
+  if (isSimpleLod) {
+    return (
+      <Rect
+        x={object.x}
+        y={object.y}
+        width={object.width}
+        height={object.height}
+        fill={object.color}
+        listening={false}
+      />
+    );
+  }
+
   // Generate notepad lines
   const lineSpacing = 22;
   const lineStartY = 30; // Start below top padding
@@ -66,11 +82,6 @@ export default memo(function StickyNote({
     groupRef.current?.moveToTop();
     useObjectStore.getState().startLocalEdit(object.id);
     acquireLock(boardId, object.id, user.uid, displayName || "Guest");
-  };
-
-  const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const node = e.target;
-    updateObjectLocal(object.id, { x: node.x(), y: node.y() });
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -135,7 +146,6 @@ export default memo(function StickyNote({
       height={object.height}
       draggable={isDraggable}
       onDragStart={handleDragStart}
-      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onTap={handleClick}
@@ -222,6 +232,7 @@ export default memo(function StickyNote({
     prevProps.boardId === nextProps.boardId &&
     prevProps.isLocked === nextProps.isLocked &&
     prevProps.lockedByName === nextProps.lockedByName &&
-    prevProps.isConnectorTarget === nextProps.isConnectorTarget
+    prevProps.isConnectorTarget === nextProps.isConnectorTarget &&
+    prevProps.isSimpleLod === nextProps.isSimpleLod
   );
 });

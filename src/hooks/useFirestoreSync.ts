@@ -26,8 +26,7 @@ export function useFirestoreSync(boardId: string | undefined): void {
     const unsubscribe = onSnapshot(
       colRef,
       (snapshot) => {
-        const { setObjects, upsertObject, removeObject, setIsLoaded } =
-          useObjectStore.getState();
+        const { setObjects, setIsLoaded } = useObjectStore.getState();
 
         if (isFirstSnapshot.current) {
           // First snapshot: bulk-load all documents as a single map
@@ -42,25 +41,28 @@ export function useFirestoreSync(boardId: string | undefined): void {
           return;
         }
 
-        // Subsequent snapshots: apply incremental changes
-        const { locallyEditingIds } = useObjectStore.getState();
+        // Subsequent snapshots: batch all changes into at most 2 store mutations
+        // (one batchUpsert + one batchRemove) instead of N individual mutations.
+        // This reduces re-renders from N per snapshot to at most 2.
+        const { locallyEditingIds, batchUpsert, batchRemove } =
+          useObjectStore.getState();
+        const toUpsert: BoardObject[] = [];
+        const toRemove: string[] = [];
+
         snapshot.docChanges().forEach((change) => {
           const data = change.doc.data();
           const obj = { ...data, id: change.doc.id } as BoardObject;
 
-          switch (change.type) {
-            case "added":
-            case "modified":
-              // Skip Firestore echoes for objects being actively resized/edited locally
-              if (!locallyEditingIds.has(change.doc.id)) {
-                upsertObject(obj);
-              }
-              break;
-            case "removed":
-              removeObject(change.doc.id);
-              break;
+          if (change.type === "removed") {
+            toRemove.push(change.doc.id);
+          } else if (!locallyEditingIds.has(change.doc.id)) {
+            // Skip Firestore echoes for objects being actively resized/edited locally
+            toUpsert.push(obj);
           }
         });
+
+        if (toUpsert.length) batchUpsert(toUpsert);
+        if (toRemove.length) batchRemove(toRemove);
       },
       (error) => {
         console.error("Firestore onSnapshot error:", error);

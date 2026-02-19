@@ -27,18 +27,19 @@ function getDash(style: ConnectorStyle): number[] {
 export default memo(function ConnectorObject({
   object,
 }: ConnectorObjectProps) {
-  const objects = useObjectStore((s) => s.objects);
+  // Narrow per-endpoint subscriptions — avoids re-rendering all connectors when
+  // any unrelated object changes (previously subscribed to the full objects map).
+  const endpointId0 = object.connectedTo?.[0] ?? '';
+  const endpointId1 = object.connectedTo?.[1] ?? '';
+  const startObj = useObjectStore((s) => (endpointId0 ? s.objects[endpointId0] : null) ?? null);
+  const endObj = useObjectStore((s) => (endpointId1 ? s.objects[endpointId1] : null) ?? null);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const mode = useCanvasStore((s) => s.mode);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
 
-  const endpointIds = object.connectedTo;
-  if (!endpointIds || endpointIds.length < 2) return null;
-
-  const startObj = objects[endpointIds[0]];
-  const endObj = objects[endpointIds[1]];
+  if (!object.connectedTo || object.connectedTo.length < 2) return null;
   if (!startObj || !endObj) return null;
 
   // Calculate center of each endpoint object

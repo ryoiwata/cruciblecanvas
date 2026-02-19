@@ -1,6 +1,76 @@
 import { create } from "zustand";
+import RBush from "rbush";
 import type { BoardObject, ObjectLock } from "../types";
 import { overlapFraction } from "../utils";
+
+// ---------------------------------------------------------------------------
+// Spatial index — maintained outside Zustand state so mutations don't trigger
+// re-renders. Updated imperatively on every object mutation.
+// ---------------------------------------------------------------------------
+
+interface SpatialItem {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  id: string;
+}
+
+/** R-tree spatial index for O(log N + k) viewport culling. Exported for BoardObjects. */
+export const spatialIndex = new RBush<SpatialItem>();
+
+/** Companion map for O(1) item lookup during incremental removes. */
+const spatialItemMap = new Map<string, SpatialItem>();
+
+/** Insert or update a single object in the spatial index. Skips connectors (no bbox). */
+function upsertSpatialItem(obj: BoardObject): void {
+  if (obj.type === "connector") return;
+  const existing = spatialItemMap.get(obj.id);
+  if (existing) {
+    spatialIndex.remove(existing, (a: SpatialItem, b: SpatialItem) => a.id === b.id);
+  }
+  const item: SpatialItem = {
+    minX: obj.x,
+    minY: obj.y,
+    maxX: obj.x + obj.width,
+    maxY: obj.y + obj.height,
+    id: obj.id,
+  };
+  spatialIndex.insert(item);
+  spatialItemMap.set(obj.id, item);
+}
+
+/** Remove a single object from the spatial index by id. */
+function removeSpatialItem(id: string): void {
+  const existing = spatialItemMap.get(id);
+  if (!existing) return;
+  spatialIndex.remove(existing, (a: SpatialItem, b: SpatialItem) => a.id === b.id);
+  spatialItemMap.delete(id);
+}
+
+/** Bulk-rebuild the spatial index from a full objects map. O(N log N) via rbush bulk load. */
+export function rebuildSpatialIndex(objects: Record<string, BoardObject>): void {
+  spatialIndex.clear();
+  spatialItemMap.clear();
+  const items: SpatialItem[] = [];
+  for (const obj of Object.values(objects)) {
+    if (obj.type === "connector") continue;
+    const item: SpatialItem = {
+      minX: obj.x,
+      minY: obj.y,
+      maxX: obj.x + obj.width,
+      maxY: obj.y + obj.height,
+      id: obj.id,
+    };
+    items.push(item);
+    spatialItemMap.set(obj.id, item);
+  }
+  spatialIndex.load(items);
+}
+
+// ---------------------------------------------------------------------------
+// Zustand store
+// ---------------------------------------------------------------------------
 
 interface ObjectState {
   objects: Record<string, BoardObject>;
@@ -20,6 +90,8 @@ interface ObjectState {
 
   // Lock actions
   setLocks: (locks: Record<string, ObjectLock>) => void;
+  upsertLock: (id: string, lock: ObjectLock) => void;
+  removeLock: (id: string) => void;
 
   // Loading state
   setIsLoaded: (loaded: boolean) => void;
@@ -39,50 +111,77 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
   isLoaded: false,
   locallyEditingIds: new Set<string>(),
 
-  setObjects: (objects) => set({ objects }),
+  setObjects: (objects) => {
+    set({ objects });
+    rebuildSpatialIndex(objects);
+  },
 
-  upsertObject: (object) =>
+  upsertObject: (object) => {
     set((state) => ({
       objects: { ...state.objects, [object.id]: object },
-    })),
+    }));
+    upsertSpatialItem(object);
+  },
 
   updateObjectLocal: (id, updates) => {
     const existing = get().objects[id];
     if (!existing) return;
+    const updated = { ...existing, ...updates };
     set((state) => ({
       objects: {
         ...state.objects,
-        [id]: { ...existing, ...updates },
+        [id]: updated,
       },
     }));
+    upsertSpatialItem(updated);
   },
 
-  removeObject: (id) =>
+  removeObject: (id) => {
     set((state) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [id]: _removed, ...rest } = state.objects;
       return { objects: rest };
-    }),
+    });
+    removeSpatialItem(id);
+  },
 
-  batchRemove: (ids) =>
+  batchRemove: (ids) => {
     set((state) => {
       const next = { ...state.objects };
       for (const id of ids) {
         delete next[id];
       }
       return { objects: next };
-    }),
+    });
+    for (const id of ids) {
+      removeSpatialItem(id);
+    }
+  },
 
-  batchUpsert: (objects) =>
+  batchUpsert: (objects) => {
     set((state) => {
       const next = { ...state.objects };
       for (const obj of objects) {
         next[obj.id] = obj;
       }
       return { objects: next };
-    }),
+    });
+    for (const obj of objects) {
+      upsertSpatialItem(obj);
+    }
+  },
 
   setLocks: (locks) => set({ locks }),
+
+  // Granular lock mutations — avoid replacing the entire locks map on every change
+  upsertLock: (id, lock) =>
+    set((s) => ({ locks: { ...s.locks, [id]: lock } })),
+  removeLock: (id) =>
+    set((s) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [id]: _removed, ...rest } = s.locks;
+      return { locks: rest };
+    }),
 
   setIsLoaded: (loaded) => set({ isLoaded: loaded }),
 

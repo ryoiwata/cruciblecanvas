@@ -18,6 +18,7 @@ interface FrameObjectProps {
   isLocked: boolean;
   lockedByName: string | null;
   isConnectorTarget?: boolean;
+  isSimpleLod?: boolean;
 }
 
 interface ChildSnapshot {
@@ -32,6 +33,7 @@ export default memo(function FrameObject({
   isLocked,
   lockedByName,
   isConnectorTarget,
+  isSimpleLod,
 }: FrameObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const childSnapshots = useRef<ChildSnapshot[]>([]);
@@ -51,6 +53,23 @@ export default memo(function FrameObject({
 
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked;
+
+  // LOD: simplified border-only render for extreme zoom-out
+  if (isSimpleLod) {
+    return (
+      <Rect
+        x={object.x}
+        y={object.y}
+        width={object.width}
+        height={object.height}
+        fill={object.color}
+        opacity={FRAME_DEFAULTS.backgroundOpacity}
+        stroke={object.color}
+        strokeWidth={2}
+        listening={false}
+      />
+    );
+  }
 
   const handleDragStart = () => {
     if (!user) return;
@@ -72,19 +91,6 @@ export default memo(function FrameObject({
     }
 
     acquireLock(boardId, object.id, user.uid, displayName || "Guest");
-  };
-
-  const handleDragMove = (e: Konva.KonvaEventObject<DragEvent>) => {
-    const node = e.target;
-    const dx = node.x() - preDragPos.current.x;
-    const dy = node.y() - preDragPos.current.y;
-
-    updateObjectLocal(object.id, { x: node.x(), y: node.y() });
-
-    // Move children by delta
-    for (const snap of childSnapshots.current) {
-      updateObjectLocal(snap.id, { x: snap.x + dx, y: snap.y + dy });
-    }
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
@@ -173,7 +179,6 @@ export default memo(function FrameObject({
       height={object.height}
       draggable={isDraggable}
       onDragStart={handleDragStart}
-      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onTap={handleClick}
@@ -259,6 +264,7 @@ export default memo(function FrameObject({
     prevProps.boardId === nextProps.boardId &&
     prevProps.isLocked === nextProps.isLocked &&
     prevProps.lockedByName === nextProps.lockedByName &&
-    prevProps.isConnectorTarget === nextProps.isConnectorTarget
+    prevProps.isConnectorTarget === nextProps.isConnectorTarget &&
+    prevProps.isSimpleLod === nextProps.isSimpleLod
   );
 });

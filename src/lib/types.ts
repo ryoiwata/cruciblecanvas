@@ -259,6 +259,15 @@ export const ZOOM_MIN = 0.05;
 export const ZOOM_MAX = 5.0;
 
 // ---------------------------------------------------------------------------
+// Level-of-detail (LOD) thresholds
+// ---------------------------------------------------------------------------
+
+/** Below this zoom level, render simplified shapes (no text, shadow, border). */
+export const LOD_SIMPLE_THRESHOLD = 0.15;
+/** Below this zoom level, skip rendering entirely (objects are sub-pixel). */
+export const LOD_INVISIBLE_THRESHOLD = 0.05;
+
+// ---------------------------------------------------------------------------
 // Shape defaults & limits
 // ---------------------------------------------------------------------------
 
