@@ -47,6 +47,7 @@ interface CanvasState {
   exitToPointer: () => void;
   selectObject: (id: string) => void;
   toggleSelection: (id: string) => void;
+  setSelectedObjectIds: (ids: string[]) => void;
   clearSelection: () => void;
   setViewport: (x: number, y: number, scale: number) => void;
 
@@ -129,6 +130,11 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     } else {
       set({ selectedObjectIds: [...current, id] });
     }
+  },
+
+  setSelectedObjectIds: (ids) => {
+    if (get().mode !== "pointer") return;
+    set({ selectedObjectIds: ids });
   },
 
   clearSelection: () => set({ selectedObjectIds: [] }),

@@ -25,6 +25,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
   const exitToPointer = useCanvasStore((s) => s.exitToPointer);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const clearSelection = useCanvasStore((s) => s.clearSelection);
+  const setSelectedObjectIds = useCanvasStore((s) => s.setSelectedObjectIds);
   const copyToClipboard = useCanvasStore((s) => s.copyToClipboard);
   const clipboard = useCanvasStore((s) => s.clipboard);
   const editingObjectId = useCanvasStore((s) => s.editingObjectId);
@@ -150,6 +151,12 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
     }
   }, [user, clipboard, boardId, upsertObject]);
 
+  const handleSelectAll = useCallback(() => {
+    if (mode !== "pointer") return;
+    const allIds = Object.keys(objects);
+    setSelectedObjectIds(allIds);
+  }, [mode, objects, setSelectedObjectIds]);
+
   const handleDuplicate = useCallback(() => {
     if (!user || selectedObjectIds.length === 0) return;
 
@@ -263,6 +270,13 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
         return;
       }
 
+      // Select all
+      if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+        e.preventDefault();
+        handleSelectAll();
+        return;
+      }
+
       // Duplicate
       if ((e.ctrlKey || e.metaKey) && e.key === "d") {
         e.preventDefault();
@@ -298,6 +312,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
     handleCopy,
     handlePaste,
     handleDuplicate,
+    handleSelectAll,
   ]);
 
   return {
