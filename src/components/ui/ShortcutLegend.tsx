@@ -33,7 +33,7 @@ const shortcuts: Shortcut[] = [
 
 export default function ShortcutLegend() {
   return (
-    <div className="fixed bottom-[58px] left-1/2 z-40 flex -translate-x-1/2 items-center gap-4 rounded-md bg-white/60 px-3 py-1 shadow-sm backdrop-blur-sm">
+    <div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-4 rounded-md bg-white/60 px-3 py-1 shadow-sm backdrop-blur-sm">
       {shortcuts.map((s) => (
         <div key={s.label} className="flex items-center gap-1.5 text-gray-400" style={{ fontSize: 11 }}>
           {s.icon}

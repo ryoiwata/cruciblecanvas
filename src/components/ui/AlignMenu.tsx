@@ -257,21 +257,13 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
   const getPopupStyle = (): React.CSSProperties => {
     if (!triggerRef.current) return { display: "none" };
     const rect = triggerRef.current.getBoundingClientRect();
-    const popupWidth = 224; // w-56
-    let left = rect.left + rect.width / 2 - popupWidth / 2;
-    if (left < 8) left = 8;
-    if (left + popupWidth > window.innerWidth - 8) left = window.innerWidth - 8 - popupWidth;
-    let bottom = window.innerHeight - rect.top + 8;
-    if (bottom > window.innerHeight - 16) bottom = window.innerHeight - 16;
-    return { position: "fixed", left, bottom, width: popupWidth, zIndex: 200 };
-  };
-
-  const getArrowStyle = (): React.CSSProperties => {
-    if (!triggerRef.current) return { display: "none" };
-    const rect = triggerRef.current.getBoundingClientRect();
-    const popupStyle = getPopupStyle();
-    const arrowLeft = rect.left + rect.width / 2 - (popupStyle.left as number) - 6;
-    return { left: arrowLeft };
+    const popupWidth = 224;
+    const left = rect.right + 8;
+    const popupHeight = 280;
+    let top = rect.top + rect.height / 2 - popupHeight / 2;
+    if (top < 8) top = 8;
+    if (top + popupHeight > window.innerHeight - 8) top = window.innerHeight - 8 - popupHeight;
+    return { position: "fixed", left, top, width: popupWidth, zIndex: 200 };
   };
 
   return (
@@ -281,7 +273,7 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
         onClick={() => setOpen(!open)}
         disabled={selCount < 2}
         title="Align & Distribute"
-        className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+        className={`flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium transition-colors ${
           selCount >= 2
             ? "text-gray-600 hover:bg-gray-100"
             : "cursor-not-allowed text-gray-300"
@@ -293,7 +285,6 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
           <line x1="1" y1="3" x2="15" y2="3" stroke="currentColor" strokeWidth="0.8" strokeDasharray="2 1.5" />
           <line x1="1" y1="13" x2="15" y2="13" stroke="currentColor" strokeWidth="0.8" strokeDasharray="2 1.5" />
         </svg>
-        <span className="hidden sm:inline">Align</span>
       </button>
 
       {open &&
@@ -303,12 +294,6 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
             style={getPopupStyle()}
             className="rounded-xl border border-white/20 bg-white/80 py-1 shadow-xl backdrop-blur-lg transition-all"
           >
-            {/* Downward-pointing arrow nub */}
-            <div
-              className="absolute -bottom-[6px] h-3 w-3 rotate-45 border-b border-r border-white/20 bg-white/80 backdrop-blur-lg"
-              style={getArrowStyle()}
-            />
-
             {/* Align section header */}
             <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">
               Align
