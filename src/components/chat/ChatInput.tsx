@@ -1,8 +1,8 @@
 /**
- * ChatInput — text input for the chat sidebar.
- * Routes messages based on the active chatMode from the store:
- *   - 'ai'    → always dispatches to the AI agent (no @ai prefix required)
- *   - 'group' → always writes to Firestore as a group message
+ * ChatInput — text input for the unified chat sidebar.
+ * An inline toggle button selects the send target per message:
+ *   - ✨ AI    → dispatches to the AI agent
+ *   - 👥 Group → writes to Firestore as a group message
  * Send on Enter, newline on Shift+Enter.
  */
 
@@ -34,9 +34,9 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
   const isInsertingRef = useChatStore((s) => s.isInsertingRef);
   const setIsInsertingRef = useChatStore((s) => s.setIsInsertingRef);
   const chatMode = useChatStore((s) => s.chatMode);
+  const setChatMode = useChatStore((s) => s.setChatMode);
   const persona = usePersonaStore((s) => s.persona);
 
-  // The visual "AI mode" styling follows the active chat mode, not the @ai prefix.
   const isAIMode = chatMode === 'ai';
 
   // Register input ref for / shortcut focus
@@ -128,7 +128,7 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
       className="border-t border-gray-200 bg-white cursor-text"
       onClick={() => inputRef.current?.focus()}
     >
-      {/* Rate limit warning — only relevant in AI mode */}
+      {/* Rate limit warning — only shown when send target is AI */}
       {rateLimitError && (
         <div className="px-3 py-1.5 bg-amber-50 border-b border-amber-100 text-xs text-amber-700">
           {rateLimitError}
@@ -143,6 +143,19 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
       )}
 
       <div className="flex items-center gap-2 px-3 py-2">
+        {/* Send-target toggle — cycles between AI and Group per message */}
+        <button
+          onClick={() => setChatMode(isAIMode ? 'group' : 'ai')}
+          title={isAIMode ? 'Sending to AI — click to switch to Group' : 'Sending to Group — click to switch to AI'}
+          className={`flex-shrink-0 w-8 h-8 rounded-full text-sm flex items-center justify-center transition-colors border ${
+            isAIMode
+              ? 'bg-indigo-50 border-indigo-200 text-indigo-600 hover:bg-indigo-100'
+              : 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
+          }`}
+        >
+          {isAIMode ? '✨' : '👥'}
+        </button>
+
         <input
           ref={inputRef}
           type="text"
@@ -153,12 +166,9 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
           onBlur={handleBlur}
           placeholder={placeholder}
           disabled={isAILoading}
-          className={`flex-1 text-sm outline-none rounded-lg px-3 py-2 transition-colors ${
-            isAIMode
-              ? 'bg-indigo-50 placeholder-indigo-300 text-indigo-900 border border-indigo-200'
-              : 'bg-emerald-50 placeholder-emerald-400 text-gray-900 border border-emerald-200'
-          } disabled:opacity-50`}
+          className="flex-1 text-sm outline-none rounded-lg px-3 py-2 transition-colors bg-gray-50 placeholder-gray-400 text-gray-900 border border-gray-200 focus:border-gray-300 focus:bg-white disabled:opacity-50"
         />
+
         <button
           onClick={handleSend}
           disabled={!inputText.trim() || isAILoading}
