@@ -49,26 +49,7 @@ export default memo(function TextObject({
 
   const isSelected = selectedObjectIds.includes(object.id);
 
-  // ---- LOD guard (after all hooks) ----------------------------------------
-  if (isSimpleLod) {
-    return (
-      <Group id={object.id} x={object.x} y={object.y} rotation={object.rotation ?? 0}>
-        <Rect
-          width={object.width}
-          height={object.height}
-          fill="transparent"
-          stroke="#9ca3af"
-          strokeWidth={0.5}
-          listening={false}
-        />
-      </Group>
-    );
-  }
-
-  const fontFamily = FONT_FAMILY_MAP[object.fontFamily ?? 'sans-serif'];
-  const fontSize = object.fontSize ?? 16;
-
-  // ---- Event handlers -------------------------------------------------------
+  // ---- Event handlers — defined before LOD guard to satisfy rules-of-hooks ----
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (mode !== 'pointer') return;
@@ -121,6 +102,25 @@ export default memo(function TextObject({
     [boardId, object.id, updateObjectLocal, user]
   );
 
+  // ---- LOD guard (after all hooks) ----------------------------------------
+  if (isSimpleLod) {
+    return (
+      <Group id={object.id} x={object.x} y={object.y} rotation={object.rotation ?? 0}>
+        <Rect
+          width={object.width}
+          height={object.height}
+          fill="transparent"
+          stroke="#9ca3af"
+          strokeWidth={0.5}
+          listening={false}
+        />
+      </Group>
+    );
+  }
+
+  const fontFamily = FONT_FAMILY_MAP[object.fontFamily ?? 'sans-serif'];
+  const fontSize = object.fontSize ?? 16;
+
   return (
     <Group
       id={object.id}
@@ -144,13 +144,14 @@ export default memo(function TextObject({
         fill="transparent"
       />
 
-      {/* Text content */}
+      {/* Text content — textColor overrides the legacy color field when set */}
       <Text
         text={object.text ?? ''}
         width={object.width}
         fontSize={fontSize}
         fontFamily={fontFamily}
-        fill={object.color}
+        fill={object.textColor ?? object.color}
+        align={object.textAlign ?? 'left'}
         wrap="word"
         listening={false}
       />

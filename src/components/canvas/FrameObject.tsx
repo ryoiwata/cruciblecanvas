@@ -280,14 +280,15 @@ export default memo(function FrameObject({
         />
       )}
       {/* Frame background — glows purple when a dragged object overlaps >50% (capture preview).
+          strokeColor field overrides the default accent color when set via Properties Sidebar.
           strokeScaleEnabled={false} keeps the border a constant screen-space thickness. */}
       <Rect
         width={object.width}
         height={object.height}
         fill={object.color}
         opacity={FRAME_DEFAULTS.backgroundOpacity}
-        stroke={isFrameDragTarget ? "#6366f1" : object.color}
-        strokeWidth={isFrameDragTarget ? 3 : 2}
+        stroke={isFrameDragTarget ? "#6366f1" : (object.strokeColor ?? object.color)}
+        strokeWidth={isFrameDragTarget ? 3 : (object.thickness ?? 2)}
         strokeScaleEnabled={false}
         cornerRadius={4}
         shadowColor="#6366f1"
@@ -330,7 +331,8 @@ export default memo(function FrameObject({
         />
       )}
 
-      {/* Title text — fontSize scales with zoom so it stays readable at any zoom level */}
+      {/* Title text — fontSize scales with zoom so it stays readable at any zoom level.
+          textColor overrides the legacy accent-color fill when set by the Properties Sidebar. */}
       <Text
         text={object.text || "Untitled Frame"}
         x={10}
@@ -339,7 +341,7 @@ export default memo(function FrameObject({
         fontSize={titleFontSize}
         fontFamily="sans-serif"
         fontStyle="bold"
-        fill={object.color}
+        fill={object.textColor ?? object.color}
         ellipsis
         wrap="none"
       />

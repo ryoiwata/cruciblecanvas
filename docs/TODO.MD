@@ -99,6 +99,13 @@ Others
 REAL TODOs
 - Fix drag item within frame
 - Remove layers from legend
+- Remove duplicate from legend
+- Remove copy and delete text preview
+- Fix group select when right clicking one item highlight
+- Fix AI agent logo in chat to robot
+- Move main tool bar to top
+- Keep properties out, unless minimized or item is selected
+- Keep text box within sticky when typing
 
 
 ### Real-Time Collaboration

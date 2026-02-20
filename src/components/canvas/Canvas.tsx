@@ -243,6 +243,9 @@ interface DrawingState {
 
 export default function Canvas({ boardId }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
+  // Container ref is used to measure available dimensions so the Konva Stage
+  // fills only the canvas region (not window.innerWidth, which ignores sidebars).
+  const containerRef = useRef<HTMLDivElement>(null);
   const lastCursorSend = useRef(0);
   const lastCursorPos = useRef({ x: 0, y: 0 });
   const drawingRef = useRef<DrawingState | null>(null);
@@ -350,21 +353,39 @@ export default function Canvas({ boardId }: CanvasProps) {
     }
   }, [mode, creationTool, removeObject]);
 
-  // --- Window dimensions ---
+  // --- Container dimensions — measured from the flex container, not window ---
+  // This ensures the Stage fills only the canvas column (accounting for sidebars).
   useEffect(() => {
-    setDimensions({ width: window.innerWidth, height: window.innerHeight });
+    const measure = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.offsetWidth,
+          height: containerRef.current.offsetHeight,
+        });
+      }
+    };
+
+    measure();
 
     let timeoutId: ReturnType<typeof setTimeout>;
     const handleResize = () => {
       clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        setDimensions({ width: window.innerWidth, height: window.innerHeight });
-      }, 100);
+      timeoutId = setTimeout(measure, 100);
     };
 
     window.addEventListener("resize", handleResize);
+
+    // ResizeObserver watches the container element directly so sidebar open/close
+    // triggers a Stage resize without needing a window resize event.
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(measure, 50);
+    });
+    if (containerRef.current) ro.observe(containerRef.current);
+
     return () => {
       window.removeEventListener("resize", handleResize);
+      ro.disconnect();
       clearTimeout(timeoutId);
     };
   }, []);
@@ -1274,10 +1295,11 @@ export default function Canvas({ boardId }: CanvasProps) {
 
   return (
     <div
+      ref={containerRef}
       data-testid="canvas-ready"
       style={{
-        width: "100vw",
-        height: "100vh",
+        width: "100%",
+        height: "100%",
         overflow: "hidden",
         cursor: getCursorStyle(),
       }}

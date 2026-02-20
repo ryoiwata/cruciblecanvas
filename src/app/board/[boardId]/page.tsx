@@ -17,6 +17,7 @@ import { useAIStream } from "@/hooks/useAIStream";
 import { useAICommand } from "@/hooks/useAICommand";
 import Toolbar from "@/components/ui/Toolbar";
 import ShortcutLegend from "@/components/ui/ShortcutLegend";
+import PropertiesSidebar from "@/components/properties/PropertiesSidebar";
 import ContextMenu from "@/components/ui/ContextMenu";
 import DeleteDialog from "@/components/ui/DeleteDialog";
 import PresenceIndicator from "@/components/ui/PresenceIndicator";
@@ -132,6 +133,9 @@ export default function BoardPage() {
     <div className="flex h-screen w-screen overflow-hidden">
       {/* Anonymous-user banner — prompts linking to a permanent account */}
       <SaveToAccountBanner />
+
+      {/* LEFT: Properties sidebar — collapses to w-0 when nothing is selected */}
+      <PropertiesSidebar boardId={boardId} />
 
       {/* Main canvas area */}
       <div className="flex-1 relative min-w-0">

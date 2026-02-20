@@ -2,17 +2,12 @@
 
 import { useState } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
-import { useObjectStore } from "@/lib/store/objectStore";
-import { updateObject } from "@/lib/firebase/firestore";
-import type { ObjectType, StickyFontFamily } from "@/lib/types";
+import type { ObjectType } from "@/lib/types";
 import AlignMenu from "./AlignMenu";
 import ArrangeMenu from "./ArrangeMenu";
-import ColorPickerPopup from "./ColorPickerPopup";
-import BorderStyleMenu from "./BorderStyleMenu";
-import OpacityPopup from "./OpacityPopup";
 
 interface ToolbarProps {
-  boardId: string;
+  boardId: string; // kept for AlignMenu / ArrangeMenu which need it
 }
 
 interface Tool {
@@ -109,21 +104,6 @@ export default function Toolbar({ boardId }: ToolbarProps) {
   const creationTool = useCanvasStore((s) => s.creationTool);
   const setMode = useCanvasStore((s) => s.setMode);
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
-  const objects = useObjectStore((s) => s.objects);
-  const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
-
-  // Selected sticky notes (for font selector)
-  const selectedStickies = selectedObjectIds
-    .map((id) => objects[id])
-    .filter((o) => o && o.type === "stickyNote");
-
-  const handleFontChange = (font: StickyFontFamily) => {
-    for (const obj of selectedStickies) {
-      updateObjectLocal(obj.id, { fontFamily: font });
-      updateObject(boardId, obj.id, { fontFamily: font }).catch(console.error);
-    }
-  };
 
   const isActive = (tool: Tool) => {
     if (tool.mode === "create") {
@@ -170,42 +150,9 @@ export default function Toolbar({ boardId }: ToolbarProps) {
       {/* Separator */}
       <div className="my-0.5 h-px w-full bg-gray-200" />
 
-      {/* Color picker */}
-      <div className="flex items-center justify-center">
-        <ColorPickerPopup boardId={boardId} />
-      </div>
-
-      {/* Separator */}
-      <div className="my-0.5 h-px w-full bg-gray-200" />
-
       {/* Align & Arrange dropdowns */}
       <AlignMenu boardId={boardId} />
       <ArrangeMenu boardId={boardId} />
-
-      {/* Font selector (visible when sticky notes are selected) */}
-      {selectedStickies.length > 0 && (
-        <>
-          <div className="my-0.5 h-px w-full bg-gray-200" />
-          <div className="flex flex-col gap-1 px-0.5">
-            <span className="text-center text-[10px] text-gray-500">Font</span>
-            <select
-              value={selectedStickies[0].fontFamily || "sans-serif"}
-              onChange={(e) => handleFontChange(e.target.value as StickyFontFamily)}
-              className="w-full rounded border border-gray-200 bg-white px-1 py-0.5 text-xs text-gray-700 focus:border-indigo-500 focus:outline-none"
-            >
-              <option value="sans-serif">Sans</option>
-              <option value="handwritten">Hand</option>
-              <option value="monospace">Mono</option>
-            </select>
-          </div>
-        </>
-      )}
-
-      {/* Border style + thickness pop-out (visible when stylable objects are selected) */}
-      <BorderStyleMenu boardId={boardId} />
-
-      {/* Opacity pop-out (visible when non-connector objects are selected) */}
-      <OpacityPopup boardId={boardId} />
     </div>
   );
 }

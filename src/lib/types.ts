@@ -26,6 +26,20 @@ export type ConnectorStyle = "solid" | "dashed" | "dotted";
 
 export type StickyFontFamily = "sans-serif" | "handwritten" | "monospace";
 
+// ---- Properties Sidebar types ----
+
+/** Decoration applied to the start or end of a line/connector. */
+export type LineEffect = 'none' | 'arrow' | 'filled-arrow' | 'open-arrow' | 'dot';
+
+/** Routing style for lines and connectors. */
+export type LineType = 'straight' | 'elbow' | 'curved';
+
+/** Horizontal text alignment. */
+export type TextAlign = 'left' | 'center' | 'right';
+
+/** Vertical text alignment within an object's bounding box. */
+export type TextVerticalAlign = 'top' | 'middle' | 'bottom';
+
 export const FONT_FAMILY_MAP: Record<StickyFontFamily, string> = {
   "sans-serif": "sans-serif",
   handwritten: "Segoe Print, Comic Sans MS, cursive",
@@ -72,6 +86,17 @@ export interface BoardObject {
   fontSize?: number; // font size in canvas units; used by TextObject (default 16)
   thickness?: number; // stroke width in canvas units; 1–10; defaults to type-specific constant
   borderType?: 'solid' | 'dashed' | 'dotted'; // border/stroke style for shapes and lines
+
+  // Extended visual properties (Properties Sidebar)
+  strokeColor?: string;              // Separate border/stroke color distinct from fill (shapes, frames)
+  textColor?: string;                // Text fill color independent of object color
+  textAlign?: TextAlign;             // Horizontal text alignment
+  textVerticalAlign?: TextVerticalAlign; // Vertical text alignment within bounding box
+  lineType?: LineType;               // Connector/line routing style
+  startEffect?: LineEffect;          // Decoration at start of line/connector
+  endEffect?: LineEffect;            // Decoration at end of line/connector
+  startEffectSize?: number;          // Start effect scale % (default 100)
+  endEffectSize?: number;            // End effect scale % (default 100)
 
   // Ownership & timestamps
   createdBy: string;
@@ -362,6 +387,44 @@ export const COLOR_LEGEND_DEFAULTS = {
   height: 160,
   color: "#FFFFFF",
 } as const;
+
+// ---------------------------------------------------------------------------
+// Style Presets (Properties Sidebar — quick-apply fill + stroke combos)
+// ---------------------------------------------------------------------------
+
+export interface StylePreset {
+  id: string;
+  label: string;
+  /** Fill/background color */
+  color: string;
+  /** Border/stroke color */
+  strokeColor?: string;
+  /** Text color */
+  textColor?: string;
+  /** Swatch background for the preview chip */
+  previewBg: string;
+  /** Swatch border for the preview chip */
+  previewBorder?: string;
+}
+
+export const STYLE_PRESETS: StylePreset[] = [
+  // Neutral
+  { id: 'soft-white',  label: 'Soft White',  color: '#FFFFFF', strokeColor: '#D1D5DB', textColor: '#111827', previewBg: '#FFFFFF', previewBorder: '#D1D5DB' },
+  { id: 'light-gray',  label: 'Light Gray',  color: '#F3F4F6', strokeColor: '#9CA3AF', textColor: '#111827', previewBg: '#F3F4F6', previewBorder: '#9CA3AF' },
+  { id: 'charcoal',    label: 'Charcoal',    color: '#374151', strokeColor: '#1F2937', textColor: '#FFFFFF', previewBg: '#374151', previewBorder: '#1F2937' },
+  // Blue
+  { id: 'sky-blue',    label: 'Sky Blue',    color: '#EFF6FF', strokeColor: '#93C5FD', textColor: '#1E40AF', previewBg: '#EFF6FF', previewBorder: '#93C5FD' },
+  { id: 'brand-blue',  label: 'Brand Blue',  color: '#3B82F6', strokeColor: '#2563EB', textColor: '#FFFFFF', previewBg: '#3B82F6', previewBorder: '#2563EB' },
+  { id: 'indigo',      label: 'Indigo',      color: '#4F46E5', strokeColor: '#4338CA', textColor: '#FFFFFF', previewBg: '#4F46E5', previewBorder: '#4338CA' },
+  // Green
+  { id: 'mint',        label: 'Mint',        color: '#ECFDF5', strokeColor: '#6EE7B7', textColor: '#065F46', previewBg: '#ECFDF5', previewBorder: '#6EE7B7' },
+  { id: 'emerald',     label: 'Emerald',     color: '#10B981', strokeColor: '#059669', textColor: '#FFFFFF', previewBg: '#10B981', previewBorder: '#059669' },
+  { id: 'forest',      label: 'Forest',      color: '#065F46', strokeColor: '#064E3B', textColor: '#FFFFFF', previewBg: '#065F46', previewBorder: '#064E3B' },
+  // Amber
+  { id: 'warm-yellow', label: 'Warm Yellow', color: '#FEF3C7', strokeColor: '#FCD34D', textColor: '#92400E', previewBg: '#FEF3C7', previewBorder: '#FCD34D' },
+  { id: 'amber',       label: 'Amber',       color: '#F59E0B', strokeColor: '#D97706', textColor: '#FFFFFF', previewBg: '#F59E0B', previewBorder: '#D97706' },
+  { id: 'rust',        label: 'Rust',        color: '#92400E', strokeColor: '#78350F', textColor: '#FFFFFF', previewBg: '#92400E', previewBorder: '#78350F' },
+] as const;
 
 // ---------------------------------------------------------------------------
 // Context menu types

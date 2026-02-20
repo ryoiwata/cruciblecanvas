@@ -236,10 +236,11 @@ export default memo(function ShapeObject({
         />
       )}
       {/* Compute border appearance from stored properties.
-          Selection blue always wins; otherwise render the user-configured border. */}
+          Selection blue always wins; otherwise render the user-configured border.
+          Uses strokeColor field when set, falling back to dark gray default. */}
       {(() => {
         const hasBorder = !!(object.borderType || object.thickness);
-        const strokeColor = isSelected ? '#2196F3' : (hasBorder ? '#374151' : undefined);
+        const strokeColor = isSelected ? '#2196F3' : (hasBorder ? (object.strokeColor ?? '#374151') : undefined);
         const strokeWidth = isSelected ? 2 : (hasBorder ? (object.thickness ?? 2) : 0);
         const dash = isSelected ? undefined : getStrokeDash(object.borderType);
         return object.type === 'rectangle' ? (
