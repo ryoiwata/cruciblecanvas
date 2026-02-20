@@ -32,24 +32,29 @@
 - [x] Infinite board with smooth pan/zoom
 - [x] Sticky notes — create, edit text, change colors
 - [ ] Shapes — rectangles, circles, lines with solid colors
+  - [ ] Make a line shape. Make the connect tool icon two boxes connected by a line. 
+  - [ ] Add option to make dotted lines
 - [ ] Connectors — lines/arrows connecting objects
+  - [ ] Make it easier to drag, just click on object to drag
 - [ ] Standalone text elements
 - [ ] Frames — group and organize content areas
+  - [ ] Make drag into frame more obvious. Make it glow of something. 
+  - [ ] Clicking on one item in the frame will select that item. Option to deframe it.
 - [ ] Move, resize, and rotate objects
 - [ ] Single and multi-select (shift-click, drag-to-select)
+  - [ ] Frame should move things together in preview
+  - [ ] Group resize, 
+  - [ ] group rotatoe
+  - [ ] Make group select right click reference the group, not the single item
 - [ ] Delete, duplicate, copy/paste
+  - [ ] Make copy paste more obvious, also include buttons on the bottom
 
-Clicking on an object will change default color in the tool bar
-Make a line shape. Make the connect tool icon two boxes connected by a line. 
-Make drag into frame more obvious. Make it glow of something. 
-Clicking on one item in the frame will select that item. Option to deframe it.
-Have an option to rotate items with something sitcking out on top
-Group resize
-
-Ctrl automatically shifts back to pointer. Make shift have this option too. 
-Make group select right click different
-Update frame logic. Include 
-Frame should move things together in preview
+Others
+- [ ] Clicking on an object will change default color in the tool bar
+- [ ] Include a tutorial mode?
+- [x] Ctrl automatically shifts back to pointer. 
+- [ ] Make shift be able tophave this option too. 
+- [ ] Update frame logic. Include 
 
 
 ### Real-Time Collaboration
