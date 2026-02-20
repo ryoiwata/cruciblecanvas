@@ -8,7 +8,7 @@
  * Changes are forwarded via onChange immediately for live canvas preview.
  */
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 
 interface ColorRowProps {
   label: string;
@@ -21,28 +21,32 @@ function isValidHex(s: string): boolean {
   return /^#?[0-9A-Fa-f]{6}$/.test(s);
 }
 
-/** Normalises input to a #RRGGBB string. */
+/** Normalises input to a #RRGGBB uppercase string. */
 function normaliseHex(s: string): string {
   return s.startsWith('#') ? s.toUpperCase() : `#${s.toUpperCase()}`;
 }
 
 export default function ColorRow({ label, value, onChange }: ColorRowProps) {
   const colorInputRef = useRef<HTMLInputElement>(null);
-  // Controlled text field — may temporarily hold an in-progress partial hex string.
-  const [textValue, setTextValue] = useState(value);
+  // Always store text as uppercase to avoid case-mismatch loops with the parent value.
+  const [textValue, setTextValue] = useState(() => normaliseHex(value));
 
-  // Keep text field in sync when the parent value changes (e.g. preset applied).
-  if (textValue !== value && isValidHex(value)) {
-    setTextValue(value.toUpperCase());
-  }
+  // Sync text field when parent value changes externally (e.g. preset applied, undo).
+  // useEffect is the correct place — never call setState during the render body.
+  useEffect(() => {
+    if (isValidHex(value)) {
+      setTextValue(normaliseHex(value));
+    }
+  }, [value]);
 
   const commitHex = (raw: string) => {
     if (isValidHex(raw)) {
-      onChange(normaliseHex(raw));
-      setTextValue(normaliseHex(raw));
+      const hex = normaliseHex(raw);
+      onChange(hex);
+      setTextValue(hex);
     } else {
       // Revert to last valid value on invalid input
-      setTextValue(value.toUpperCase());
+      setTextValue(normaliseHex(value));
     }
   };
 
@@ -60,14 +64,17 @@ export default function ColorRow({ label, value, onChange }: ColorRowProps) {
         aria-label={`${label} color swatch`}
       />
 
-      {/* Native color picker (invisible, positioned over the swatch) */}
+      {/* Native color picker (invisible, triggered by the swatch button above).
+          Always normalise to uppercase before forwarding so the parent value prop
+          stays uppercase — preventing the textValue/value case-mismatch loop. */}
       <input
         ref={colorInputRef}
         type="color"
         value={value}
         onChange={(e) => {
-          setTextValue(e.target.value.toUpperCase());
-          onChange(e.target.value);
+          const hex = normaliseHex(e.target.value);
+          setTextValue(hex);
+          onChange(hex);
         }}
         className="sr-only"
         aria-hidden="true"
