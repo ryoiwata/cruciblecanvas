@@ -31,16 +31,16 @@
 
 - [x] Infinite board with smooth pan/zoom
 - [x] Sticky notes — create, edit text, change colors
-- [ ] Shapes — rectangles, circles, lines with solid colors
-  - [ ] Make a line shape. Make the connect tool icon two boxes connected by a line. 
-  - [ ] Add option to make dotted lines
+- [x] Shapes — rectangles, circles, lines with solid colors
+  - [x] Make a line shape. Make the connect tool icon two boxes connected by a line. 
+  - [ ] Add line styles
 - [x] Connectors — lines/arrows connecting objects
   - [x] Make it easier to drag, just click on object to drag
 - [ ] Standalone text elements
 - [ ] Frames — group and organize content areas
   - [x] Make drag into frame more obvious. Make it glow of something. 
   - [ ] Clicking on one item in the frame will select that item. Option to deframe it.
-  - [ ] Dragging a frame onto object will put it into frame
+  - [x] Dragging a frame onto object will put it into frame
 - [x] Move, resize, and rotate objects
 - [ ] Single and multi-select (shift-click, drag-to-select)
   - [x] Frame should move things together in preview
@@ -79,6 +79,20 @@ Others
 - [] Sticky note should have more clearer lines
 - [] Framed items should be able to move around in frame, but stay in frame when it is being dragged it goes out of edge
 - Make lines thicker by default, have option to change line style and thickness
+- [] Make an option to make an account to save
+- Framed objects bolder line indicator
+- Still not working
+  - deframe one thing in frame
+  - Make connector line and framed lines thicker
+  - Still not able to move item in frame within frame
+  - Group select right click still only goes to single item
+  - Opacity slide still sticks out
+  - Make short cut legend 2 rows
+  - PRevent short cut legend collision with aI achat
+  - Default text should be in settings?
+  - Coordinates of items
+  - Change size of items
+  - Change AI assistant to be robot logo instead
 
 
 ### Real-Time Collaboration

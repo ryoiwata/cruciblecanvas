@@ -7,6 +7,7 @@ import { useObjectStore } from "@/lib/store/objectStore";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { nearestEdgePoint } from "@/lib/utils";
 import type { BoardObject, ConnectorStyle } from "@/lib/types";
+import { CONNECTOR_DEFAULTS } from "@/lib/types";
 
 interface ConnectorObjectProps {
   object: BoardObject;
@@ -100,7 +101,7 @@ export default memo(function ConnectorObject({
       <Line
         points={[startPt.x, startPt.y, endPt.x, endPt.y]}
         stroke={isSelected ? "#2196F3" : object.color}
-        strokeWidth={isSelected ? 3 : 2}
+        strokeWidth={isSelected ? (object.thickness ?? CONNECTOR_DEFAULTS.strokeWidth) + 1 : (object.thickness ?? CONNECTOR_DEFAULTS.strokeWidth)}
         dash={dash}
         listening={false}
       />

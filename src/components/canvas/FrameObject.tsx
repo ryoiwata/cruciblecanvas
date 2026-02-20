@@ -10,6 +10,7 @@ import { updateObjects } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
 import { FRAME_DEFAULTS } from "@/lib/types";
+import { overlapFraction } from "@/lib/utils";
 import { borderResizingIds } from "@/lib/resizeState";
 
 interface FrameObjectProps {
@@ -164,6 +165,25 @@ export default memo(function FrameObject({
       for (const snap of childSnapshots.current) {
         updateObjectLocal(snap.id, { x: snap.x, y: snap.y });
       }
+      return;
+    }
+
+    // Reverse capture: assign any unowned objects that now overlap >50% of this frame's new position.
+    // Connectors and other frames are excluded; objects belonging to a different frame are left alone.
+    const newBounds = { x: finalX, y: finalY, width: object.width, height: object.height };
+    const captureUpdates: { id: string; changes: Partial<BoardObject> }[] = [];
+
+    for (const obj of Object.values(useObjectStore.getState().objects)) {
+      if (obj.type === 'frame' || obj.type === 'connector' || obj.id === object.id) continue;
+      if (obj.parentFrame && obj.parentFrame !== object.id) continue;
+      if (overlapFraction(obj, newBounds) > 0.5 && obj.parentFrame !== object.id) {
+        updateObjectLocal(obj.id, { parentFrame: object.id });
+        captureUpdates.push({ id: obj.id, changes: { parentFrame: object.id } });
+      }
+    }
+
+    if (captureUpdates.length > 0) {
+      await updateObjects(boardId, captureUpdates);
     }
   };
 

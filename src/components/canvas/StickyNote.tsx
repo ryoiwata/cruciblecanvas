@@ -237,14 +237,13 @@ export default memo(function StickyNote({
         />
       )}
 
-      {/* Framed-child indicator — dashed purple border when nested inside a frame */}
+      {/* Framed-child indicator — solid purple border when nested inside a frame */}
       {object.parentFrame && !isSimpleLod && (
         <Rect
           width={object.width}
           height={object.height}
           stroke="#6366f1"
-          strokeWidth={1.5}
-          dash={[4, 3]}
+          strokeWidth={2}
           fill="transparent"
           listening={false}
           cornerRadius={4}

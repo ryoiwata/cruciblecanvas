@@ -16,6 +16,7 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
+import { LINE_DEFAULTS } from "@/lib/types";
 import { borderResizingIds } from "@/lib/resizeState";
 import { getStrokeDash } from "@/lib/utils";
 
@@ -114,8 +115,8 @@ export default memo(function LineObject({
     });
   };
 
-  const strokeStyle = object.metadata?.connectorStyle;
-  const dash = getStrokeDash(strokeStyle);
+  // borderType takes precedence over legacy metadata connectorStyle
+  const dash = getStrokeDash(object.borderType ?? object.metadata?.connectorStyle);
 
   return (
     <Group
@@ -142,7 +143,7 @@ export default memo(function LineObject({
       <Line
         points={[0, 0, object.width, object.height]}
         stroke={isSelected ? "#2196F3" : object.color}
-        strokeWidth={object.metadata?.connectorStyle !== undefined ? 2 : (object.width === 0 && object.height === 0 ? 2 : 2)}
+        strokeWidth={object.thickness ?? LINE_DEFAULTS.thickness}
         dash={dash}
         lineCap="round"
         lineJoin="round"

@@ -23,6 +23,8 @@ import {
   CONNECTOR_DEFAULTS,
   COLOR_LEGEND_DEFAULTS,
   MIN_DRAG_THRESHOLD,
+  FRAME_ZINDEX_MAX,
+  OBJECT_ZINDEX_MIN,
 } from "@/lib/types";
 import DotGrid from "./DotGrid";
 import BoardObjects from "./BoardObjects";
@@ -87,15 +89,24 @@ function getDefaultsForTool(tool: ObjectType): { width: number; height: number }
   }
 }
 
-// --- Helper: compute max zIndex across all objects ---
-function getMaxZIndex(): number {
+// --- Helper: compute appropriate max zIndex for the given tool type ---
+// Frames are capped at FRAME_ZINDEX_MAX; non-frames start at OBJECT_ZINDEX_MIN.
+// This ensures frames always render below all non-frame objects.
+function getMaxZIndexForTool(tool: ObjectType): number {
   const objs = useObjectStore.getState().objects;
-  let max = 0;
-  for (const o of Object.values(objs)) {
-    const z = o.zIndex ?? 0;
-    if (z > max) max = z;
+  if (tool === 'frame') {
+    let max = 0;
+    for (const o of Object.values(objs)) {
+      if (o.type === 'frame') max = Math.max(max, o.zIndex ?? 0);
+    }
+    return Math.min(max + 1, FRAME_ZINDEX_MAX);
   }
-  return max;
+  // Non-frame: start at OBJECT_ZINDEX_MIN, grow upward
+  let max = OBJECT_ZINDEX_MIN - 1;
+  for (const o of Object.values(objs)) {
+    if (o.type !== 'frame') max = Math.max(max, o.zIndex ?? 0);
+  }
+  return max + 1;
 }
 
 // --- Helper: get size limits for a tool ---
@@ -642,7 +653,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               height: h,
               color,
               text: "",
-              zIndex: getMaxZIndex() + 1,
+              zIndex: getMaxZIndexForTool(creationTool),
               createdBy: user.uid,
               createdAt: Date.now(),
               updatedAt: Date.now(),
@@ -997,7 +1008,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Click (no drag) — create at default size
         const defaults = getDefaultsForTool(creationTool);
         const color = getColorForTool(creationTool, lastUsedColors, activeColor);
-        const maxZ = getMaxZIndex() + 1;
+        const maxZ = getMaxZIndexForTool(creationTool);
 
         const newObject = {
           id: drawing.objectId,

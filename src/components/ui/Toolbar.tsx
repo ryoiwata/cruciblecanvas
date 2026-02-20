@@ -108,6 +108,11 @@ export default function Toolbar({ boardId }: ToolbarProps) {
     .map((id) => objects[id])
     .filter((o) => o && o.type === "stickyNote");
 
+  // Selected lines and connectors (for thickness slider)
+  const selectedLines = selectedObjectIds
+    .map((id) => objects[id])
+    .filter((o) => o && (o.type === 'line' || o.type === 'connector'));
+
   // Compute average opacity of selected non-connector objects
   const selectedNonConnectors = selectedObjectIds
     .map((id) => objects[id])
@@ -122,6 +127,13 @@ export default function Toolbar({ boardId }: ToolbarProps) {
     for (const obj of selectedStickies) {
       updateObjectLocal(obj.id, { fontFamily: font });
       updateObject(boardId, obj.id, { fontFamily: font }).catch(console.error);
+    }
+  };
+
+  const handleThicknessChange = (value: number) => {
+    for (const obj of selectedLines) {
+      updateObjectLocal(obj.id, { thickness: value });
+      updateObject(boardId, obj.id, { thickness: value }).catch(console.error);
     }
   };
 
@@ -205,6 +217,25 @@ export default function Toolbar({ boardId }: ToolbarProps) {
               <option value="handwritten">Hand</option>
               <option value="monospace">Mono</option>
             </select>
+          </div>
+        </>
+      )}
+
+      {/* Thickness slider (visible when lines or connectors are selected) */}
+      {selectedLines.length > 0 && (
+        <>
+          <div className="my-0.5 h-px w-full bg-gray-200" />
+          <div className="flex flex-col gap-1 px-0.5">
+            <span className="text-center text-[10px] text-gray-500">Thickness</span>
+            <input
+              type="range"
+              min={1}
+              max={10}
+              step={0.5}
+              value={selectedLines[0].thickness ?? 2}
+              onChange={(e) => handleThicknessChange(Number(e.target.value))}
+              className="h-1 w-full cursor-pointer accent-indigo-500"
+            />
           </div>
         </>
       )}

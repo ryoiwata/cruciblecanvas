@@ -68,6 +68,8 @@ export interface BoardObject {
   opacity?: number; // 0-1, defaults to 1
   zIndex?: number;  // explicit layer order; higher = in front
   fontFamily?: StickyFontFamily; // font for text content
+  thickness?: number; // stroke width in canvas units; 1–10; defaults to type-specific constant
+  borderType?: 'solid' | 'dashed' | 'dotted'; // border/stroke style for shapes and lines
 
   // Ownership & timestamps
   createdBy: string;
@@ -260,6 +262,15 @@ export const ZOOM_MIN = 0.05;
 export const ZOOM_MAX = 5.0;
 
 // ---------------------------------------------------------------------------
+// Frame z-index layering — frames always render below all non-frame objects.
+// ---------------------------------------------------------------------------
+
+/** Frames are always rendered below all other objects. */
+export const FRAME_ZINDEX_MAX = 1000;
+/** Non-frame objects always start above frames. */
+export const OBJECT_ZINDEX_MIN = 1001;
+
+// ---------------------------------------------------------------------------
 // Level-of-detail (LOD) thresholds
 // ---------------------------------------------------------------------------
 
@@ -306,7 +317,18 @@ export const FRAME_SIZE_LIMITS = {
 export const CONNECTOR_DEFAULTS = {
   color: "#6B7280",
   style: "solid" as ConnectorStyle,
-  strokeWidth: 2,
+  strokeWidth: 2.5,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Line defaults
+// ---------------------------------------------------------------------------
+
+export const LINE_DEFAULTS = {
+  width: 120,
+  height: 0,
+  color: "#374151",
+  thickness: 2,
 } as const;
 
 // ---------------------------------------------------------------------------
