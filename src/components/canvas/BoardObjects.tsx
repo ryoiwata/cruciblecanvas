@@ -11,6 +11,7 @@ import FrameObject from "./FrameObject";
 import LineObject from "./LineObject";
 import ConnectorObject from "./ConnectorObject";
 import ColorLegendObject from "./ColorLegendObject";
+import TextObject from "./TextObject";
 import AnchorPoints from "./AnchorPoints";
 import type { BoardObject } from "@/lib/types";
 import { LOD_SIMPLE_THRESHOLD } from "@/lib/types";
@@ -35,8 +36,16 @@ function getCreatedAtMs(obj: BoardObject): number {
   return 0;
 }
 
-/** Sort comparator: explicit zIndex first, then createdAt as tiebreaker. */
+/**
+ * Sort comparator: frames always render below non-frames regardless of stored zIndex
+ * (guards against stale Firestore data with inflated zIndex values on frames).
+ * Within each tier, explicit zIndex is used first, then createdAt as a tiebreaker.
+ */
 function zSort(a: BoardObject, b: BoardObject): number {
+  const aIsFrame = a.type === 'frame';
+  const bIsFrame = b.type === 'frame';
+  // Hard floor: any frame always sorts before any non-frame
+  if (aIsFrame !== bIsFrame) return aIsFrame ? -1 : 1;
   const za = a.zIndex ?? 0;
   const zb = b.zIndex ?? 0;
   if (za !== zb) return za - zb;
@@ -188,6 +197,17 @@ export default function BoardObjects({
             boardId={boardId}
             isLocked={isLockedByOther}
             lockedByName={lockedByName}
+          />
+        );
+      case "text":
+        return (
+          <TextObject
+            key={obj.id}
+            object={obj}
+            boardId={boardId}
+            isLocked={isLockedByOther}
+            lockedByName={lockedByName}
+            isSimpleLod={isSimpleLod}
           />
         );
       default:

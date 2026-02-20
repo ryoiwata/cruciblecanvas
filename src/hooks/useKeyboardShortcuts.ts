@@ -166,6 +166,18 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
         case "7":
           canvasState.enterCreateMode("connector");
           return;
+        case "8":
+          canvasState.enterCreateMode("text");
+          return;
+        case "Control":
+          // Ctrl pressed while a creation tool is active → permanently revert to pointer.
+          // This is a one-way switch (no restore on keyup) because Ctrl is also used
+          // for multi-step shortcuts (Ctrl+A, Ctrl+D) that make sense from pointer mode.
+          if (e.repeat) return;
+          if (canvasState.mode === "create") {
+            canvasState.exitToPointer();
+          }
+          return;
         case "Escape":
           canvasState.exitToPointer();
           return;

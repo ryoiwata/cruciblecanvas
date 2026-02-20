@@ -11,7 +11,7 @@ import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
 import { borderResizingIds } from "@/lib/resizeState";
-import { overlapFraction } from "@/lib/utils";
+import { overlapFraction, getStrokeDash } from "@/lib/utils";
 
 interface ShapeObjectProps {
   object: BoardObject;
@@ -150,7 +150,7 @@ export default memo(function ShapeObject({
     e.cancelBubble = true;
     // Sync active color in toolbar to match the clicked object's color
     setLastUsedColor(object.type, object.color);
-    if (e.evt.ctrlKey || e.evt.metaKey) {
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -160,11 +160,15 @@ export default memo(function ShapeObject({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // If the clicked object is part of a multi-selection, target the whole group.
+    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
       x: e.evt.clientX,
       y: e.evt.clientY,
-      targetObjectId: object.id,
+      targetObjectId: isInGroup ? null : object.id,
+      targetObjectIds: isInGroup ? [...currentSelectedIds] : [],
       nearbyFrames: [],
     });
   };
@@ -186,14 +190,35 @@ export default memo(function ShapeObject({
       onTap={handleClick}
       onContextMenu={handleContextMenu}
       opacity={(isLocked ? 0.6 : object.isAIPending ? 0.5 : 1) * (object.opacity ?? 1)}
+      dragBoundFunc={
+        object.parentFrame
+          ? (pos) => {
+              // dragBoundFunc receives absolute screen-pixel coordinates.
+              // Convert parent frame's canvas bounds to screen coords for comparison.
+              const frame = useObjectStore.getState().objects[object.parentFrame!];
+              if (!frame) return pos;
+              const { stageX, stageY, stageScale } = useCanvasStore.getState();
+              return {
+                x: Math.max(
+                  frame.x * stageScale + stageX,
+                  Math.min(pos.x, (frame.x + frame.width - object.width) * stageScale + stageX)
+                ),
+                y: Math.max(
+                  frame.y * stageScale + stageY,
+                  Math.min(pos.y, (frame.y + frame.height - object.height) * stageScale + stageY)
+                ),
+              };
+            }
+          : undefined
+      }
     >
-      {/* Framed-child indicator — solid purple border when nested inside a frame */}
-      {object.parentFrame && !isSimpleLod && (
+      {/* Framed-child indicator — bold purple border when captured inside a frame */}
+      {object.parentFrame && (
         <Rect
           width={object.width}
           height={object.height}
-          stroke="#6366f1"
-          strokeWidth={2}
+          stroke="#7C3AED"
+          strokeWidth={3}
           fill="transparent"
           listening={false}
           cornerRadius={4}
@@ -210,31 +235,41 @@ export default memo(function ShapeObject({
           listening={false}
         />
       )}
-      {object.type === "rectangle" ? (
-        <Rect
-          width={object.width}
-          height={object.height}
-          fill={object.color}
-          cornerRadius={4}
-          stroke={isSelected ? "#2196F3" : undefined}
-          strokeWidth={isSelected ? 2 : 0}
-          shadowColor={isConnectorTarget ? "#6366f1" : undefined}
-          shadowBlur={isConnectorTarget ? 15 : 0}
-          shadowEnabled={!!isConnectorTarget}
-        />
-      ) : (
-        <Circle
-          x={object.width / 2}
-          y={object.height / 2}
-          radius={object.width / 2}
-          fill={object.color}
-          stroke={isSelected ? "#2196F3" : undefined}
-          strokeWidth={isSelected ? 2 : 0}
-          shadowColor={isConnectorTarget ? "#6366f1" : undefined}
-          shadowBlur={isConnectorTarget ? 15 : 0}
-          shadowEnabled={!!isConnectorTarget}
-        />
-      )}
+      {/* Compute border appearance from stored properties.
+          Selection blue always wins; otherwise render the user-configured border. */}
+      {(() => {
+        const hasBorder = !!(object.borderType || object.thickness);
+        const strokeColor = isSelected ? '#2196F3' : (hasBorder ? '#374151' : undefined);
+        const strokeWidth = isSelected ? 2 : (hasBorder ? (object.thickness ?? 2) : 0);
+        const dash = isSelected ? undefined : getStrokeDash(object.borderType);
+        return object.type === 'rectangle' ? (
+          <Rect
+            width={object.width}
+            height={object.height}
+            fill={object.color}
+            cornerRadius={4}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            dash={dash}
+            shadowColor={isConnectorTarget ? '#6366f1' : undefined}
+            shadowBlur={isConnectorTarget ? 15 : 0}
+            shadowEnabled={!!isConnectorTarget}
+          />
+        ) : (
+          <Circle
+            x={object.width / 2}
+            y={object.height / 2}
+            radius={object.width / 2}
+            fill={object.color}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            dash={dash}
+            shadowColor={isConnectorTarget ? '#6366f1' : undefined}
+            shadowBlur={isConnectorTarget ? 15 : 0}
+            shadowEnabled={!!isConnectorTarget}
+          />
+        );
+      })()}
 
       {isLocked && lockedByName && (
         <Text

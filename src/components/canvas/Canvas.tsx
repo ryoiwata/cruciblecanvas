@@ -22,6 +22,7 @@ import {
   STICKY_NOTE_SIZE_LIMITS,
   CONNECTOR_DEFAULTS,
   COLOR_LEGEND_DEFAULTS,
+  TEXT_DEFAULTS,
   MIN_DRAG_THRESHOLD,
   FRAME_ZINDEX_MAX,
   OBJECT_ZINDEX_MIN,
@@ -63,6 +64,8 @@ function getColorForTool(
       return COLOR_LEGEND_DEFAULTS.color;
     case "line":
       return activeColor || "#374151";
+    case "text":
+      return activeColor || TEXT_DEFAULTS.color;
     default:
       return "#E3E8EF";
   }
@@ -84,6 +87,8 @@ function getDefaultsForTool(tool: ObjectType): { width: number; height: number }
     // Line: default is a 120px horizontal line (width = length, height = 0)
     case "line":
       return { width: 120, height: 0 };
+    case "text":
+      return { width: TEXT_DEFAULTS.width, height: TEXT_DEFAULTS.height };
     default:
       return { width: 100, height: 100 };
   }
@@ -998,11 +1003,18 @@ export default function Canvas({ boardId }: CanvasProps) {
               text: obj.text ?? "",
               zIndex: obj.zIndex,
               createdBy: user.uid,
+              ...(obj.type === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize } : {}),
             },
             drawing.objectId
           ).catch((err) => {
             console.error("Failed to create object:", err);
           });
+
+          // Text tool: open editor after drag-to-size, exit create mode
+          if (obj.type === 'text') {
+            useCanvasStore.getState().exitToPointer();
+            useCanvasStore.getState().setEditingObject(drawing.objectId);
+          }
         }
       } else {
         // Click (no drag) — create at default size
@@ -1039,11 +1051,19 @@ export default function Canvas({ boardId }: CanvasProps) {
             text: "",
             zIndex: maxZ,
             createdBy: user.uid,
+            ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize } : {}),
           },
           drawing.objectId
         ).catch((err) => {
           console.error("Failed to create object:", err);
         });
+
+        // Text tool: open editor immediately so user can start typing right away.
+        // Also exit create mode so Escape or clicking away ends in pointer mode.
+        if (creationTool === 'text') {
+          useCanvasStore.getState().exitToPointer();
+          useCanvasStore.getState().setEditingObject(drawing.objectId);
+        }
       }
 
       drawingRef.current = null;
@@ -1121,6 +1141,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           x: e.evt.clientX,
           y: e.evt.clientY,
           targetObjectId: null,
+          targetObjectIds: [],
           nearbyFrames: [],
         });
       }

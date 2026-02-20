@@ -153,7 +153,7 @@ export default memo(function StickyNote({
     e.cancelBubble = true;
     // Sync active color in toolbar to match the clicked object's color
     setLastUsedColor(object.type, object.color);
-    if (e.evt.ctrlKey || e.evt.metaKey) {
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -168,11 +168,15 @@ export default memo(function StickyNote({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // If the clicked object is part of a multi-selection, target the whole group.
+    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
       x: e.evt.clientX,
       y: e.evt.clientY,
-      targetObjectId: object.id,
+      targetObjectId: isInGroup ? null : object.id,
+      targetObjectIds: isInGroup ? [...currentSelectedIds] : [],
       nearbyFrames: [],
     });
   };
@@ -195,6 +199,27 @@ export default memo(function StickyNote({
       onDblClick={handleDblClick}
       onContextMenu={handleContextMenu}
       opacity={(isLocked ? 0.6 : object.isAIPending ? 0.5 : 1) * (object.opacity ?? 1)}
+      dragBoundFunc={
+        object.parentFrame
+          ? (pos) => {
+              // dragBoundFunc receives absolute screen-pixel coordinates.
+              // Convert parent frame's canvas bounds to screen coords for comparison.
+              const frame = useObjectStore.getState().objects[object.parentFrame!];
+              if (!frame) return pos;
+              const { stageX, stageY, stageScale } = useCanvasStore.getState();
+              return {
+                x: Math.max(
+                  frame.x * stageScale + stageX,
+                  Math.min(pos.x, (frame.x + frame.width - object.width) * stageScale + stageX)
+                ),
+                y: Math.max(
+                  frame.y * stageScale + stageY,
+                  Math.min(pos.y, (frame.y + frame.height - object.height) * stageScale + stageY)
+                ),
+              };
+            }
+          : undefined
+      }
     >
       {/* Background */}
       <Rect
@@ -237,13 +262,13 @@ export default memo(function StickyNote({
         />
       )}
 
-      {/* Framed-child indicator — solid purple border when nested inside a frame */}
-      {object.parentFrame && !isSimpleLod && (
+      {/* Framed-child indicator — bold purple border when captured inside a frame */}
+      {object.parentFrame && (
         <Rect
           width={object.width}
           height={object.height}
-          stroke="#6366f1"
-          strokeWidth={2}
+          stroke="#7C3AED"
+          strokeWidth={3}
           fill="transparent"
           listening={false}
           cornerRadius={4}

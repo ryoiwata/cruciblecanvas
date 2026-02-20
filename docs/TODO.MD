@@ -93,6 +93,8 @@ Others
   - Coordinates of items
   - Change size of items
   - Change AI assistant to be robot logo instead
+  - Group select should still highlight everything even when right clicking
+  - Preview of resize, rotate, or drag on mouse
 
 
 ### Real-Time Collaboration

@@ -8,6 +8,8 @@ import type { ObjectType, StickyFontFamily } from "@/lib/types";
 import AlignMenu from "./AlignMenu";
 import ArrangeMenu from "./ArrangeMenu";
 import ColorPickerPopup from "./ColorPickerPopup";
+import BorderStyleMenu from "./BorderStyleMenu";
+import OpacityPopup from "./OpacityPopup";
 
 interface ToolbarProps {
   boardId: string;
@@ -90,6 +92,14 @@ const tools: Tool[] = [
     creationTool: "connector",
     shortcut: "7",
   },
+  {
+    id: "text",
+    label: "Text",
+    icon: <span className="font-bold text-base leading-none">T</span>,
+    mode: "create",
+    creationTool: "text",
+    shortcut: "8",
+  },
 ];
 
 export default function Toolbar({ boardId }: ToolbarProps) {
@@ -108,40 +118,10 @@ export default function Toolbar({ boardId }: ToolbarProps) {
     .map((id) => objects[id])
     .filter((o) => o && o.type === "stickyNote");
 
-  // Selected lines and connectors (for thickness slider)
-  const selectedLines = selectedObjectIds
-    .map((id) => objects[id])
-    .filter((o) => o && (o.type === 'line' || o.type === 'connector'));
-
-  // Compute average opacity of selected non-connector objects
-  const selectedNonConnectors = selectedObjectIds
-    .map((id) => objects[id])
-    .filter((o) => o && o.type !== "connector");
-  const avgOpacity =
-    selectedNonConnectors.length > 0
-      ? selectedNonConnectors.reduce((sum, o) => sum + (o.opacity ?? 1), 0) /
-        selectedNonConnectors.length
-      : 1;
-
   const handleFontChange = (font: StickyFontFamily) => {
     for (const obj of selectedStickies) {
       updateObjectLocal(obj.id, { fontFamily: font });
       updateObject(boardId, obj.id, { fontFamily: font }).catch(console.error);
-    }
-  };
-
-  const handleThicknessChange = (value: number) => {
-    for (const obj of selectedLines) {
-      updateObjectLocal(obj.id, { thickness: value });
-      updateObject(boardId, obj.id, { thickness: value }).catch(console.error);
-    }
-  };
-
-  const handleOpacityChange = (value: number) => {
-    const opacity = Math.round(value) / 100;
-    for (const obj of selectedNonConnectors) {
-      updateObjectLocal(obj.id, { opacity });
-      updateObject(boardId, obj.id, { opacity }).catch(console.error);
     }
   };
 
@@ -221,45 +201,11 @@ export default function Toolbar({ boardId }: ToolbarProps) {
         </>
       )}
 
-      {/* Thickness slider (visible when lines or connectors are selected) */}
-      {selectedLines.length > 0 && (
-        <>
-          <div className="my-0.5 h-px w-full bg-gray-200" />
-          <div className="flex flex-col gap-1 px-0.5">
-            <span className="text-center text-[10px] text-gray-500">Thickness</span>
-            <input
-              type="range"
-              min={1}
-              max={10}
-              step={0.5}
-              value={selectedLines[0].thickness ?? 2}
-              onChange={(e) => handleThicknessChange(Number(e.target.value))}
-              className="h-1 w-full cursor-pointer accent-indigo-500"
-            />
-          </div>
-        </>
-      )}
+      {/* Border style + thickness pop-out (visible when stylable objects are selected) */}
+      <BorderStyleMenu boardId={boardId} />
 
-      {/* Opacity slider (visible when non-connector objects are selected) */}
-      {selectedNonConnectors.length > 0 && (
-        <>
-          <div className="my-0.5 h-px w-full bg-gray-200" />
-          <div className="flex flex-col items-center gap-1 px-0.5">
-            <span className="text-[10px] text-gray-500">Opacity</span>
-            <input
-              type="range"
-              min={10}
-              max={100}
-              value={Math.round(avgOpacity * 100)}
-              onChange={(e) => handleOpacityChange(Number(e.target.value))}
-              className="h-1 w-full cursor-pointer accent-indigo-500"
-            />
-            <span className="text-[10px] tabular-nums text-gray-400">
-              {Math.round(avgOpacity * 100)}%
-            </span>
-          </div>
-        </>
-      )}
+      {/* Opacity pop-out (visible when non-connector objects are selected) */}
+      <OpacityPopup boardId={boardId} />
     </div>
   );
 }

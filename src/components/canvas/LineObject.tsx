@@ -96,7 +96,7 @@ export default memo(function LineObject({
     if (mode !== "pointer") return;
     e.cancelBubble = true;
     setLastUsedColor(object.type, object.color);
-    if (e.evt.ctrlKey || e.evt.metaKey) {
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -106,11 +106,15 @@ export default memo(function LineObject({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // If the clicked object is part of a multi-selection, target the whole group.
+    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
       x: e.evt.clientX,
       y: e.evt.clientY,
-      targetObjectId: object.id,
+      targetObjectId: isInGroup ? null : object.id,
+      targetObjectIds: isInGroup ? [...currentSelectedIds] : [],
       nearbyFrames: [],
     });
   };

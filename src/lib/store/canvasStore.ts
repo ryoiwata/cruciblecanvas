@@ -78,6 +78,7 @@ const INITIAL_CONTEXT_MENU: ContextMenuState = {
   x: 0,
   y: 0,
   targetObjectId: null,
+  targetObjectIds: [],
   nearbyFrames: [],
 };
 

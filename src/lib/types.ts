@@ -11,7 +11,8 @@ export type ObjectType =
   | "frame"
   | "connector"
   | "colorLegend"
-  | "line";
+  | "line"
+  | "text";
 
 export type AnalyticalRole =
   | "critique"
@@ -68,6 +69,7 @@ export interface BoardObject {
   opacity?: number; // 0-1, defaults to 1
   zIndex?: number;  // explicit layer order; higher = in front
   fontFamily?: StickyFontFamily; // font for text content
+  fontSize?: number; // font size in canvas units; used by TextObject (default 16)
   thickness?: number; // stroke width in canvas units; 1–10; defaults to type-specific constant
   borderType?: 'solid' | 'dashed' | 'dotted'; // border/stroke style for shapes and lines
 
@@ -332,6 +334,17 @@ export const LINE_DEFAULTS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Text object defaults
+// ---------------------------------------------------------------------------
+
+export const TEXT_DEFAULTS = {
+  width: 200,
+  height: 40,
+  fontSize: 16,
+  color: '#1a1a1a',
+} as const;
+
+// ---------------------------------------------------------------------------
 // Sticky note size limits
 // ---------------------------------------------------------------------------
 
@@ -358,6 +371,9 @@ export interface ContextMenuState {
   visible: boolean;
   x: number;
   y: number;
+  /** Single-object target; null when the menu targets a group. */
   targetObjectId: string | null;
+  /** Multi-object target ids; non-empty only when the right-clicked object is part of a multi-selection. */
+  targetObjectIds: string[];
   nearbyFrames: { id: string; title: string }[];
 }

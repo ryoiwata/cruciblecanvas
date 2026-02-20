@@ -27,6 +27,7 @@ import SelectionCounter from "@/components/ui/SelectionCounter";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import MessagePreview from "@/components/chat/MessagePreview";
 import SelectionActionBar from "@/components/ui/SelectionActionBar";
+import SaveToAccountBanner from "@/components/ui/SaveToAccountBanner";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -129,6 +130,9 @@ export default function BoardPage() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
+      {/* Anonymous-user banner — prompts linking to a permanent account */}
+      <SaveToAccountBanner />
+
       {/* Main canvas area */}
       <div className="flex-1 relative min-w-0">
         <Toolbar boardId={boardId} />
@@ -148,7 +152,21 @@ export default function BoardPage() {
             className="relative rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-gray-900"
             title="Toggle chat (or press /)"
           >
-            💬
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              {/* Robot head */}
+              <rect x="4" y="6" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
+              {/* Antenna */}
+              <line x1="10" y1="6" x2="10" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <circle cx="10" cy="2.5" r="1" fill="currentColor" />
+              {/* Eyes */}
+              <circle cx="7.5" cy="10" r="1.2" fill="currentColor" />
+              <circle cx="12.5" cy="10" r="1.2" fill="currentColor" />
+              {/* Mouth */}
+              <path d="M7.5 12.5 Q10 14 12.5 12.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" />
+              {/* Ear ports */}
+              <line x1="1.5" y1="10" x2="4" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="16" y1="10" x2="18.5" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
             {unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full text-xs w-4 h-4 flex items-center justify-center leading-none">
                 {unreadCount > 9 ? '9+' : unreadCount}

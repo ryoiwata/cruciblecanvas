@@ -210,14 +210,14 @@ export default memo(function FrameObject({
             canvasPos.y <= o.y + o.height
         );
         if (hit) {
-          if (e.evt.ctrlKey || e.evt.metaKey) toggleSelection(hit.id);
+          if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) toggleSelection(hit.id);
           else selectObject(hit.id);
           return;
         }
       }
     }
 
-    if (e.evt.ctrlKey || e.evt.metaKey) {
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -232,11 +232,15 @@ export default memo(function FrameObject({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // If the clicked object is part of a multi-selection, target the whole group.
+    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
       x: e.evt.clientX,
       y: e.evt.clientY,
-      targetObjectId: object.id,
+      targetObjectId: isInGroup ? null : object.id,
+      targetObjectIds: isInGroup ? [...currentSelectedIds] : [],
       nearbyFrames: [],
     });
   };
@@ -300,6 +304,20 @@ export default memo(function FrameObject({
         opacity={0.2}
         cornerRadius={[4, 4, 0, 0]}
       />
+
+      {/* Framed-child indicator — dashed purple border when this frame is nested inside another */}
+      {object.parentFrame && (
+        <Rect
+          width={object.width}
+          height={object.height}
+          stroke="#7C3AED"
+          strokeWidth={3}
+          dash={[8, 4]}
+          fill="transparent"
+          listening={false}
+          cornerRadius={4}
+        />
+      )}
 
       {/* Selection border */}
       {isSelected && (

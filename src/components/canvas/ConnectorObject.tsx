@@ -56,17 +56,19 @@ export default memo(function ConnectorObject({
   const midX = (startPt.x + endPt.x) / 2;
   const midY = (startPt.y + endPt.y) / 2;
 
-  const connectorStyle =
+  // borderType field takes precedence; fall back to legacy metadata.connectorStyle
+  const legacyStyle =
     (object.metadata as Record<string, unknown>)?.connectorStyle as
       | ConnectorStyle
       | undefined;
-  const dash = getDash(connectorStyle || "solid");
+  const effectiveStyle = (object.borderType as ConnectorStyle | undefined) ?? legacyStyle ?? 'solid';
+  const dash = getDash(effectiveStyle);
   const isSelected = selectedObjectIds.includes(object.id);
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (mode !== "pointer") return;
     e.cancelBubble = true;
-    if (e.evt.ctrlKey || e.evt.metaKey) {
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -76,11 +78,15 @@ export default memo(function ConnectorObject({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // If the clicked object is part of a multi-selection, target the whole group.
+    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
       x: e.evt.clientX,
       y: e.evt.clientY,
-      targetObjectId: object.id,
+      targetObjectId: isInGroup ? null : object.id,
+      targetObjectIds: isInGroup ? [...currentSelectedIds] : [],
       nearbyFrames: [],
     });
   };
