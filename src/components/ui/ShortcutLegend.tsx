@@ -137,6 +137,8 @@ export default function ShortcutLegend() {
   const sidebarOpen = useChatStore((s) => s.sidebarOpen);
   const sidebarWidth = useChatStore((s) => s.sidebarWidth);
 
+  // Chat sidebar is a flex sibling but ShortcutLegend is `fixed` (viewport coords),
+  // so we still need to offset right by the sidebar width to avoid overlap.
   const rightOffset = sidebarOpen ? sidebarWidth + 8 : 16;
 
   return (

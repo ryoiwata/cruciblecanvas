@@ -15,7 +15,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { useChatMessages } from "@/hooks/useChatMessages";
 import { useAIStream } from "@/hooks/useAIStream";
 import { useAICommand } from "@/hooks/useAICommand";
-import Toolbar from "@/components/ui/Toolbar";
+import SubHeaderToolbar from "@/components/ui/SubHeaderToolbar";
 import ShortcutLegend from "@/components/ui/ShortcutLegend";
 import PropertiesSidebar from "@/components/properties/PropertiesSidebar";
 import ContextMenu from "@/components/ui/ContextMenu";
@@ -53,8 +53,6 @@ export default function BoardPage() {
   const isLoading = useAuthStore((s) => s.isLoading);
   const isObjectsLoaded = useObjectStore((s) => s.isLoaded);
 
-  const sidebarOpen = useChatStore((s) => s.sidebarOpen);
-  const sidebarWidth = useChatStore((s) => s.sidebarWidth);
   const toggleSidebar = useChatStore((s) => s.toggleSidebar);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
   const unreadCount = useChatStore((s) => s.unreadCount);
@@ -130,49 +128,48 @@ export default function BoardPage() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
+    <div className="flex h-screen w-screen flex-col overflow-hidden">
       {/* Anonymous-user banner — prompts linking to a permanent account */}
       <SaveToAccountBanner />
 
-      {/* LEFT: Properties sidebar — collapses to w-0 when nothing is selected */}
-      <PropertiesSidebar boardId={boardId} />
+      {/* ── Tier 1: Top Header ─────────────────────────────────────────────── */}
+      <header className="flex h-12 w-full shrink-0 items-center border-b border-gray-200 bg-white px-4 z-40">
+        {/* Left: Board title */}
+        <div className="flex items-center gap-2 min-w-0 mr-4">
+          <span className="hidden text-sm font-bold text-indigo-600 tracking-tight sm:inline select-none">
+            CrucibleCanvas
+          </span>
+          <span className="hidden text-gray-300 sm:inline">|</span>
+          <CanvasTitle boardId={boardId} inline />
+        </div>
 
-      {/* Main canvas area */}
-      <div className="flex-1 relative min-w-0">
-        <Toolbar boardId={boardId} />
-        <ShortcutLegend />
-        <CanvasTitle boardId={boardId} />
-
-        {/* Top-right header controls */}
-        <div className="fixed top-4 right-4 z-50 flex items-center gap-2" style={{ right: sidebarOpen ? `${sidebarWidth + 8}px` : '16px', transition: 'right 300ms ease-in-out' }}>
+        {/* Right: Controls */}
+        <div className="ml-auto flex items-center gap-2">
+          <PresenceIndicator />
+          <div className="h-5 w-px bg-gray-200" />
           <PrivacyToggle boardId={boardId} />
           <ShareButton boardId={boardId} />
-          <PresenceIndicator />
-          <div className="mx-1 h-6 w-px bg-gray-200" />
+          <div className="h-5 w-px bg-gray-200" />
 
-          {/* Chat toggle button with unread badge */}
+          {/* AI chat toggle */}
           <button
             onClick={toggleSidebar}
-            className="relative rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-gray-900"
-            title="Toggle chat (or press /)"
+            title="Toggle AI chat (press /)"
+            className="relative flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100"
           >
             <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              {/* Robot head */}
               <rect x="4" y="6" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-              {/* Antenna */}
               <line x1="10" y1="6" x2="10" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               <circle cx="10" cy="2.5" r="1" fill="currentColor" />
-              {/* Eyes */}
               <circle cx="7.5" cy="10" r="1.2" fill="currentColor" />
               <circle cx="12.5" cy="10" r="1.2" fill="currentColor" />
-              {/* Mouth */}
               <path d="M7.5 12.5 Q10 14 12.5 12.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" />
-              {/* Ear ports */}
               <line x1="1.5" y1="10" x2="4" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               <line x1="16" y1="10" x2="18.5" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
+            <span>AI</span>
             {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full text-xs w-4 h-4 flex items-center justify-center leading-none">
+              <span className="absolute -top-0.5 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white leading-none">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
@@ -180,7 +177,7 @@ export default function BoardPage() {
 
           <button
             onClick={() => router.push("/dashboard")}
-            className="rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-gray-900"
+            className="rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100"
           >
             Dashboard
           </button>
@@ -189,38 +186,51 @@ export default function BoardPage() {
               await signOutUser();
               router.replace("/auth");
             }}
-            className="rounded-md bg-white/80 px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm backdrop-blur transition-colors hover:bg-white hover:text-red-600"
+            className="rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-600"
           >
             Log Off
           </button>
         </div>
+      </header>
 
-        <Canvas boardId={boardId} />
-        <ContextMenu boardId={boardId} />
-        <SelectionCounter />
-        <SelectionActionBar boardId={boardId} />
+      {/* ── Tier 2: Sub-header toolbar ─────────────────────────────────────── */}
+      <SubHeaderToolbar boardId={boardId} />
 
-        {/* Floating message preview when sidebar is closed */}
-        <MessagePreview onOpenSidebar={() => setSidebarOpen(true)} />
+      {/* ── Tier 3: Main work area (Properties | Canvas | Chat) ────────────── */}
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        {/* LEFT: Properties sidebar — collapses to w-0 when nothing is selected */}
+        <PropertiesSidebar boardId={boardId} />
 
-        {pendingDelete && (
-          <DeleteDialog
-            count={deleteCount}
-            onConfirm={() => {
-              performDelete();
-              setPendingDelete(false);
-            }}
-            onCancel={() => setPendingDelete(false)}
-          />
-        )}
+        {/* CENTER: Canvas */}
+        <div className="flex-1 relative min-w-0 overflow-hidden">
+          <Canvas boardId={boardId} />
+          <ContextMenu boardId={boardId} />
+          <SelectionCounter />
+          <SelectionActionBar boardId={boardId} />
+          <ShortcutLegend />
+
+          {/* Floating message preview when sidebar is closed */}
+          <MessagePreview onOpenSidebar={() => setSidebarOpen(true)} />
+
+          {pendingDelete && (
+            <DeleteDialog
+              count={deleteCount}
+              onConfirm={() => {
+                performDelete();
+                setPendingDelete(false);
+              }}
+              onCancel={() => setPendingDelete(false)}
+            />
+          )}
+        </div>
+
+        {/* RIGHT: Chat sidebar — expands/collapses */}
+        <ChatSidebar
+          boardId={boardId}
+          onSendAICommand={handleSendAICommand}
+          isAILoading={isAILoading}
+        />
       </div>
-
-      {/* Chat sidebar — pushes canvas left when open */}
-      <ChatSidebar
-        boardId={boardId}
-        onSendAICommand={handleSendAICommand}
-        isAILoading={isAILoading}
-      />
     </div>
   );
 }

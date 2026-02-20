@@ -39,3 +39,8 @@ yarn-error.log*
 next-env.d.ts
 .claude/tracking/tokens.json
 .claude/tracking/charts.html
+.claude/tracking/ai-dev-log.md
+.gitignore
+.claude/tracking/key-prompts.md
+.claude/tracking/sessions.md
+.claude/tracking/cost-analysis.md
