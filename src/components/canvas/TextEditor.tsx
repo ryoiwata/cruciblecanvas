@@ -125,11 +125,11 @@ export default function TextEditor({ boardId }: TextEditorProps) {
   return (
     <div
       style={{
-        position: "fixed",
-        left: 0,
-        top: 0,
-        width: "100vw",
-        height: "100vh",
+        // position: absolute so coordinates are relative to the canvas container
+        // (which has position: relative). Using fixed + stageX/Y breaks when the
+        // canvas container is offset from the viewport by sidebars/headers.
+        position: "absolute",
+        inset: 0,
         zIndex: 100,
       }}
       onClick={(e) => {

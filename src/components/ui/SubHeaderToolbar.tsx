@@ -7,19 +7,30 @@
  * Tool order (left → right):
  *   [Undo] [Redo] │ [Select] [Line] [Connector] [Shapes▾] [Text] [Sticky] [Frame] │ [Align▾] [Layer▾]
  *
- * Shapes ▾ expands to: Rectangle, Circle
+ * Shapes ▾ expands to: Rectangle, Circle (portal-rendered to avoid overflow clipping)
  * Frame is a primary standalone tool (not in Shapes dropdown)
  * Align ▾ and Layer ▾ match the vertical icon+label style via showLabel prop
+ *
+ * Undo/Redo are wired to objectStore history. Firestore is patched with the
+ * delta so other collaborators see the reverted state.
  *
  * Each button renders the icon above a small text label (flex-col layout).
  * Toolbar height is h-14 to accommodate the stacked icon+label.
  * z-index is above canvas content (z-30) but below global overlays (z-50).
  */
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Cable } from 'lucide-react';
 import { useCanvasStore } from '@/lib/store/canvasStore';
-import type { ObjectType } from '@/lib/types';
+import { useObjectStore } from '@/lib/store/objectStore';
+import { useAuthStore } from '@/lib/store/authStore';
+import {
+  createObject,
+  updateObject,
+  deleteObject,
+} from '@/lib/firebase/firestore';
+import type { ObjectType, BoardObject } from '@/lib/types';
 import AlignMenu from './AlignMenu';
 import ArrangeMenu from './ArrangeMenu';
 
@@ -121,18 +132,22 @@ interface ToolButtonProps {
   label: string;
   icon: React.ReactNode;
   isActive: boolean;
+  disabled?: boolean;
   shortcut?: string;
   onClick: () => void;
 }
 
-function ToolButton({ label, icon, isActive, shortcut, onClick }: ToolButtonProps) {
+function ToolButton({ label, icon, isActive, disabled, shortcut, onClick }: ToolButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       title={shortcut ? `${label} (${shortcut})` : label}
       className={`flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md transition-colors ${
-        isActive
+        disabled
+          ? 'cursor-not-allowed text-gray-300'
+          : isActive
           ? 'bg-indigo-50 text-indigo-600'
           : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
       }`}
@@ -143,7 +158,7 @@ function ToolButton({ label, icon, isActive, shortcut, onClick }: ToolButtonProp
   );
 }
 
-// ---- Shapes dropdown with vertical trigger -----------------------------------
+// ---- Shapes dropdown (portal-rendered to escape overflow clipping) -----------
 
 interface DropdownItem {
   id: ObjectType;
@@ -164,20 +179,42 @@ const SHAPE_ITEMS: DropdownItem[] = [
 
 function ShapesDropdown({ isGroupActive, activeCreationTool, onSelect }: ShapesDropdownProps) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
 
+  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (
+        triggerRef.current && !triggerRef.current.contains(target) &&
+        popupRef.current && !popupRef.current.contains(target)
+      ) {
+        setOpen(false);
+      }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  // Calculate popup position below the trigger button
+  const getPopupStyle = (): React.CSSProperties => {
+    if (!triggerRef.current) return { display: 'none' };
+    const rect = triggerRef.current.getBoundingClientRect();
+    return {
+      position: 'fixed',
+      left: rect.left,
+      top: rect.bottom + 4,
+      minWidth: 140,
+      zIndex: 200,
+    };
+  };
+
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={`flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md transition-colors ${
@@ -193,30 +230,68 @@ function ShapesDropdown({ isGroupActive, activeCreationTool, onSelect }: ShapesD
         <span className="text-[10px] font-medium leading-none">Shape</span>
       </button>
 
-      {open && (
-        <div className="absolute left-0 top-full z-50 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          {SHAPE_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => {
-                onSelect(item.id);
-                setOpen(false);
-              }}
-              className={`flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
-                activeCreationTool === item.id
-                  ? 'bg-indigo-50 text-indigo-600'
-                  : 'text-gray-700 hover:bg-gray-50'
-              }`}
-            >
-              <span className="flex w-4 items-center justify-center">{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      {open &&
+        createPortal(
+          <div
+            ref={popupRef}
+            style={getPopupStyle()}
+            className="rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+          >
+            {SHAPE_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => {
+                  onSelect(item.id);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
+                  activeCreationTool === item.id
+                    ? 'bg-indigo-50 text-indigo-600'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                <span className="flex w-4 items-center justify-center">{item.icon}</span>
+                {item.label}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
+    </>
   );
+}
+
+// ---- Undo/Redo logic ---------------------------------------------------------
+
+/**
+ * Applies a snapshot delta to Firestore so collaborators see the reverted state.
+ * Called after undo() or redo() returns the before/after pair.
+ */
+async function syncDeltaToFirestore(
+  before: Record<string, BoardObject>,
+  after: Record<string, BoardObject>,
+  boardId: string,
+  uid: string
+): Promise<void> {
+  // Objects deleted by the action we're undoing/redoing: recreate them
+  for (const [id, obj] of Object.entries(after)) {
+    if (!before[id]) {
+      createObject(boardId, { ...obj, createdBy: uid }, id).catch(console.error);
+    }
+  }
+  // Objects created by the action: delete them
+  for (const id of Object.keys(before)) {
+    if (!after[id]) {
+      deleteObject(boardId, id).catch(console.error);
+    }
+  }
+  // Objects modified: update them
+  for (const [id, obj] of Object.entries(after)) {
+    if (before[id] && JSON.stringify(before[id]) !== JSON.stringify(obj)) {
+      updateObject(boardId, id, obj as Partial<BoardObject>).catch(console.error);
+    }
+  }
 }
 
 // ---- Main component ----------------------------------------------------------
@@ -226,6 +301,25 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const creationTool = useCanvasStore((s) => s.creationTool);
   const setMode = useCanvasStore((s) => s.setMode);
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
+
+  const past = useObjectStore((s) => s.past);
+  const future = useObjectStore((s) => s.future);
+  const user = useAuthStore((s) => s.user);
+
+  const canUndo = past.length > 0;
+  const canRedo = future.length > 0;
+
+  const handleUndo = useCallback(async () => {
+    const result = useObjectStore.getState().undo();
+    if (!result || !user) return;
+    await syncDeltaToFirestore(result.before, result.after, boardId, user.uid);
+  }, [boardId, user]);
+
+  const handleRedo = useCallback(async () => {
+    const result = useObjectStore.getState().redo();
+    if (!result || !user) return;
+    await syncDeltaToFirestore(result.before, result.after, boardId, user.uid);
+  }, [boardId, user]);
 
   const isPointerActive = mode === 'pointer';
   const isLineActive = mode === 'create' && creationTool === 'line';
@@ -237,22 +331,32 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const isFrameActive = mode === 'create' && creationTool === 'frame';
 
   return (
-    <div className="flex h-14 w-full shrink-0 items-center border-b border-gray-200 bg-white px-3 z-30 overflow-x-auto">
-      {/* Undo / Redo — disabled until history is implemented */}
+    <div className="flex h-14 w-full shrink-0 items-center border-b border-gray-200 bg-white px-3 z-30">
+      {/* Undo / Redo */}
       <div className="flex items-center gap-0.5">
         <button
           type="button"
-          disabled
-          title="Undo (Ctrl+Z) — not yet implemented"
-          className="flex h-8 w-8 items-center justify-center rounded text-gray-300 cursor-not-allowed"
+          onClick={handleUndo}
+          disabled={!canUndo}
+          title="Undo (Ctrl+Z)"
+          className={`flex h-8 w-8 items-center justify-center rounded transition-colors ${
+            canUndo
+              ? 'text-gray-600 hover:bg-gray-100'
+              : 'text-gray-300 cursor-not-allowed'
+          }`}
         >
           <UndoIcon />
         </button>
         <button
           type="button"
-          disabled
-          title="Redo (Ctrl+Shift+Z) — not yet implemented"
-          className="flex h-8 w-8 items-center justify-center rounded text-gray-300 cursor-not-allowed"
+          onClick={handleRedo}
+          disabled={!canRedo}
+          title="Redo (Ctrl+Shift+Z)"
+          className={`flex h-8 w-8 items-center justify-center rounded transition-colors ${
+            canRedo
+              ? 'text-gray-600 hover:bg-gray-100'
+              : 'text-gray-300 cursor-not-allowed'
+          }`}
         >
           <RedoIcon />
         </button>
@@ -288,7 +392,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
 
       <Divider />
 
-      {/* Shape dropdown (Rectangle, Circle) */}
+      {/* Shape dropdown (Rectangle, Circle) — portal-rendered to avoid overflow clipping */}
       <ShapesDropdown
         isGroupActive={isShapesGroupActive}
         activeCreationTool={creationTool}

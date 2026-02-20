@@ -92,6 +92,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
     }
 
     const allIds = [...idsToDelete, ...orphanConnectorIds];
+    // batchRemove auto-snapshots the full pre-deletion state for undo.
     batchRemove(allIds);
     clearSelection();
 

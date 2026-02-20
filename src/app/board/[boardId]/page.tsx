@@ -166,7 +166,6 @@ export default function BoardPage() {
               <line x1="1.5" y1="10" x2="4" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
               <line x1="16" y1="10" x2="18.5" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
-            <span>AI</span>
             {unreadCount > 0 && (
               <span className="absolute -top-0.5 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white leading-none">
                 {unreadCount > 9 ? '9+' : unreadCount}

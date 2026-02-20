@@ -1298,6 +1298,7 @@ export default function Canvas({ boardId }: CanvasProps) {
       ref={containerRef}
       data-testid="canvas-ready"
       style={{
+        position: "relative",
         width: "100%",
         height: "100%",
         overflow: "hidden",

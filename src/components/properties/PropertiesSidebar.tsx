@@ -30,7 +30,6 @@ import { updateObject } from '@/lib/firebase/firestore';
 import type { BoardObject } from '@/lib/types';
 import { STYLE_PRESETS } from '@/lib/types';
 import PresetsSection from './PresetsSection';
-import RecentColorsSection from './RecentColorsSection';
 import TransparencyControl from './TransparencyControl';
 import ShapeModule from './modules/ShapeModule';
 import TextModule from './modules/TextModule';
@@ -179,6 +178,12 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
 
   const activeObject = selectedObjectIds.length > 0 ? objects[selectedObjectIds[0]] : null;
 
+  // Frozen object pattern: keep the last non-null object so the panel retains
+  // its content when the user clicks empty canvas — avoids jarring panel flash.
+  const lastObjectRef = useRef<BoardObject | null>(null);
+  if (activeObject) lastObjectRef.current = activeObject;
+  const displayObject = activeObject ?? lastObjectRef.current;
+
   const handleChange = useCallback(
     (patch: Partial<BoardObject>) => {
       // Track recently used fill/stroke colors for the quick-pick row in ColorRow.
@@ -235,48 +240,47 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
       {/* Expanded content — fixed width so it doesn't squash during the transition */}
       {isPropertiesOpen && (
         <div className="flex h-full w-72 flex-col overflow-y-auto pt-9">
-          {activeObject ? (
+          {displayObject ? (
             <div className="flex flex-col gap-4 p-4 pt-2">
               {/* Styles / Presets */}
               <section>
                 <p className="mb-2 text-sm font-semibold text-gray-700">Styles</p>
-                <PresetsSection object={activeObject} onChange={handleChange} />
-                <RecentColorsSection onChange={handleChange} />
+                <PresetsSection object={displayObject} onChange={handleChange} />
               </section>
 
               <div className="border-t border-gray-200" />
 
               {/* Transparency — shared across all types */}
               <section>
-                <TransparencyControl object={activeObject} onChange={handleChange} />
+                <TransparencyControl object={displayObject} onChange={handleChange} />
               </section>
 
               <div className="border-t border-gray-200" />
 
               {/* Type-specific modules */}
               <section>
-                {getModuleSet(activeObject.type) === 'shape' && (
+                {getModuleSet(displayObject.type) === 'shape' && (
                   <>
-                    <ShapeModule object={activeObject} onChange={handleChange} />
+                    <ShapeModule object={displayObject} onChange={handleChange} />
                     <div className="my-3 border-t border-gray-100" />
-                    <TextModule object={activeObject} onChange={handleChange} />
+                    <TextModule object={displayObject} onChange={handleChange} />
                   </>
                 )}
-                {getModuleSet(activeObject.type) === 'stickyNote' && (
+                {getModuleSet(displayObject.type) === 'stickyNote' && (
                   <>
-                    <StickyNoteModule object={activeObject} onChange={handleChange} />
+                    <StickyNoteModule object={displayObject} onChange={handleChange} />
                     <div className="my-3 border-t border-gray-100" />
-                    <TextModule object={activeObject} onChange={handleChange} />
+                    <TextModule object={displayObject} onChange={handleChange} />
                   </>
                 )}
-                {getModuleSet(activeObject.type) === 'line' && (
-                  <LineModule object={activeObject} onChange={handleChange} />
+                {getModuleSet(displayObject.type) === 'line' && (
+                  <LineModule object={displayObject} onChange={handleChange} />
                 )}
-                {getModuleSet(activeObject.type) === 'frame' && (
-                  <FrameModule object={activeObject} onChange={handleChange} />
+                {getModuleSet(displayObject.type) === 'frame' && (
+                  <FrameModule object={displayObject} onChange={handleChange} />
                 )}
-                {getModuleSet(activeObject.type) === 'text' && (
-                  <TextModule object={activeObject} onChange={handleChange} />
+                {getModuleSet(displayObject.type) === 'text' && (
+                  <TextModule object={displayObject} onChange={handleChange} />
                 )}
               </section>
 
@@ -288,7 +292,7 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
               )}
             </div>
           ) : (
-            // No selection — show global canvas presets
+            // No prior selection — show global canvas presets
             <CanvasPresetsPanel />
           )}
         </div>

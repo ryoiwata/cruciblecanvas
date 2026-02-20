@@ -97,29 +97,33 @@ Others
   - Preview of resize, rotate, or drag on mouse
 
 REAL TODOs
-- Fix drag item within frame
-- Remove layers from legend
-- Remove duplicate from legend
-- Remove copy and delete text preview
+- [FIX] Fix drag item within frame
+- [x] Remove layers from legend
+- [x] Remove duplicate from legend
+- [x] Remove copy and delete text preview
 - Fix group select when right clicking one item highlight
 - Fix AI agent logo in chat to robot
-- Move main tool bar to top
+- [x] Move main tool bar to top
 
 Biorender edits
 - Keep properties out, unless minimized or item is selected
 - Keep text box within sticky when typing
 - [x] Keep Chat under the tool bar
-- Make undo and redo button work
-- Change top AI button with chat
-- Don't make text box stick out when editing text. Make it stay on the item that contains the text in line.
+- [] Make undo and redo button work
+- [] Change top AI button with Chat icon and word chat
+- [x] Don't make text box stick out when editing text. Make it stay on the item that contains the text in line.
 - Fix shape tool drop down to make it show options
 - Keep previous properties window open when clicking out of selecting an item.
 - Remove recent colors from top part of properties tab
 - Fix text tool to have free form text
-- 
+- Fix ordering of tool shorcut numbers, have number next to tool label
 - - When changing properties in sticky text, it should apply those changes
 - - Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
-
+- Include more colors in recent 
+- Make presets more pastel colors
+- Group select click should refernce all items
+- Text color needs to be changed for stand alone text tool
+- Fix text editing tool12
 
 ### Real-Time Collaboration
 

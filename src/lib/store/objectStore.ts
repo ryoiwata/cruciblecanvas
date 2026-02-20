@@ -72,11 +72,23 @@ export function rebuildSpatialIndex(objects: Record<string, BoardObject>): void 
 // Zustand store
 // ---------------------------------------------------------------------------
 
+/** Max entries kept in undo/redo history. */
+const MAX_HISTORY = 30;
+
+interface HistoryDelta {
+  before: Record<string, BoardObject>;
+  after: Record<string, BoardObject>;
+}
+
 interface ObjectState {
   objects: Record<string, BoardObject>;
   locks: Record<string, ObjectLock>;
   isLoaded: boolean;
   locallyEditingIds: Set<string>;
+
+  // Undo/redo history
+  past: Record<string, BoardObject>[];
+  future: Record<string, BoardObject>[];
 
   // Object actions
   setObjects: (objects: Record<string, BoardObject>) => void;
@@ -87,6 +99,14 @@ interface ObjectState {
   // Batch actions (Phase 3)
   batchRemove: (ids: string[]) => void;
   batchUpsert: (objects: BoardObject[]) => void;
+
+  // History actions
+  /** Save current objects as a history checkpoint (call before meaningful mutations). */
+  snapshot: () => void;
+  /** Undo to the previous checkpoint. Returns delta for Firestore sync, or null if no history. */
+  undo: () => HistoryDelta | null;
+  /** Redo to the next checkpoint. Returns delta for Firestore sync, or null if at head. */
+  redo: () => HistoryDelta | null;
 
   // Lock actions
   setLocks: (locks: Record<string, ObjectLock>) => void;
@@ -110,6 +130,8 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
   locks: {},
   isLoaded: false,
   locallyEditingIds: new Set<string>(),
+  past: [],
+  future: [],
 
   setObjects: (objects) => {
     set({ objects });
@@ -137,21 +159,33 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
   },
 
   removeObject: (id) => {
+    // Auto-snapshot before single deletion so it can be undone.
+    const before = get().objects;
     set((state) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [id]: _removed, ...rest } = state.objects;
-      return { objects: rest };
+      return {
+        objects: rest,
+        past: [...state.past, before].slice(-MAX_HISTORY),
+        future: [],
+      };
     });
     removeSpatialItem(id);
   },
 
   batchRemove: (ids) => {
+    // Auto-snapshot before batch deletion so it can be undone.
+    const before = get().objects;
     set((state) => {
       const next = { ...state.objects };
       for (const id of ids) {
         delete next[id];
       }
-      return { objects: next };
+      return {
+        objects: next,
+        past: [...state.past, before].slice(-MAX_HISTORY),
+        future: [],
+      };
     });
     for (const id of ids) {
       removeSpatialItem(id);
@@ -198,6 +232,42 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
       next.delete(id);
       return { locallyEditingIds: next };
     }),
+
+  snapshot: () => {
+    const current = get().objects;
+    set((s) => ({
+      past: [...s.past, current].slice(-MAX_HISTORY),
+      future: [],
+    }));
+  },
+
+  undo: () => {
+    const { past, objects, future } = get();
+    if (past.length === 0) return null;
+    const prev = past[past.length - 1];
+    const newPast = past.slice(0, -1);
+    set({
+      past: newPast,
+      future: [objects, ...future].slice(0, MAX_HISTORY),
+      objects: prev,
+    });
+    rebuildSpatialIndex(prev);
+    return { before: objects, after: prev };
+  },
+
+  redo: () => {
+    const { past, objects, future } = get();
+    if (future.length === 0) return null;
+    const next = future[0];
+    const newFuture = future.slice(1);
+    set({
+      past: [...past, objects].slice(-MAX_HISTORY),
+      future: newFuture,
+      objects: next,
+    });
+    rebuildSpatialIndex(next);
+    return { before: objects, after: next };
+  },
 
   getChildrenOfFrame: (frameId) => {
     const objs = get().objects;
