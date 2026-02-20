@@ -47,6 +47,9 @@ interface CanvasState {
   // Recently used colors — last 5 unique colors applied; shown at top of color picker
   recentColors: string[];
 
+  // Properties sidebar open/collapsed state — persists across selections
+  isPropertiesOpen: boolean;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -71,6 +74,7 @@ interface CanvasState {
   bumpBorderResizeGeneration: () => void;
   setFrameDragHighlightId: (id: string | null) => void;
   addRecentColor: (color: string) => void;
+  setIsPropertiesOpen: (open: boolean) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -101,6 +105,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   borderResizeGeneration: 0,
   frameDragHighlightId: null,
   recentColors: [],
+  isPropertiesOpen: true,
 
   setMode: (mode) =>
     set({
@@ -190,6 +195,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set((s) => ({ borderResizeGeneration: s.borderResizeGeneration + 1 })),
 
   setFrameDragHighlightId: (id) => set({ frameDragHighlightId: id }),
+
+  setIsPropertiesOpen: (open) => set({ isPropertiesOpen: open }),
 
   addRecentColor: (color) =>
     set((s) => {

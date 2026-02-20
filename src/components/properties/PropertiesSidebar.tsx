@@ -1,15 +1,17 @@
 'use client';
 
 /**
- * PropertiesSidebar — the persistent left panel that dynamically shows property
- * controls for the currently selected canvas object.
+ * PropertiesSidebar — the persistent left panel showing property controls for
+ * the currently selected canvas object, or Canvas Presets when nothing is selected.
  *
  * Layout behaviour:
- *   - Rendered as a flex sibling of the canvas column in the workspace layout.
- *   - w-72 when an object is selected, w-0 (collapsed) otherwise, with a CSS
- *     transition so the canvas gracefully expands/contracts.
- *   - All property changes are applied optimistically via updateObjectLocal and
- *     then synced to Firestore via a debounced updateObject call.
+ *   - Always visible; open/closed state driven by `isPropertiesOpen` in canvasStore.
+ *   - w-72 when open, w-10 (narrow strip) when collapsed — CSS transition so
+ *     the canvas Stage gracefully expands via the ResizeObserver in Canvas.tsx.
+ *   - A chevron button in the panel header toggles the collapsed state.
+ *   - When no object is selected the panel shows "Canvas Presets" with global
+ *     style presets that set the active color for the next created object.
+ *   - When an object is selected the panel switches to the relevant type module.
  *
  * Module routing:
  *   stickyNote  → StickyNoteModule + TextModule
@@ -26,6 +28,7 @@ import { useCanvasStore } from '@/lib/store/canvasStore';
 import { useObjectStore } from '@/lib/store/objectStore';
 import { updateObject } from '@/lib/firebase/firestore';
 import type { BoardObject } from '@/lib/types';
+import { STYLE_PRESETS } from '@/lib/types';
 import PresetsSection from './PresetsSection';
 import RecentColorsSection from './RecentColorsSection';
 import TransparencyControl from './TransparencyControl';
@@ -61,18 +64,120 @@ function getModuleSet(type: BoardObject['type']): ModuleSet {
   }
 }
 
+// ---- Chevron icons -----------------------------------------------------------
+
+function ChevronLeftIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M9 2L4 7L9 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ChevronRightIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M5 2L10 7L5 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// ---- Canvas Presets empty state ----------------------------------------------
+
+/** Shown when no object is selected — lets users pick a default fill color. */
+function CanvasPresetsPanel() {
+  const setActiveColor = useCanvasStore((s) => s.setActiveColor);
+  const activeColor = useCanvasStore((s) => s.activeColor);
+  const recentColors = useCanvasStore((s) => s.recentColors);
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      <section>
+        <p className="mb-1 text-sm font-semibold text-gray-700">Canvas Presets</p>
+        <p className="mb-3 text-xs text-gray-400">
+          Choose a default fill color applied to the next object you create.
+        </p>
+
+        {/* Preset swatches grid */}
+        <div className="grid grid-cols-6 gap-1">
+          {STYLE_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => setActiveColor(preset.color)}
+              title={preset.label}
+              aria-label={preset.label}
+              aria-pressed={activeColor === preset.color}
+              className={`flex h-10 w-10 items-center justify-center rounded-md border text-xs font-semibold transition-all hover:scale-105 hover:shadow-sm ${
+                activeColor === preset.color
+                  ? 'ring-2 ring-blue-500 ring-offset-1'
+                  : ''
+              }`}
+              style={{
+                backgroundColor: preset.previewBg,
+                borderColor: preset.previewBorder ?? preset.previewBg,
+                color: preset.textColor ?? '#111827',
+              }}
+            >
+              Aa
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Recent colors */}
+      {recentColors.length > 0 && (
+        <>
+          <div className="border-t border-gray-200" />
+          <section>
+            <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-gray-400">
+              Recent Colors
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {recentColors.map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setActiveColor(color)}
+                  className={`h-8 w-8 rounded-md border transition-all hover:scale-105 hover:shadow-sm ${
+                    activeColor === color
+                      ? 'border-indigo-500 ring-2 ring-indigo-200'
+                      : 'border-black/10'
+                  }`}
+                  style={{ backgroundColor: color }}
+                  title={color}
+                  aria-label={`Set default color to ${color}`}
+                />
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+
+      <div className="border-t border-gray-200" />
+
+      <p className="text-center text-xs text-gray-400">
+        Select an object on the canvas to edit its properties.
+      </p>
+    </div>
+  );
+}
+
+// ---- Main component ----------------------------------------------------------
+
 export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const objects = useObjectStore((s) => s.objects);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
   const addRecentColor = useCanvasStore((s) => s.addRecentColor);
+  const isPropertiesOpen = useCanvasStore((s) => s.isPropertiesOpen);
+  const setIsPropertiesOpen = useCanvasStore((s) => s.setIsPropertiesOpen);
 
   // Debounce Firestore writes — rapid slider drags only trigger one network call
   // per 300 ms per object. The map key is objectId.
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const activeObject = selectedObjectIds.length > 0 ? objects[selectedObjectIds[0]] : null;
-  const isOpen = activeObject !== null;
 
   const handleChange = useCallback(
     (patch: Partial<BoardObject>) => {
@@ -99,82 +204,95 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
 
   return (
     <aside
-      className={`flex h-full flex-col overflow-hidden border-r border-gray-200 bg-[#F8F9FA] transition-all duration-200 ${
-        isOpen ? 'w-72' : 'w-0'
+      className={`relative flex h-full flex-col overflow-hidden border-r border-gray-200 bg-[#F8F9FA] transition-all duration-200 ${
+        isPropertiesOpen ? 'w-72' : 'w-10'
       }`}
       aria-label="Properties"
-      aria-hidden={!isOpen}
     >
-      {/* Inner content — fixed width so it doesn't squash during the transition */}
-      <div className="flex h-full w-72 flex-col overflow-y-auto">
-        {activeObject ? (
-          <div className="flex flex-col gap-4 p-4">
-            {/* Styles / Presets */}
-            <section>
-              <p className="mb-2 text-sm font-semibold text-gray-700">Styles</p>
-              <PresetsSection object={activeObject} onChange={handleChange} />
-              <RecentColorsSection onChange={handleChange} />
-            </section>
+      {/* Collapse / expand button — always in the top-right corner */}
+      <button
+        type="button"
+        onClick={() => setIsPropertiesOpen(!isPropertiesOpen)}
+        title={isPropertiesOpen ? 'Collapse properties panel' : 'Expand properties panel'}
+        className="absolute right-1 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600"
+        aria-label={isPropertiesOpen ? 'Collapse' : 'Expand'}
+      >
+        {isPropertiesOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+      </button>
 
-            <div className="border-t border-gray-200" />
+      {/* Collapsed strip — show a vertical "Properties" label */}
+      {!isPropertiesOpen && (
+        <div className="flex flex-1 items-center justify-center">
+          <span
+            className="text-[10px] font-semibold uppercase tracking-widest text-gray-300"
+            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+          >
+            Properties
+          </span>
+        </div>
+      )}
 
-            {/* Transparency — shared across all types */}
-            <section>
-              <TransparencyControl object={activeObject} onChange={handleChange} />
-            </section>
+      {/* Expanded content — fixed width so it doesn't squash during the transition */}
+      {isPropertiesOpen && (
+        <div className="flex h-full w-72 flex-col overflow-y-auto pt-9">
+          {activeObject ? (
+            <div className="flex flex-col gap-4 p-4 pt-2">
+              {/* Styles / Presets */}
+              <section>
+                <p className="mb-2 text-sm font-semibold text-gray-700">Styles</p>
+                <PresetsSection object={activeObject} onChange={handleChange} />
+                <RecentColorsSection onChange={handleChange} />
+              </section>
 
-            <div className="border-t border-gray-200" />
+              <div className="border-t border-gray-200" />
 
-            {/* Type-specific modules */}
-            <section>
-              {getModuleSet(activeObject.type) === 'shape' && (
-                <>
-                  <ShapeModule object={activeObject} onChange={handleChange} />
-                  <div className="my-3 border-t border-gray-100" />
+              {/* Transparency — shared across all types */}
+              <section>
+                <TransparencyControl object={activeObject} onChange={handleChange} />
+              </section>
+
+              <div className="border-t border-gray-200" />
+
+              {/* Type-specific modules */}
+              <section>
+                {getModuleSet(activeObject.type) === 'shape' && (
+                  <>
+                    <ShapeModule object={activeObject} onChange={handleChange} />
+                    <div className="my-3 border-t border-gray-100" />
+                    <TextModule object={activeObject} onChange={handleChange} />
+                  </>
+                )}
+                {getModuleSet(activeObject.type) === 'stickyNote' && (
+                  <>
+                    <StickyNoteModule object={activeObject} onChange={handleChange} />
+                    <div className="my-3 border-t border-gray-100" />
+                    <TextModule object={activeObject} onChange={handleChange} />
+                  </>
+                )}
+                {getModuleSet(activeObject.type) === 'line' && (
+                  <LineModule object={activeObject} onChange={handleChange} />
+                )}
+                {getModuleSet(activeObject.type) === 'frame' && (
+                  <FrameModule object={activeObject} onChange={handleChange} />
+                )}
+                {getModuleSet(activeObject.type) === 'text' && (
                   <TextModule object={activeObject} onChange={handleChange} />
-                </>
-              )}
-              {getModuleSet(activeObject.type) === 'stickyNote' && (
-                <>
-                  <StickyNoteModule object={activeObject} onChange={handleChange} />
-                  <div className="my-3 border-t border-gray-100" />
-                  <TextModule object={activeObject} onChange={handleChange} />
-                </>
-              )}
-              {getModuleSet(activeObject.type) === 'line' && (
-                <LineModule object={activeObject} onChange={handleChange} />
-              )}
-              {getModuleSet(activeObject.type) === 'frame' && (
-                <FrameModule object={activeObject} onChange={handleChange} />
-              )}
-              {getModuleSet(activeObject.type) === 'text' && (
-                <TextModule object={activeObject} onChange={handleChange} />
-              )}
-            </section>
+                )}
+              </section>
 
-            {/* Multi-select indicator */}
-            {selectedObjectIds.length > 1 && (
-              <p className="text-center text-xs text-gray-400">
-                {selectedObjectIds.length} objects selected — changes apply to all
-              </p>
-            )}
-          </div>
-        ) : (
-          /* Empty state — shown when nothing is selected */
-          <div className="flex flex-col items-center gap-3 p-6 pt-12 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
-              <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-                <circle cx="10" cy="10" r="7" stroke="#9CA3AF" strokeWidth="1.5" />
-                <line x1="15.5" y1="15.5" x2="20" y2="20" stroke="#9CA3AF" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
+              {/* Multi-select indicator */}
+              {selectedObjectIds.length > 1 && (
+                <p className="text-center text-xs text-gray-400">
+                  {selectedObjectIds.length} objects selected — changes apply to all
+                </p>
+              )}
             </div>
-            <p className="text-sm font-medium text-gray-500">No object selected</p>
-            <p className="text-xs text-gray-400">
-              Click any object on the canvas to edit its properties here.
-            </p>
-          </div>
-        )}
-      </div>
+          ) : (
+            // No selection — show global canvas presets
+            <CanvasPresetsPanel />
+          )}
+        </div>
+      )}
     </aside>
   );
 }

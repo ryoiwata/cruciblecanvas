@@ -4,13 +4,15 @@
  * SubHeaderToolbar — the full-width horizontal tool strip that sits directly
  * below the top header bar, following the BioRender two-tier layout pattern.
  *
- * Structure (left → right):
- *   [Undo] [Redo] │ [Pointer] │ [Lines ▾] [Shapes ▾] [T Text] [📝 Sticky] │ [Align] [Arrange]
+ * Tool order (left → right):
+ *   [Undo] [Redo] │ [Select] [Line] [Connector] [Shapes▾] [Text] [Sticky] [Frame] │ [Align▾] [Layer▾]
  *
- * Lines ▾ expands to: Line, Connector
- * Shapes ▾ expands to: Rectangle, Circle, Frame
+ * Shapes ▾ expands to: Rectangle, Circle
+ * Frame is a primary standalone tool (not in Shapes dropdown)
+ * Align ▾ and Layer ▾ match the vertical icon+label style via showLabel prop
  *
- * Undo/Redo are rendered as disabled stubs — no history system yet.
+ * Each button renders the icon above a small text label (flex-col layout).
+ * Toolbar height is h-14 to accommodate the stacked icon+label.
  * z-index is above canvas content (z-30) but below global overlays (z-50).
  */
 
@@ -101,13 +103,47 @@ function StickyIcon() {
 
 function ChevronDownIcon() {
   return (
-    <svg width="9" height="9" viewBox="0 0 9 9" fill="none" aria-hidden="true">
+    <svg width="8" height="8" viewBox="0 0 9 9" fill="none" aria-hidden="true">
       <path d="M1.5 3L4.5 6L7.5 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
-// ---- Dropdown helper ---------------------------------------------------------
+// ---- Divider helper ----------------------------------------------------------
+
+function Divider() {
+  return <div className="mx-1 h-8 w-px bg-gray-200 self-center" />;
+}
+
+// ---- Vertical tool button (icon above label) ---------------------------------
+
+interface ToolButtonProps {
+  label: string;
+  icon: React.ReactNode;
+  isActive: boolean;
+  shortcut?: string;
+  onClick: () => void;
+}
+
+function ToolButton({ label, icon, isActive, shortcut, onClick }: ToolButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={shortcut ? `${label} (${shortcut})` : label}
+      className={`flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md transition-colors ${
+        isActive
+          ? 'bg-indigo-50 text-indigo-600'
+          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+      }`}
+    >
+      {icon}
+      <span className="text-[10px] font-medium leading-none">{label}</span>
+    </button>
+  );
+}
+
+// ---- Shapes dropdown with vertical trigger -----------------------------------
 
 interface DropdownItem {
   id: ObjectType;
@@ -115,39 +151,28 @@ interface DropdownItem {
   icon: React.ReactNode;
 }
 
-interface ToolDropdownProps {
-  /** Button label shown in the toolbar */
-  label: string;
-  /** Icon shown in the toolbar button */
-  icon: React.ReactNode;
-  items: DropdownItem[];
-  /** Whether any item in this dropdown is the active creation tool */
+interface ShapesDropdownProps {
   isGroupActive: boolean;
-  onSelect: (tool: ObjectType) => void;
   activeCreationTool: ObjectType | null;
+  onSelect: (tool: ObjectType) => void;
 }
 
-function ToolDropdown({
-  label,
-  icon,
-  items,
-  isGroupActive,
-  onSelect,
-  activeCreationTool,
-}: ToolDropdownProps) {
+const SHAPE_ITEMS: DropdownItem[] = [
+  { id: 'rectangle', label: 'Rectangle', icon: <RectIcon /> },
+  { id: 'circle',    label: 'Circle',    icon: <CircleIcon /> },
+];
+
+function ShapesDropdown({ isGroupActive, activeCreationTool, onSelect }: ShapesDropdownProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
   return (
@@ -155,20 +180,22 @@ function ToolDropdown({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex h-9 items-center gap-1 rounded-md px-2.5 text-sm font-medium transition-colors ${
+        className={`flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md transition-colors ${
           isGroupActive
             ? 'bg-indigo-50 text-indigo-600'
-            : 'text-gray-600 hover:bg-gray-100'
+            : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
         }`}
       >
-        <span className="flex items-center">{icon}</span>
-        <span className="ml-1">{label}</span>
-        <ChevronDownIcon />
+        <span className="flex items-center gap-0.5">
+          <RectIcon />
+          <ChevronDownIcon />
+        </span>
+        <span className="text-[10px] font-medium leading-none">Shape</span>
       </button>
 
       {open && (
         <div className="absolute left-0 top-full z-50 mt-1 min-w-[140px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          {items.map((item) => (
+          {SHAPE_ITEMS.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -192,54 +219,6 @@ function ToolDropdown({
   );
 }
 
-// ---- Divider helper ----------------------------------------------------------
-
-function Divider() {
-  return <div className="mx-1 h-6 w-px bg-gray-200" />;
-}
-
-// ---- Tool button (non-dropdown) ---------------------------------------------
-
-interface ToolButtonProps {
-  label: string;
-  icon: React.ReactNode;
-  isActive: boolean;
-  shortcut?: string;
-  onClick: () => void;
-}
-
-function ToolButton({ label, icon, isActive, shortcut, onClick }: ToolButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={shortcut ? `${label} (${shortcut})` : label}
-      className={`flex h-9 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors ${
-        isActive
-          ? 'bg-indigo-50 text-indigo-600'
-          : 'text-gray-600 hover:bg-gray-100'
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
-}
-
-// ---- Line items — Connector is a primary tool button, not in this dropdown --
-
-const LINE_ITEMS: DropdownItem[] = [
-  { id: 'line', label: 'Line', icon: <LineToolIcon /> },
-];
-
-// ---- Shape items -------------------------------------------------------------
-
-const SHAPE_ITEMS: DropdownItem[] = [
-  { id: 'rectangle', label: 'Rectangle', icon: <RectIcon /> },
-  { id: 'circle',    label: 'Circle',    icon: <CircleIcon /> },
-  { id: 'frame',     label: 'Frame',     icon: <FrameIcon /> },
-];
-
 // ---- Main component ----------------------------------------------------------
 
 export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
@@ -249,16 +228,16 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
 
   const isPointerActive = mode === 'pointer';
-  const isLinesGroupActive = mode === 'create' && creationTool === 'line';
+  const isLineActive = mode === 'create' && creationTool === 'line';
   const isConnectorActive = mode === 'create' && creationTool === 'connector';
   const isShapesGroupActive =
-    mode === 'create' &&
-    (creationTool === 'rectangle' || creationTool === 'circle' || creationTool === 'frame');
+    mode === 'create' && (creationTool === 'rectangle' || creationTool === 'circle');
   const isTextActive = mode === 'create' && creationTool === 'text';
   const isStickyActive = mode === 'create' && creationTool === 'stickyNote';
+  const isFrameActive = mode === 'create' && creationTool === 'frame';
 
   return (
-    <div className="flex h-11 w-full shrink-0 items-center border-b border-gray-200 bg-white px-4 z-30">
+    <div className="flex h-14 w-full shrink-0 items-center border-b border-gray-200 bg-white px-3 z-30 overflow-x-auto">
       {/* Undo / Redo — disabled until history is implemented */}
       <div className="flex items-center gap-0.5">
         <button
@@ -281,7 +260,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
 
       <Divider />
 
-      {/* Pointer tool */}
+      {/* Select (Pointer) */}
       <ToolButton
         label="Select"
         icon={<PointerIcon />}
@@ -290,19 +269,15 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         onClick={() => setMode('pointer')}
       />
 
-      <Divider />
-
-      {/* Lines dropdown */}
-      <ToolDropdown
-        label="Lines"
+      {/* Line */}
+      <ToolButton
+        label="Line"
         icon={<LineToolIcon />}
-        items={LINE_ITEMS}
-        isGroupActive={isLinesGroupActive}
-        activeCreationTool={creationTool}
-        onSelect={(tool) => enterCreateMode(tool)}
+        isActive={isLineActive}
+        onClick={() => enterCreateMode('line')}
       />
 
-      {/* Connector — primary tool button (two boxes connected by a line) */}
+      {/* Connector */}
       <ToolButton
         label="Connector"
         icon={<Cable size={14} />}
@@ -311,11 +286,10 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         onClick={() => enterCreateMode('connector')}
       />
 
-      {/* Shapes dropdown */}
-      <ToolDropdown
-        label="Shapes"
-        icon={<RectIcon />}
-        items={SHAPE_ITEMS}
+      <Divider />
+
+      {/* Shape dropdown (Rectangle, Circle) */}
+      <ShapesDropdown
         isGroupActive={isShapesGroupActive}
         activeCreationTool={creationTool}
         onSelect={(tool) => enterCreateMode(tool)}
@@ -324,7 +298,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
       {/* Text */}
       <ToolButton
         label="Text"
-        icon={<span className="font-bold text-sm leading-none">T</span>}
+        icon={<span className="font-bold text-sm leading-none" aria-hidden="true">T</span>}
         isActive={isTextActive}
         shortcut="8"
         onClick={() => enterCreateMode('text')}
@@ -339,13 +313,21 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         onClick={() => enterCreateMode('stickyNote')}
       />
 
+      {/* Frame */}
+      <ToolButton
+        label="Frame"
+        icon={<FrameIcon />}
+        isActive={isFrameActive}
+        onClick={() => enterCreateMode('frame')}
+      />
+
       <Divider />
 
-      {/* Align & Arrange — layout operations, stay here since they're canvas-wide */}
-      <AlignMenu boardId={boardId} />
-      <ArrangeMenu boardId={boardId} />
+      {/* Align — uses showLabel to match vertical icon+label style */}
+      <AlignMenu boardId={boardId} showLabel />
 
-      {/* Spacer pushes nothing — right side is empty for now (Canvas Size etc. future) */}
+      {/* Layer — uses showLabel to match vertical icon+label style */}
+      <ArrangeMenu boardId={boardId} showLabel />
     </div>
   );
 }

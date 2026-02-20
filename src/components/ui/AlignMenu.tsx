@@ -8,6 +8,8 @@ import { updateObject } from "@/lib/firebase/firestore";
 
 interface AlignMenuProps {
   boardId: string;
+  /** When true, renders a vertical icon+label button to match the icon toolbar style. */
+  showLabel?: boolean;
 }
 
 type AlignAction =
@@ -124,7 +126,7 @@ const distributeItems: MenuItem[] = [
   { action: "distributeH", label: "Horizontally", icon: <DistributeHIcon />, minObjects: 3 },
 ];
 
-export default function AlignMenu({ boardId }: AlignMenuProps) {
+export default function AlignMenu({ boardId, showLabel }: AlignMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -273,11 +275,17 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
         onClick={() => setOpen(!open)}
         disabled={selCount < 2}
         title="Align & Distribute"
-        className={`flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium transition-colors ${
-          selCount >= 2
-            ? "text-gray-600 hover:bg-gray-100"
-            : "cursor-not-allowed text-gray-300"
-        }`}
+        className={
+          showLabel
+            ? `flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md text-sm font-medium transition-colors ${
+                selCount >= 2 ? 'text-gray-600 hover:bg-gray-100' : 'cursor-not-allowed text-gray-300'
+              }`
+            : `flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium transition-colors ${
+                selCount >= 2
+                  ? "text-gray-600 hover:bg-gray-100"
+                  : "cursor-not-allowed text-gray-300"
+              }`
+        }
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <line x1="8" y1="1" x2="8" y2="15" stroke="currentColor" strokeWidth="1.5" />
@@ -285,6 +293,7 @@ export default function AlignMenu({ boardId }: AlignMenuProps) {
           <line x1="1" y1="3" x2="15" y2="3" stroke="currentColor" strokeWidth="0.8" strokeDasharray="2 1.5" />
           <line x1="1" y1="13" x2="15" y2="13" stroke="currentColor" strokeWidth="0.8" strokeDasharray="2 1.5" />
         </svg>
+        {showLabel && <span className="text-[10px] font-medium leading-none">Align</span>}
       </button>
 
       {open &&

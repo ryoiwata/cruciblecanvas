@@ -8,6 +8,8 @@ import { updateObject } from "@/lib/firebase/firestore";
 
 interface ArrangeMenuProps {
   boardId: string;
+  /** When true, renders a vertical icon+label button to match the icon toolbar style. */
+  showLabel?: boolean;
 }
 
 type LayerAction = "bringForward" | "bringToFront" | "sendBackward" | "sendToBack";
@@ -118,7 +120,7 @@ export function performLayerAction(
   }
 }
 
-export default function ArrangeMenu({ boardId }: ArrangeMenuProps) {
+export default function ArrangeMenu({ boardId, showLabel }: ArrangeMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -172,18 +174,25 @@ export default function ArrangeMenu({ boardId }: ArrangeMenuProps) {
         ref={triggerRef}
         onClick={() => setOpen(!open)}
         disabled={!hasSelection}
-        title="Arrange (Layer order)"
-        className={`flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium transition-colors ${
-          hasSelection
-            ? "text-gray-600 hover:bg-gray-100"
-            : "cursor-not-allowed text-gray-300"
-        }`}
+        title="Layer order"
+        className={
+          showLabel
+            ? `flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md text-sm font-medium transition-colors ${
+                hasSelection ? 'text-gray-600 hover:bg-gray-100' : 'cursor-not-allowed text-gray-300'
+              }`
+            : `flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium transition-colors ${
+                hasSelection
+                  ? "text-gray-600 hover:bg-gray-100"
+                  : "cursor-not-allowed text-gray-300"
+              }`
+        }
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <rect x="1" y="7" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
           <rect x="4" y="4" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
           <rect x="7" y="1" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
         </svg>
+        {showLabel && <span className="text-[10px] font-medium leading-none">Layer</span>}
       </button>
 
       {open &&
