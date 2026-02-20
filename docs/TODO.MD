@@ -96,6 +96,10 @@ Others
   - Group select should still highlight everything even when right clicking
   - Preview of resize, rotate, or drag on mouse
 
+REAL TODOs
+- Fix drag item within frame
+- Remove layers from legend
+
 
 ### Real-Time Collaboration
 
