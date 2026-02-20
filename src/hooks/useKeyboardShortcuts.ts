@@ -7,11 +7,13 @@
  * the canvas mode or active text editor changes — not on every object/selection update.
  */
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useChatStore } from "@/lib/store/chatStore";
+import type { CanvasMode } from "@/lib/store/canvasStore";
+import type { ObjectType } from "@/lib/types";
 import {
   deleteObject,
   deleteObjects,
@@ -26,8 +28,24 @@ interface UseKeyboardShortcutsOptions {
   boardId: string;
 }
 
+/** Briefly shows a toast message at the bottom of the screen. */
+function showToast(message: string) {
+  const el = document.createElement("div");
+  el.textContent = message;
+  el.className =
+    "fixed bottom-16 left-1/2 -translate-x-1/2 rounded-md bg-gray-800 px-3 py-1.5 text-sm text-white shadow-lg z-[300] pointer-events-none transition-opacity";
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 300);
+  }, 1700);
+}
+
 export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
   const [pendingDelete, setPendingDelete] = useState(false);
+
+  // Tracks the mode to restore when Shift is released (Shift → temporary pointer)
+  const preShiftStateRef = useRef<{ mode: CanvasMode; tool: ObjectType | null } | null>(null);
 
   // Minimal reactive subscriptions — only values used outside of the keydown handler.
   // mode is kept reactive so the useEffect dep array re-triggers on mode change.
@@ -85,6 +103,36 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
     }
   }, [boardId]);
 
+  // Shift key → temporary pointer mode. Restores previous mode/tool on key-up.
+  // Separate effect so it doesn't share the dep array with the main keydown handler.
+  useEffect(() => {
+    const handleShiftDown = (e: KeyboardEvent) => {
+      if (e.key !== "Shift" || e.repeat) return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (editingObjectId) return;
+      const { mode: currentMode, creationTool: currentTool } = useCanvasStore.getState();
+      if (currentMode !== "pointer") {
+        preShiftStateRef.current = { mode: currentMode, tool: currentTool };
+        useCanvasStore.getState().setMode("pointer");
+      }
+    };
+    const handleShiftUp = (e: KeyboardEvent) => {
+      if (e.key !== "Shift") return;
+      const prev = preShiftStateRef.current;
+      if (!prev) return;
+      preShiftStateRef.current = null;
+      if (prev.tool) useCanvasStore.getState().enterCreateMode(prev.tool);
+      else useCanvasStore.getState().setMode(prev.mode);
+    };
+    window.addEventListener("keydown", handleShiftDown);
+    window.addEventListener("keyup", handleShiftUp);
+    return () => {
+      window.removeEventListener("keydown", handleShiftDown);
+      window.removeEventListener("keyup", handleShiftUp);
+    };
+  }, [editingObjectId]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Skip when editing text
@@ -95,7 +143,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
 
       const canvasState = useCanvasStore.getState();
 
-      // Tool switching
+      // Tool switching (mirrors Toolbar shortcut numbers)
       switch (e.key) {
         case "1":
           canvasState.setMode("pointer");
@@ -110,9 +158,12 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
           canvasState.enterCreateMode("circle");
           return;
         case "5":
-          canvasState.enterCreateMode("frame");
+          canvasState.enterCreateMode("line");
           return;
         case "6":
+          canvasState.enterCreateMode("frame");
+          return;
+        case "7":
           canvasState.enterCreateMode("connector");
           return;
         case "Escape":
@@ -150,6 +201,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
           .map((id) => objects[id])
           .filter((obj): obj is BoardObject => obj !== undefined);
         useCanvasStore.getState().copyToClipboard(selected);
+        showToast(`Copied ${selected.length} object${selected.length === 1 ? "" : "s"}`);
         return;
       }
 

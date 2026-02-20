@@ -26,6 +26,7 @@ import CanvasTitle from "@/components/ui/CanvasTitle";
 import SelectionCounter from "@/components/ui/SelectionCounter";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import MessagePreview from "@/components/chat/MessagePreview";
+import SelectionActionBar from "@/components/ui/SelectionActionBar";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -175,6 +176,7 @@ export default function BoardPage() {
         <Canvas boardId={boardId} />
         <ContextMenu boardId={boardId} />
         <SelectionCounter />
+        <SelectionActionBar boardId={boardId} />
 
         {/* Floating message preview when sidebar is closed */}
         <MessagePreview onOpenSidebar={() => setSidebarOpen(true)} />

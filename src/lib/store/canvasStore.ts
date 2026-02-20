@@ -44,6 +44,9 @@ interface CanvasState {
   // Frame drag highlight — set to a frame's id when a dragged object overlaps it >50%
   frameDragHighlightId: string | null;
 
+  // Recently used colors — last 8 unique colors applied; shown at top of color picker
+  recentColors: string[];
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -67,6 +70,7 @@ interface CanvasState {
   setLastUsedColor: (type: string, color: string) => void;
   bumpBorderResizeGeneration: () => void;
   setFrameDragHighlightId: (id: string | null) => void;
+  addRecentColor: (color: string) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -95,6 +99,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   lastUsedColors: {},
   borderResizeGeneration: 0,
   frameDragHighlightId: null,
+  recentColors: [],
 
   setMode: (mode) =>
     set({
@@ -184,4 +189,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set((s) => ({ borderResizeGeneration: s.borderResizeGeneration + 1 })),
 
   setFrameDragHighlightId: (id) => set({ frameDragHighlightId: id }),
+
+  addRecentColor: (color) =>
+    set((s) => {
+      const filtered = s.recentColors.filter((c) => c !== color);
+      return { recentColors: [color, ...filtered].slice(0, 8) };
+    }),
 }));

@@ -59,6 +59,8 @@ function getColorForTool(
       return FRAME_DEFAULTS.color;
     case "colorLegend":
       return COLOR_LEGEND_DEFAULTS.color;
+    case "line":
+      return activeColor || "#374151";
     default:
       return "#E3E8EF";
   }
@@ -77,6 +79,9 @@ function getDefaultsForTool(tool: ObjectType): { width: number; height: number }
       return { width: FRAME_DEFAULTS.width, height: FRAME_DEFAULTS.height };
     case "colorLegend":
       return { width: COLOR_LEGEND_DEFAULTS.width, height: COLOR_LEGEND_DEFAULTS.height };
+    // Line: default is a 120px horizontal line (width = length, height = 0)
+    case "line":
+      return { width: 120, height: 0 };
     default:
       return { width: 100, height: 100 };
   }
@@ -586,24 +591,39 @@ export default function Canvas({ boardId }: CanvasProps) {
           const endX = canvasPoint.x;
           const endY = canvasPoint.y;
 
-          let w = Math.abs(endX - drawingRef.current.startX);
-          let h = Math.abs(endY - drawingRef.current.startY);
+          // Line tool: width/height encode the direction vector, so they can be negative.
+          // All other tools use absolute dimensions with top-left origin.
+          let w: number;
+          let h: number;
+          let objX: number;
+          let objY: number;
 
-          // Circle constraint: enforce square
-          if (creationTool === "circle") {
-            const maxDim = Math.max(w, h);
-            w = maxDim;
-            h = maxDim;
+          if (creationTool === "line") {
+            // Line: store direction vector — no abs(), no clamping
+            w = Math.round(endX - drawingRef.current.startX);
+            h = Math.round(endY - drawingRef.current.startY);
+            objX = drawingRef.current.startX;
+            objY = drawingRef.current.startY;
+          } else {
+            w = Math.abs(endX - drawingRef.current.startX);
+            h = Math.abs(endY - drawingRef.current.startY);
+
+            // Circle constraint: enforce square
+            if (creationTool === "circle") {
+              const maxDim = Math.max(w, h);
+              w = maxDim;
+              h = maxDim;
+            }
+
+            // Clamp to size limits
+            const limits = getSizeLimitsForTool(creationTool);
+            w = Math.max(limits.min.width, Math.min(limits.max.width, w));
+            h = Math.max(limits.min.height, Math.min(limits.max.height, h));
+
+            // Handle negative drag direction
+            objX = Math.min(drawingRef.current.startX, endX);
+            objY = Math.min(drawingRef.current.startY, endY);
           }
-
-          // Clamp to size limits
-          const limits = getSizeLimitsForTool(creationTool);
-          w = Math.max(limits.min.width, Math.min(limits.max.width, w));
-          h = Math.max(limits.min.height, Math.min(limits.max.height, h));
-
-          // Handle negative drag direction
-          const objX = Math.min(drawingRef.current.startX, endX);
-          const objY = Math.min(drawingRef.current.startY, endY);
 
           const dist = Math.max(
             Math.abs(endX - drawingRef.current.startX),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, memo } from "react";
+import { useRef, useCallback, memo } from "react";
 import { Group, Rect, Text } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
@@ -41,8 +41,11 @@ export default memo(function FrameObject({
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const childSnapshots = useRef<ChildSnapshot[]>([]);
   const groupRef = useRef<Konva.Group>(null);
+  // RAF handle for frame drag preview — coalesces move events to display refresh rate
+  const frameDragRafRef = useRef(0);
 
   const mode = useCanvasStore((s) => s.mode);
+  const stageScale = useCanvasStore((s) => s.stageScale);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
@@ -57,6 +60,21 @@ export default memo(function FrameObject({
 
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked;
+
+  // RAF-throttled drag-move handler — updates child positions locally for live preview.
+  // Must be defined before the LOD guard to satisfy rules-of-hooks.
+  const handleDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    if (frameDragRafRef.current) cancelAnimationFrame(frameDragRafRef.current);
+    frameDragRafRef.current = requestAnimationFrame(() => {
+      frameDragRafRef.current = 0;
+      const node = e.target as Konva.Group;
+      const dx = node.x() - preDragPos.current.x;
+      const dy = node.y() - preDragPos.current.y;
+      for (const snap of childSnapshots.current) {
+        updateObjectLocal(snap.id, { x: snap.x + dx, y: snap.y + dy });
+      }
+    });
+  }, [updateObjectLocal]);
 
   // LOD: simplified border-only render for extreme zoom-out
   if (isSimpleLod) {
@@ -98,6 +116,11 @@ export default memo(function FrameObject({
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
+    // Cancel any pending preview RAF so final state is clean
+    if (frameDragRafRef.current) {
+      cancelAnimationFrame(frameDragRafRef.current);
+      frameDragRafRef.current = 0;
+    }
     const node = e.target;
     const finalX = Math.round(node.x());
     const finalY = Math.round(node.y());
@@ -147,8 +170,33 @@ export default memo(function FrameObject({
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (mode !== "pointer") return;
     e.cancelBubble = true;
-    // Sync active color in toolbar to match the clicked frame's color
     setLastUsedColor(object.type, object.color);
+
+    // Check if the click hit a child object — if so, select it instead of the frame.
+    // This is a fallback hit test for cases where z-index hasn't yet propagated.
+    const stage = e.target.getStage();
+    if (stage) {
+      const pos = stage.getPointerPosition();
+      if (pos) {
+        const transform = stage.getAbsoluteTransform().copy().invert();
+        const canvasPos = transform.point(pos);
+        const allObjects = useObjectStore.getState().objects;
+        const hit = Object.values(allObjects).find(
+          (o) =>
+            o.parentFrame === object.id &&
+            canvasPos.x >= o.x &&
+            canvasPos.x <= o.x + o.width &&
+            canvasPos.y >= o.y &&
+            canvasPos.y <= o.y + o.height
+        );
+        if (hit) {
+          if (e.evt.ctrlKey || e.evt.metaKey) toggleSelection(hit.id);
+          else selectObject(hit.id);
+          return;
+        }
+      }
+    }
+
     if (e.evt.ctrlKey || e.evt.metaKey) {
       toggleSelection(object.id);
     } else {
@@ -175,6 +223,9 @@ export default memo(function FrameObject({
 
   const titleBarHeight = FRAME_DEFAULTS.titleBarHeight;
 
+  // Frame title font size: targets 12px on screen, clamped to keep readable at any zoom.
+  const titleFontSize = Math.min(36, Math.max(11, 12 / stageScale));
+
   return (
     <Group
       ref={groupRef}
@@ -186,6 +237,7 @@ export default memo(function FrameObject({
       rotation={object.rotation ?? 0}
       draggable={isDraggable}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onTap={handleClick}
@@ -203,7 +255,8 @@ export default memo(function FrameObject({
           listening={false}
         />
       )}
-      {/* Frame background — glows purple when a dragged object overlaps >50% (capture preview) */}
+      {/* Frame background — glows purple when a dragged object overlaps >50% (capture preview).
+          strokeScaleEnabled={false} keeps the border a constant screen-space thickness. */}
       <Rect
         width={object.width}
         height={object.height}
@@ -211,6 +264,7 @@ export default memo(function FrameObject({
         opacity={FRAME_DEFAULTS.backgroundOpacity}
         stroke={isFrameDragTarget ? "#6366f1" : object.color}
         strokeWidth={isFrameDragTarget ? 3 : 2}
+        strokeScaleEnabled={false}
         cornerRadius={4}
         shadowColor="#6366f1"
         shadowBlur={isConnectorTarget ? 15 : isFrameDragTarget ? 20 : 0}
@@ -238,13 +292,13 @@ export default memo(function FrameObject({
         />
       )}
 
-      {/* Title text */}
+      {/* Title text — fontSize scales with zoom so it stays readable at any zoom level */}
       <Text
         text={object.text || "Untitled Frame"}
         x={10}
         y={10}
         width={object.width - 20}
-        fontSize={14}
+        fontSize={titleFontSize}
         fontFamily="sans-serif"
         fontStyle="bold"
         fill={object.color}

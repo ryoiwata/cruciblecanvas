@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
@@ -30,6 +31,15 @@ const ConnectorIcon = () => (
   </svg>
 );
 
+/** SVG icon showing a diagonal line with circular endpoints. */
+const LineIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <line x1="2.5" y1="13.5" x2="13.5" y2="2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <circle cx="2.5" cy="13.5" r="1.5" fill="currentColor" />
+    <circle cx="13.5" cy="2.5" r="1.5" fill="currentColor" />
+  </svg>
+);
+
 const tools: Tool[] = [
   { id: "pointer", label: "Pointer", icon: "\u2196", mode: "pointer", shortcut: "1" },
   {
@@ -57,12 +67,20 @@ const tools: Tool[] = [
     shortcut: "4",
   },
   {
+    id: "line",
+    label: "Line",
+    icon: <LineIcon />,
+    mode: "create",
+    creationTool: "line",
+    shortcut: "5",
+  },
+  {
     id: "frame",
     label: "Frame",
     icon: "\u25a3",
     mode: "create",
     creationTool: "frame",
-    shortcut: "5",
+    shortcut: "6",
   },
   {
     id: "connector",
@@ -70,11 +88,13 @@ const tools: Tool[] = [
     icon: <ConnectorIcon />,
     mode: "create",
     creationTool: "connector",
-    shortcut: "6",
+    shortcut: "7",
   },
 ];
 
 export default function Toolbar({ boardId }: ToolbarProps) {
+  const [hoveredToolId, setHoveredToolId] = useState<string | null>(null);
+
   const mode = useCanvasStore((s) => s.mode);
   const creationTool = useCanvasStore((s) => s.creationTool);
   const setMode = useCanvasStore((s) => s.setMode);
@@ -134,14 +154,24 @@ export default function Toolbar({ boardId }: ToolbarProps) {
         <button
           key={tool.id}
           onClick={() => handleClick(tool)}
+          onMouseEnter={() => setHoveredToolId(tool.id)}
+          onMouseLeave={() => setHoveredToolId(null)}
           title={`${tool.label} (${tool.shortcut})`}
-          className={`flex h-9 w-9 items-center justify-center rounded-md text-base font-medium transition-colors ${
+          className={`relative flex h-9 w-9 items-center justify-center rounded-md text-base font-medium transition-colors ${
             isActive(tool)
               ? "bg-indigo-100 text-indigo-600"
               : "text-gray-600 hover:bg-gray-100"
           }`}
         >
           <span>{tool.icon}</span>
+          {hoveredToolId === tool.id && (
+            <span className="pointer-events-none absolute left-full ml-2 z-50 flex items-center gap-1.5 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-xs text-white shadow-lg">
+              {tool.label}
+              <kbd className="rounded border border-white/20 bg-white/10 px-1 font-mono text-[10px]">
+                {tool.shortcut}
+              </kbd>
+            </span>
+          )}
         </button>
       ))}
 

@@ -187,6 +187,20 @@ export default memo(function ShapeObject({
       onContextMenu={handleContextMenu}
       opacity={(isLocked ? 0.6 : object.isAIPending ? 0.5 : 1) * (object.opacity ?? 1)}
     >
+      {/* Framed-child indicator — dashed purple border when nested inside a frame */}
+      {object.parentFrame && !isSimpleLod && (
+        <Rect
+          width={object.width}
+          height={object.height}
+          stroke="#6366f1"
+          strokeWidth={1.5}
+          dash={[4, 3]}
+          fill="transparent"
+          listening={false}
+          cornerRadius={4}
+        />
+      )}
+
       {/* AI badge */}
       {object.isAIGenerated && (
         <Text

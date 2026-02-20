@@ -8,6 +8,7 @@ import { useAuthStore } from "@/lib/store/authStore";
 import StickyNote from "./StickyNote";
 import ShapeObject from "./ShapeObject";
 import FrameObject from "./FrameObject";
+import LineObject from "./LineObject";
 import ConnectorObject from "./ConnectorObject";
 import ColorLegendObject from "./ColorLegendObject";
 import AnchorPoints from "./AnchorPoints";
@@ -169,6 +170,16 @@ export default function BoardObjects({
             boardId={boardId}
           />
         );
+      case "line":
+        return (
+          <LineObject
+            key={obj.id}
+            object={obj}
+            boardId={boardId}
+            isLocked={isLockedByOther}
+            isSimpleLod={isSimpleLod}
+          />
+        );
       case "colorLegend":
         return (
           <ColorLegendObject
@@ -195,7 +206,7 @@ export default function BoardObjects({
       {/* Anchor points for connector creation mode */}
       {isConnectorMode &&
         layeredObjects.map((obj) => {
-          if (obj.type === "connector" || obj.type === "colorLegend")
+          if (obj.type === "connector" || obj.type === "colorLegend" || obj.type === "line")
             return null;
           // Show anchors on hover or always in connector mode
           if (hoveredObjectId === obj.id || isConnectorMode) {
@@ -203,6 +214,7 @@ export default function BoardObjects({
               <AnchorPoints
                 key={`anchor-${obj.id}`}
                 object={obj}
+                stageScale={stageScale}
                 onAnchorClick={onAnchorClick}
                 onAnchorDragStart={onAnchorDragStart}
               />

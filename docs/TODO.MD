@@ -34,20 +34,23 @@
 - [ ] Shapes — rectangles, circles, lines with solid colors
   - [ ] Make a line shape. Make the connect tool icon two boxes connected by a line. 
   - [ ] Add option to make dotted lines
-- [ ] Connectors — lines/arrows connecting objects
-  - [ ] Make it easier to drag, just click on object to drag
+- [x] Connectors — lines/arrows connecting objects
+  - [x] Make it easier to drag, just click on object to drag
 - [ ] Standalone text elements
 - [ ] Frames — group and organize content areas
   - [ ] Make drag into frame more obvious. Make it glow of something. 
   - [ ] Clicking on one item in the frame will select that item. Option to deframe it.
+  - [ ] Dragging a frame onto object will put it into frame
 - [x] Move, resize, and rotate objects
 - [ ] Single and multi-select (shift-click, drag-to-select)
-  - [ ] Frame should move things together in preview
+  - [x] Frame should move things together in preview
   - [x] Group resize, 
   - [x] group rotatoe
   - [ ] Make group select right click reference the group, not the single item
+  - [ ] Make frame always at the bottom stack
 - [ ] Delete, duplicate, copy/paste
-  - [ ] Make copy paste more obvious, also include buttons on the bottom
+  - [x] Make copy paste more obvious, also include buttons on the bottom
+    - [ ] Make short cuts two rows? 
 
 Others
 - [x] Clicking on an object will change default color in the tool bar
@@ -56,19 +59,24 @@ Others
 - [ ] Make shift be able tophave this option too. 
 - [ ] Update frame logic. Include 
 - [ ] Change the tool bar so that opacity isn't sticking out(maybe pop out?)
-- [ ] Add recent colors used that were items previkouslty selected
-- [ ] Connector dots should increase in size to scale with view
+- [x] Add recent colors used that were items previkouslty selected
+- [x] Connector dots should increase in size to scale with view
 - [ ] Add line object
 - [ ] Make frame text size easier to read
-  - [ ] Frame border should adjust with pan size
+  - [x] Frame border should adjust with pan size
 - [ ] Frame should carry things in preview
 - [ ] Right click on item in frame will select that item only
 - [ ] Clicking on item in frame will always click on item instead of frame
-- [ ] Framed items should have different indicator 
-- [ ] Tool bar should have the name of the tool
-- [ ] Ctrl + A in bottom description
-- [ ] copy/paste and delete in short cut legend too
-- [ ] Ctrl or shift always goes back to pointer tool
+- [x] Framed items should have different indicator 
+  - [ ] Framed items should have more bolder indicator
+- [x] Tool bar should have the name of the tool
+- [x] Ctrl + A in bottom description
+- [x] copy/paste and delete in short cut legend too
+- [FIX] Ctrl or shift always goes back to pointer tool
+- [] Line thickness and type
+- [] Fix up short cut on bottom, move out of chat's way?
+- [] Connector should be able to connect to things in frame()
+- [] Sticky note should have more clearer lines
 
 
 ### Real-Time Collaboration
