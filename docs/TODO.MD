@@ -40,21 +40,35 @@
 - [ ] Frames — group and organize content areas
   - [ ] Make drag into frame more obvious. Make it glow of something. 
   - [ ] Clicking on one item in the frame will select that item. Option to deframe it.
-- [ ] Move, resize, and rotate objects
+- [x] Move, resize, and rotate objects
 - [ ] Single and multi-select (shift-click, drag-to-select)
   - [ ] Frame should move things together in preview
-  - [ ] Group resize, 
-  - [ ] group rotatoe
+  - [x] Group resize, 
+  - [x] group rotatoe
   - [ ] Make group select right click reference the group, not the single item
 - [ ] Delete, duplicate, copy/paste
   - [ ] Make copy paste more obvious, also include buttons on the bottom
 
 Others
-- [ ] Clicking on an object will change default color in the tool bar
+- [x] Clicking on an object will change default color in the tool bar
 - [ ] Include a tutorial mode?
 - [x] Ctrl automatically shifts back to pointer. 
 - [ ] Make shift be able tophave this option too. 
 - [ ] Update frame logic. Include 
+- [ ] Change the tool bar so that opacity isn't sticking out(maybe pop out?)
+- [ ] Add recent colors used that were items previkouslty selected
+- [ ] Connector dots should increase in size to scale with view
+- [ ] Add line object
+- [ ] Make frame text size easier to read
+  - [ ] Frame border should adjust with pan size
+- [ ] Frame should carry things in preview
+- [ ] Right click on item in frame will select that item only
+- [ ] Clicking on item in frame will always click on item instead of frame
+- [ ] Framed items should have different indicator 
+- [ ] Tool bar should have the name of the tool
+- [ ] Ctrl + A in bottom description
+- [ ] copy/paste and delete in short cut legend too
+- [ ] Ctrl or shift always goes back to pointer tool
 
 
 ### Real-Time Collaboration

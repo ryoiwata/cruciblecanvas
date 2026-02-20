@@ -82,60 +82,37 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
   const singleType =
     selectedObjects.length === 1 ? selectedObjects[0].type : null;
 
-  // Determine enabled anchors based on selection
+  // Determine enabled anchors and rotation based on selection
+  const ALL_ANCHORS = [
+    "top-left",
+    "top-center",
+    "top-right",
+    "middle-left",
+    "middle-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+  ];
+
   let enabledAnchors: string[] = [];
   let keepRatio = false;
+  // Enable rotation for all selections unless they are connector-only
+  const allConnectors = selectedObjects.length > 0 && selectedObjects.every((o) => o.type === "connector");
+  const rotateEnabled = !allConnectors;
 
-  if (!hasMixedTypes && singleType) {
+  if (selectedObjects.length > 1 && !allConnectors) {
+    // Group resize: enable all anchors so the Transformer can scale all nodes as a unit
+    enabledAnchors = ALL_ANCHORS;
+  } else if (!hasMixedTypes && singleType) {
     switch (singleType) {
       case "stickyNote":
-        enabledAnchors = [
-          "top-left",
-          "top-center",
-          "top-right",
-          "middle-left",
-          "middle-right",
-          "bottom-left",
-          "bottom-center",
-          "bottom-right",
-        ];
-        break;
       case "rectangle":
-        enabledAnchors = [
-          "top-left",
-          "top-center",
-          "top-right",
-          "middle-left",
-          "middle-right",
-          "bottom-left",
-          "bottom-center",
-          "bottom-right",
-        ];
+      case "frame":
+        enabledAnchors = ALL_ANCHORS;
         break;
       case "circle":
-        enabledAnchors = [
-          "top-left",
-          "top-center",
-          "top-right",
-          "middle-left",
-          "middle-right",
-          "bottom-left",
-          "bottom-center",
-          "bottom-right",
-        ];
+        enabledAnchors = ALL_ANCHORS;
         keepRatio = true;
-        break;
-      case "frame":
-        enabledAnchors = [
-          "top-left",
-          "top-center",
-          "top-right",
-          "middle-left",
-          "middle-right",
-          "bottom-left",
-          "bottom-center",
-          "bottom-right",
-        ];
         break;
       case "colorLegend":
         enabledAnchors = ["bottom-right"];
@@ -267,12 +244,16 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         node.x(newX);
         node.y(newY);
 
+        // Bake the post-transform rotation (in degrees, rounded to nearest integer)
+        const newRotation = Math.round(node.rotation());
+
         // Persist to local store and Firestore
         const updates = {
           x: newX,
           y: newY,
           width: newWidth,
           height: newHeight,
+          rotation: newRotation,
         };
 
         updateObjectLocal(id, updates);
@@ -298,7 +279,7 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
     <Transformer
       ref={transformerRef}
       enabledAnchors={enabledAnchors}
-      rotateEnabled={false}
+      rotateEnabled={rotateEnabled}
       keepRatio={keepRatio}
       flipEnabled={false}
       centeredScaling={false}

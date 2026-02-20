@@ -38,9 +38,23 @@ export function useFrameNesting(boardId: string) {
       const newParent = bestFrame ? bestFrame.id : "";
 
       if (currentParent !== newParent) {
-        updateObjectLocal(objectId, { parentFrame: newParent || undefined });
+        // When nesting into a frame, ensure the child's zIndex is above the frame's.
+        // This guarantees click hit-testing reaches the child first (later render = on top).
+        let bumpedZIndex: number | undefined;
+        if (bestFrame) {
+          const frameZIndex = bestFrame.zIndex ?? 0;
+          if ((obj.zIndex ?? 0) <= frameZIndex) {
+            bumpedZIndex = frameZIndex + 1;
+          }
+        }
+
+        updateObjectLocal(objectId, {
+          parentFrame: newParent || undefined,
+          ...(bumpedZIndex !== undefined ? { zIndex: bumpedZIndex } : {}),
+        });
         updateObject(boardId, objectId, {
           parentFrame: newParent || undefined,
+          ...(bumpedZIndex !== undefined ? { zIndex: bumpedZIndex } : {}),
         }).catch(console.error);
       }
     },

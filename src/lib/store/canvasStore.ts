@@ -41,6 +41,9 @@ interface CanvasState {
   // to trigger Transformer re-sync in SelectionLayer (detach during resize, re-attach after)
   borderResizeGeneration: number;
 
+  // Frame drag highlight — set to a frame's id when a dragged object overlaps it >50%
+  frameDragHighlightId: string | null;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -63,6 +66,7 @@ interface CanvasState {
   setActiveColor: (color: string) => void;
   setLastUsedColor: (type: string, color: string) => void;
   bumpBorderResizeGeneration: () => void;
+  setFrameDragHighlightId: (id: string | null) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -90,6 +94,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   activeColor: "#FEF3C7",
   lastUsedColors: {},
   borderResizeGeneration: 0,
+  frameDragHighlightId: null,
 
   setMode: (mode) =>
     set({
@@ -177,4 +182,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   bumpBorderResizeGeneration: () =>
     set((s) => ({ borderResizeGeneration: s.borderResizeGeneration + 1 })),
+
+  setFrameDragHighlightId: (id) => set({ frameDragHighlightId: id }),
 }));

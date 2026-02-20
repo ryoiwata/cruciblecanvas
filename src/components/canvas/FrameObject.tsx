@@ -19,6 +19,8 @@ interface FrameObjectProps {
   lockedByName: string | null;
   isConnectorTarget?: boolean;
   isSimpleLod?: boolean;
+  /** True when a dragged object overlaps this frame >50% — triggers capture glow. */
+  isFrameDragTarget?: boolean;
 }
 
 interface ChildSnapshot {
@@ -34,6 +36,7 @@ export default memo(function FrameObject({
   lockedByName,
   isConnectorTarget,
   isSimpleLod,
+  isFrameDragTarget,
 }: FrameObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const childSnapshots = useRef<ChildSnapshot[]>([]);
@@ -45,6 +48,7 @@ export default memo(function FrameObject({
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
+  const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
   const getChildrenOfFrame = useObjectStore((s) => s.getChildrenOfFrame);
 
@@ -143,6 +147,8 @@ export default memo(function FrameObject({
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (mode !== "pointer") return;
     e.cancelBubble = true;
+    // Sync active color in toolbar to match the clicked frame's color
+    setLastUsedColor(object.type, object.color);
     if (e.evt.ctrlKey || e.evt.metaKey) {
       toggleSelection(object.id);
     } else {
@@ -177,6 +183,7 @@ export default memo(function FrameObject({
       y={object.y}
       width={object.width}
       height={object.height}
+      rotation={object.rotation ?? 0}
       draggable={isDraggable}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
@@ -196,18 +203,19 @@ export default memo(function FrameObject({
           listening={false}
         />
       )}
-      {/* Frame background */}
+      {/* Frame background — glows purple when a dragged object overlaps >50% (capture preview) */}
       <Rect
         width={object.width}
         height={object.height}
         fill={object.color}
         opacity={FRAME_DEFAULTS.backgroundOpacity}
-        stroke={object.color}
-        strokeWidth={2}
+        stroke={isFrameDragTarget ? "#6366f1" : object.color}
+        strokeWidth={isFrameDragTarget ? 3 : 2}
         cornerRadius={4}
-        shadowColor={isConnectorTarget ? "#6366f1" : undefined}
-        shadowBlur={isConnectorTarget ? 15 : 0}
-        shadowEnabled={!!isConnectorTarget}
+        shadowColor="#6366f1"
+        shadowBlur={isConnectorTarget ? 15 : isFrameDragTarget ? 20 : 0}
+        shadowOpacity={isFrameDragTarget ? 0.7 : 0.8}
+        shadowEnabled={!!isConnectorTarget || !!isFrameDragTarget}
       />
 
       {/* Title bar */}
@@ -265,6 +273,7 @@ export default memo(function FrameObject({
     prevProps.isLocked === nextProps.isLocked &&
     prevProps.lockedByName === nextProps.lockedByName &&
     prevProps.isConnectorTarget === nextProps.isConnectorTarget &&
-    prevProps.isSimpleLod === nextProps.isSimpleLod
+    prevProps.isSimpleLod === nextProps.isSimpleLod &&
+    prevProps.isFrameDragTarget === nextProps.isFrameDragTarget
   );
 });

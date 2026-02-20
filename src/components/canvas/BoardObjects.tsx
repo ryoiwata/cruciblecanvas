@@ -54,9 +54,8 @@ export default function BoardObjects({
   const locks = useObjectStore((s) => s.locks);
   const userId = useAuthStore((s) => s.user?.uid);
 
-  // useShallow combines 6 individual subscriptions into one, preventing redundant
-  // re-renders when unrelated store slices change between these values.
-  const { stageX, stageY, stageScale, mode, creationTool, connectorHoverTarget } =
+  // useShallow combines subscriptions into one, preventing redundant re-renders.
+  const { stageX, stageY, stageScale, mode, creationTool, connectorHoverTarget, frameDragHighlightId } =
     useCanvasStore(
       useShallow((s) => ({
         stageX: s.stageX,
@@ -65,6 +64,7 @@ export default function BoardObjects({
         mode: s.mode,
         creationTool: s.creationTool,
         connectorHoverTarget: s.connectorHoverTarget,
+        frameDragHighlightId: s.frameDragHighlightId,
       }))
     );
 
@@ -158,6 +158,7 @@ export default function BoardObjects({
             lockedByName={lockedByName}
             isConnectorTarget={isTarget}
             isSimpleLod={isSimpleLod}
+            isFrameDragTarget={frameDragHighlightId === obj.id}
           />
         );
       case "connector":

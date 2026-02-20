@@ -50,28 +50,28 @@
 <div class="stats">
   <div class="stat">
     <div class="stat-label">API list-price equivalent</div>
-    <div class="stat-value">$3.98</div>
-    <div class="stat-sub">across 1 day (not billed)</div>
+    <div class="stat-value">$9.30</div>
+    <div class="stat-sub">across 2 days (not billed)</div>
   </div>
   <div class="stat">
     <div class="stat-label">Sessions</div>
-    <div class="stat-value">1</div>
-    <div class="stat-sub">1 with token data</div>
+    <div class="stat-value">2</div>
+    <div class="stat-sub">2 with token data</div>
   </div>
   <div class="stat">
     <div class="stat-label">Output tokens</div>
-    <div class="stat-value">7,505</div>
+    <div class="stat-value">33,569</div>
     <div class="stat-sub">&nbsp;</div>
   </div>
   <div class="stat">
     <div class="stat-label">Cache read share</div>
-    <div class="stat-value">98.1%</div>
+    <div class="stat-value">97.4%</div>
     <div class="stat-sub">of all tokens</div>
   </div>
   <div class="stat">
     <div class="stat-label">Session time</div>
-    <div class="stat-value">6m 34s</div>
-    <div class="stat-sub">avg 6m 34s / session</div>
+    <div class="stat-value">14m 50s</div>
+    <div class="stat-sub">avg 7m 25s / session</div>
   </div>
   <div class="stat">
     <div class="stat-label">Key prompts captured</div>
@@ -177,17 +177,17 @@
 </div>
 
 <script>
-const DATES = ["2026-02-19"];
-const COST_BY_DATE = [3.9763];
-const SESSIONS_BY_DATE = [1];
-const OUTPUT_BY_DATE = [7505];
-const OPUS_BY_DATE = [0];
-const SONNET_BY_DATE = [3.9763];
-const CUMUL_LABELS = ["2026-02-19 #1"];
-const CUMUL_VALUES = [3.9763];
+const DATES = ["2026-02-19", "2026-02-20"];
+const COST_BY_DATE = [3.9763, 5.324];
+const SESSIONS_BY_DATE = [1, 1];
+const OUTPUT_BY_DATE = [7505, 26064];
+const OPUS_BY_DATE = [0, 0];
+const SONNET_BY_DATE = [3.9763, 5.324];
+const CUMUL_LABELS = ["2026-02-19 #1", "2026-02-20 #2"];
+const CUMUL_VALUES = [3.9763, 9.3003];
 const MODEL_LABELS = ["claude-sonnet-4-6"];
-const MODEL_COSTS = [3.9763];
-const MODEL_SESSIONS = [1];
+const MODEL_COSTS = [9.3003];
+const MODEL_SESSIONS = [2];
 const PROMPT_DATES = [];
 const PROMPT_TOTALS = [];
 const PROMPT_CAT_DATASETS = [];
@@ -199,13 +199,13 @@ const TOTAL_MSGS_BY_DATE = [];
 const TRIVIAL_BY_DATE = [];
 const KEY_PROMPTS_BY_DATE = [];
 const EFFICIENCY_BY_DATE = [];
-const DURATION_BY_DATE = [394];
-const CUMUL_DURATION = [394];
-const AVG_DURATION_BY_DATE = [394];
-const SCATTER_DATA = [{"x": 394, "y": 3.9763, "label": "2026-02-19 3c7323"}];
-const TPM_DATA = [{"x": 394, "y": 1142.9, "label": "2026-02-19 3c7323"}];
+const DURATION_BY_DATE = [394, 496];
+const CUMUL_DURATION = [394, 890];
+const AVG_DURATION_BY_DATE = [394, 496];
+const SCATTER_DATA = [{"x": 394, "y": 3.9763, "label": "2026-02-19 3c7323"}, {"x": 496, "y": 5.324, "label": "2026-02-20 e71684"}];
+const TPM_DATA = [{"x": 394, "y": 1142.9, "label": "2026-02-19 3c7323"}, {"x": 496, "y": 3152.9, "label": "2026-02-20 e71684"}];
 const DUR_HIST_LABELS = ["0\u20132m", "2\u20135m", "5\u201315m", "15\u201330m", "30m+"];
-const DUR_HIST_VALUES = [0, 0, 1, 0, 0];
+const DUR_HIST_VALUES = [0, 0, 2, 0, 0];
 
 function formatDuration(s) {
   if (s <= 0) return '0s';

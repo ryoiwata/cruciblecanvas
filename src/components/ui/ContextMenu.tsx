@@ -134,6 +134,14 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     hideContextMenu();
   };
 
+  /** Remove a single child object from its parent frame. */
+  const handleDeframe = () => {
+    if (!contextMenu.targetObjectId) return;
+    updateObjectLocal(contextMenu.targetObjectId, { parentFrame: undefined });
+    updateObject(boardId, contextMenu.targetObjectId, { parentFrame: "" }).catch(console.error);
+    hideContextMenu();
+  };
+
   const handleAddToFrame = (frameId: string) => {
     if (!contextMenu.targetObjectId) return;
     updateObjectLocal(contextMenu.targetObjectId, { parentFrame: frameId });
@@ -361,6 +369,11 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
 
     if (target.type === "frame") {
       items.push({ label: "Deframe All", onClick: handleDeframeAll });
+    }
+
+    // "Deframe" for child objects currently inside a frame
+    if (target.type !== "frame" && target.type !== "connector" && target.parentFrame) {
+      items.push({ label: "Deframe", onClick: handleDeframe });
     }
 
     // "Add to Frame" for non-frame, non-connector objects

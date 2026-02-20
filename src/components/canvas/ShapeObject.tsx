@@ -11,6 +11,7 @@ import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
 import { borderResizingIds } from "@/lib/resizeState";
+import { overlapFraction } from "@/lib/utils";
 
 interface ShapeObjectProps {
   object: BoardObject;
@@ -31,12 +32,15 @@ export default memo(function ShapeObject({
 }: ShapeObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const groupRef = useRef<Konva.Group>(null);
+  // RAF handle for frame-glow detection during drag — coalesces move events per frame
+  const frameDragRafRef = useRef(0);
 
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
+  const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
   const user = useAuthStore((s) => s.user);
@@ -46,6 +50,35 @@ export default memo(function ShapeObject({
   const handleBorderHover = useCallback((hovering: boolean) => {
     setIsHoveringBorder(hovering);
   }, []);
+
+  // RAF-throttled drag-move handler — computes best-candidate frame overlap to drive the glow effect.
+  // Avoids drag-flooding by coalescing multiple move events to one computation per animation frame.
+  // Defined before the LOD guard to satisfy rules-of-hooks (no conditional hook calls).
+  const handleDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    if (frameDragRafRef.current) {
+      cancelAnimationFrame(frameDragRafRef.current);
+    }
+    frameDragRafRef.current = requestAnimationFrame(() => {
+      frameDragRafRef.current = 0;
+      const node = e.target as Konva.Group;
+      const curX = node.x();
+      const curY = node.y();
+      const dragBounds = { x: curX, y: curY, width: object.width, height: object.height };
+
+      const allObjects = useObjectStore.getState().objects;
+      let bestId: string | null = null;
+      let bestOverlap = 0;
+      for (const candidate of Object.values(allObjects)) {
+        if (candidate.type !== "frame" || candidate.id === object.id) continue;
+        const frac = overlapFraction(dragBounds, candidate);
+        if (frac > 0.5 && frac > bestOverlap) {
+          bestOverlap = frac;
+          bestId = candidate.id;
+        }
+      }
+      useCanvasStore.getState().setFrameDragHighlightId(bestId);
+    });
+  }, [object.id, object.width, object.height]);
 
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
@@ -81,6 +114,13 @@ export default memo(function ShapeObject({
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
+    // Clear frame glow highlight immediately on drop
+    if (frameDragRafRef.current) {
+      cancelAnimationFrame(frameDragRafRef.current);
+      frameDragRafRef.current = 0;
+    }
+    useCanvasStore.getState().setFrameDragHighlightId(null);
+
     const node = e.target;
     const finalX = Math.round(node.x());
     const finalY = Math.round(node.y());
@@ -108,6 +148,8 @@ export default memo(function ShapeObject({
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (mode !== "pointer") return;
     e.cancelBubble = true;
+    // Sync active color in toolbar to match the clicked object's color
+    setLastUsedColor(object.type, object.color);
     if (e.evt.ctrlKey || e.evt.metaKey) {
       toggleSelection(object.id);
     } else {
@@ -135,8 +177,10 @@ export default memo(function ShapeObject({
       y={object.y}
       width={object.width}
       height={object.height}
+      rotation={object.rotation ?? 0}
       draggable={isDraggable}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onTap={handleClick}

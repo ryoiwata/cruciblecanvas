@@ -10,7 +10,8 @@ export type ObjectType =
   | "circle"
   | "frame"
   | "connector"
-  | "colorLegend";
+  | "colorLegend"
+  | "line";
 
 export type AnalyticalRole =
   | "critique"

@@ -15,11 +15,20 @@ interface ToolbarProps {
 interface Tool {
   id: string;
   label: string;
-  icon: string;
+  icon: React.ReactNode;
   mode: "pointer" | "create";
   creationTool?: ObjectType;
   shortcut: string;
 }
+
+/** SVG icon showing two boxes connected by a horizontal line. */
+const ConnectorIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="0.75" y="5" width="4.5" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+    <rect x="10.75" y="5" width="4.5" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
+    <line x1="5.25" y1="8" x2="10.75" y2="8" stroke="currentColor" strokeWidth="1.5" />
+  </svg>
+);
 
 const tools: Tool[] = [
   { id: "pointer", label: "Pointer", icon: "\u2196", mode: "pointer", shortcut: "1" },
@@ -58,7 +67,7 @@ const tools: Tool[] = [
   {
     id: "connector",
     label: "Connector",
-    icon: "\u2571",
+    icon: <ConnectorIcon />,
     mode: "create",
     creationTool: "connector",
     shortcut: "6",
