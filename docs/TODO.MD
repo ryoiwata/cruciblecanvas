@@ -38,7 +38,7 @@
   - [x] Make it easier to drag, just click on object to drag
 - [ ] Standalone text elements
 - [ ] Frames — group and organize content areas
-  - [ ] Make drag into frame more obvious. Make it glow of something. 
+  - [x] Make drag into frame more obvious. Make it glow of something. 
   - [ ] Clicking on one item in the frame will select that item. Option to deframe it.
   - [ ] Dragging a frame onto object will put it into frame
 - [x] Move, resize, and rotate objects
@@ -57,26 +57,28 @@ Others
 - [ ] Include a tutorial mode?
 - [x] Ctrl automatically shifts back to pointer. 
 - [ ] Make shift be able tophave this option too. 
-- [ ] Update frame logic. Include 
 - [ ] Change the tool bar so that opacity isn't sticking out(maybe pop out?)
 - [x] Add recent colors used that were items previkouslty selected
 - [x] Connector dots should increase in size to scale with view
-- [ ] Add line object
-- [ ] Make frame text size easier to read
+- [x] Make frame text size easier to read
   - [x] Frame border should adjust with pan size
-- [ ] Frame should carry things in preview
+- [x] Frame should carry things in preview
 - [ ] Right click on item in frame will select that item only
-- [ ] Clicking on item in frame will always click on item instead of frame
+- [x] Clicking on item in frame will always click on item instead of frame
 - [x] Framed items should have different indicator 
-  - [ ] Framed items should have more bolder indicator
+  - [ ] Framed items should have more bolder lines indicating it's being framed
 - [x] Tool bar should have the name of the tool
 - [x] Ctrl + A in bottom description
 - [x] copy/paste and delete in short cut legend too
-- [FIX] Ctrl or shift always goes back to pointer tool
+- [] Ctrl or shift always goes back to pointer tool
 - [] Line thickness and type
+- [] Border thickness and types
 - [] Fix up short cut on bottom, move out of chat's way?
+  - [ ] 2 rows for short cuts?
 - [] Connector should be able to connect to things in frame()
 - [] Sticky note should have more clearer lines
+- [] Framed items should be able to move around in frame, but stay in frame when it is being dragged it goes out of edge
+- Make lines thicker by default, have option to change line style and thickness
 
 
 ### Real-Time Collaboration
