@@ -20,7 +20,7 @@
 - [x] Real-time sync between 2+ users
 - [x] Multiplayer cursors with name labels
 - [x] Presence awareness (who's online)
-- [ ] User authentication
+- [x] User authentication
 - [x] Deployed and publicly accessible
 
 ---
@@ -29,8 +29,8 @@
 
 ### Board
 
-- [ ] Infinite board with smooth pan/zoom
-- [ ] Sticky notes — create, edit text, change colors
+- [x] Infinite board with smooth pan/zoom
+- [x] Sticky notes — create, edit text, change colors
 - [ ] Shapes — rectangles, circles, lines with solid colors
 - [ ] Connectors — lines/arrows connecting objects
 - [ ] Standalone text elements
@@ -39,6 +39,19 @@
 - [ ] Single and multi-select (shift-click, drag-to-select)
 - [ ] Delete, duplicate, copy/paste
 
+Clicking on an object will change default color in the tool bar
+Make a line shape. Make the connect tool icon two boxes connected by a line. 
+Make drag into frame more obvious. Make it glow of something. 
+Clicking on one item in the frame will select that item. Option to deframe it.
+Have an option to rotate items with something sitcking out on top
+Group resize
+
+Ctrl automatically shifts back to pointer. Make shift have this option too. 
+Make group select right click different
+Update frame logic. Include 
+Frame should move things together in preview
+
+
 ### Real-Time Collaboration
 
 - [ ] Multiplayer cursors with names and real-time movement
@@ -46,6 +59,7 @@
 - [ ] Clear presence indicator (who's currently on the board)
 - [ ] Conflict handling for simultaneous edits (document your approach)
 - [ ] Graceful disconnect/reconnect handling
+  - [ ] Zoom out when coming back in to all items?
 - [ ] Board state persists after all users leave and return
 
 ### Performance Targets
