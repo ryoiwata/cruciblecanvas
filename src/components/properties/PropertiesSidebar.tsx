@@ -27,6 +27,7 @@ import { useObjectStore } from '@/lib/store/objectStore';
 import { updateObject } from '@/lib/firebase/firestore';
 import type { BoardObject } from '@/lib/types';
 import PresetsSection from './PresetsSection';
+import RecentColorsSection from './RecentColorsSection';
 import TransparencyControl from './TransparencyControl';
 import ShapeModule from './modules/ShapeModule';
 import TextModule from './modules/TextModule';
@@ -64,6 +65,7 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const objects = useObjectStore((s) => s.objects);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
+  const addRecentColor = useCanvasStore((s) => s.addRecentColor);
 
   // Debounce Firestore writes — rapid slider drags only trigger one network call
   // per 300 ms per object. The map key is objectId.
@@ -74,6 +76,10 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
 
   const handleChange = useCallback(
     (patch: Partial<BoardObject>) => {
+      // Track recently used fill/stroke colors for the quick-pick row in ColorRow.
+      if (patch.color) addRecentColor(patch.color);
+      if (patch.strokeColor) addRecentColor(patch.strokeColor);
+
       for (const id of selectedObjectIds) {
         // Optimistic local update — canvas reflects changes at 60 fps
         updateObjectLocal(id, patch);
@@ -88,7 +94,7 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
         debounceTimers.current.set(id, timer);
       }
     },
-    [boardId, selectedObjectIds, updateObjectLocal]
+    [boardId, selectedObjectIds, updateObjectLocal, addRecentColor]
   );
 
   return (
@@ -107,6 +113,7 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
             <section>
               <p className="mb-2 text-sm font-semibold text-gray-700">Styles</p>
               <PresetsSection object={activeObject} onChange={handleChange} />
+              <RecentColorsSection onChange={handleChange} />
             </section>
 
             <div className="border-t border-gray-200" />

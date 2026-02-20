@@ -15,6 +15,7 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
+import { Cable } from 'lucide-react';
 import { useCanvasStore } from '@/lib/store/canvasStore';
 import type { ObjectType } from '@/lib/types';
 import AlignMenu from './AlignMenu';
@@ -58,17 +59,6 @@ function LineToolIcon() {
       <line x1="2" y1="13" x2="13" y2="2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       <circle cx="2" cy="13" r="1.5" fill="currentColor" />
       <circle cx="13" cy="2" r="1.5" fill="currentColor" />
-    </svg>
-  );
-}
-
-function ConnectorToolIcon() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
-      <rect x="0.75" y="4.5" width="4" height="6" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <rect x="10.25" y="4.5" width="4" height="6" rx="1" stroke="currentColor" strokeWidth="1.3" />
-      <line x1="4.75" y1="7.5" x2="10.25" y2="7.5" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M8.5 5.5L10.25 7.5L8.5 9.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -236,11 +226,10 @@ function ToolButton({ label, icon, isActive, shortcut, onClick }: ToolButtonProp
   );
 }
 
-// ---- Line items --------------------------------------------------------------
+// ---- Line items — Connector is a primary tool button, not in this dropdown --
 
 const LINE_ITEMS: DropdownItem[] = [
-  { id: 'line',      label: 'Line',      icon: <LineToolIcon /> },
-  { id: 'connector', label: 'Connector', icon: <ConnectorToolIcon /> },
+  { id: 'line', label: 'Line', icon: <LineToolIcon /> },
 ];
 
 // ---- Shape items -------------------------------------------------------------
@@ -260,8 +249,8 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
 
   const isPointerActive = mode === 'pointer';
-  const isLinesGroupActive =
-    mode === 'create' && (creationTool === 'line' || creationTool === 'connector');
+  const isLinesGroupActive = mode === 'create' && creationTool === 'line';
+  const isConnectorActive = mode === 'create' && creationTool === 'connector';
   const isShapesGroupActive =
     mode === 'create' &&
     (creationTool === 'rectangle' || creationTool === 'circle' || creationTool === 'frame');
@@ -311,6 +300,15 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         isGroupActive={isLinesGroupActive}
         activeCreationTool={creationTool}
         onSelect={(tool) => enterCreateMode(tool)}
+      />
+
+      {/* Connector — primary tool button (two boxes connected by a line) */}
+      <ToolButton
+        label="Connector"
+        icon={<Cable size={14} />}
+        isActive={isConnectorActive}
+        shortcut="C"
+        onClick={() => enterCreateMode('connector')}
       />
 
       {/* Shapes dropdown */}

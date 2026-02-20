@@ -108,10 +108,12 @@ REAL TODOs
 Biorender edits
 - Keep properties out, unless minimized or item is selected
 - Keep text box within sticky when typing
-- Keep Chat under the tool bar
+- [x] Keep Chat under the tool bar
 - Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
 - Make undo and redo button work
 - Change top AI button with chat
+- When changing properties in sticky text, it should apply those changes
+- Don't make text box stick out
 
 
 ### Real-Time Collaboration

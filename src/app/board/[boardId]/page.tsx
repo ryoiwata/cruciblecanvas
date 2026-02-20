@@ -27,7 +27,6 @@ import CanvasTitle from "@/components/ui/CanvasTitle";
 import SelectionCounter from "@/components/ui/SelectionCounter";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import MessagePreview from "@/components/chat/MessagePreview";
-import SelectionActionBar from "@/components/ui/SelectionActionBar";
 import SaveToAccountBanner from "@/components/ui/SaveToAccountBanner";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
@@ -213,10 +212,6 @@ export default function BoardPage() {
            * container; no manual sidebar-width offsets required.
            */}
           <div className="absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2 pointer-events-none">
-            {/* Action bar — shown when objects are selected */}
-            <div className="pointer-events-auto">
-              <SelectionActionBar boardId={boardId} />
-            </div>
             {/* Item count pill — shown when objects are selected */}
             <div className="pointer-events-auto">
               <SelectionCounter />

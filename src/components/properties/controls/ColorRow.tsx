@@ -1,14 +1,18 @@
 'use client';
 
 /**
- * ColorRow — a labeled row with a color swatch and hex input.
+ * ColorRow — a labeled row with a color swatch, hex input, and recent-colors
+ * quick-pick row.
  *
  * Clicking the swatch opens a native color picker via an invisible <input type="color">
  * overlay. The hex field also accepts direct text entry (validated on blur/enter).
+ * Below the main row, up to 5 recent-color swatches are shown so the user can
+ * quickly reuse colours applied elsewhere on the board.
  * Changes are forwarded via onChange immediately for live canvas preview.
  */
 
 import { useRef, useState, useEffect } from 'react';
+import { useCanvasStore } from '@/lib/store/canvasStore';
 
 interface ColorRowProps {
   label: string;
@@ -31,6 +35,8 @@ export default function ColorRow({ label, value, onChange }: ColorRowProps) {
   // Always store text as uppercase to avoid case-mismatch loops with the parent value.
   const [textValue, setTextValue] = useState(() => normaliseHex(value));
 
+  const recentColors = useCanvasStore((s) => s.recentColors);
+
   // Sync text field when parent value changes externally (e.g. preset applied, undo).
   // useEffect is the correct place — never call setState during the render body.
   useEffect(() => {
@@ -51,49 +57,75 @@ export default function ColorRow({ label, value, onChange }: ColorRowProps) {
   };
 
   return (
-    <div className="flex items-center gap-2 py-1">
-      <span className="w-20 shrink-0 text-sm text-gray-600">{label}</span>
+    <div className="py-1">
+      <div className="flex items-center gap-2">
+        <span className="w-20 shrink-0 text-sm text-gray-600">{label}</span>
 
-      {/* Swatch — clicking delegates to the hidden color input */}
-      <button
-        type="button"
-        onClick={() => colorInputRef.current?.click()}
-        className="h-7 w-7 shrink-0 rounded border border-gray-300 shadow-sm transition-shadow hover:shadow-md"
-        style={{ backgroundColor: value }}
-        title="Pick color"
-        aria-label={`${label} color swatch`}
-      />
+        {/* Swatch — clicking delegates to the hidden color input */}
+        <button
+          type="button"
+          onClick={() => colorInputRef.current?.click()}
+          className="h-7 w-7 shrink-0 rounded border border-gray-300 shadow-sm transition-shadow hover:shadow-md"
+          style={{ backgroundColor: value }}
+          title="Pick color"
+          aria-label={`${label} color swatch`}
+        />
 
-      {/* Native color picker (invisible, triggered by the swatch button above).
-          Always normalise to uppercase before forwarding so the parent value prop
-          stays uppercase — preventing the textValue/value case-mismatch loop. */}
-      <input
-        ref={colorInputRef}
-        type="color"
-        value={value}
-        onChange={(e) => {
-          const hex = normaliseHex(e.target.value);
-          setTextValue(hex);
-          onChange(hex);
-        }}
-        className="sr-only"
-        aria-hidden="true"
-        tabIndex={-1}
-      />
+        {/* Native color picker (invisible, triggered by the swatch button above).
+            Always normalise to uppercase before forwarding so the parent value prop
+            stays uppercase — preventing the textValue/value case-mismatch loop. */}
+        <input
+          ref={colorInputRef}
+          type="color"
+          value={value}
+          onChange={(e) => {
+            const hex = normaliseHex(e.target.value);
+            setTextValue(hex);
+            onChange(hex);
+          }}
+          className="sr-only"
+          aria-hidden="true"
+          tabIndex={-1}
+        />
 
-      {/* Hex text input */}
-      <input
-        type="text"
-        value={textValue}
-        maxLength={7}
-        onChange={(e) => setTextValue(e.target.value)}
-        onBlur={(e) => commitHex(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commitHex((e.target as HTMLInputElement).value);
-        }}
-        placeholder="#000000"
-        className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
-      />
+        {/* Hex text input */}
+        <input
+          type="text"
+          value={textValue}
+          maxLength={7}
+          onChange={(e) => setTextValue(e.target.value)}
+          onBlur={(e) => commitHex(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitHex((e.target as HTMLInputElement).value);
+          }}
+          placeholder="#000000"
+          className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+        />
+      </div>
+
+      {/* Recent colors quick-pick — only shown when there are recent colors */}
+      {recentColors.length > 0 && (
+        <div className="mt-1.5 ml-[88px] flex gap-1">
+          {recentColors.map((color) => (
+            <button
+              key={color}
+              type="button"
+              onClick={() => {
+                onChange(color);
+                setTextValue(normaliseHex(color));
+              }}
+              className={`h-5 w-5 rounded-full border-2 transition-all hover:scale-110 ${
+                value === color
+                  ? 'border-indigo-500 ring-1 ring-indigo-200'
+                  : 'border-black/10 hover:border-gray-400'
+              }`}
+              style={{ backgroundColor: color }}
+              title={color}
+              aria-label={`Recent color ${color}`}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

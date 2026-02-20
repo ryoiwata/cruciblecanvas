@@ -532,7 +532,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         return;
       }
 
-      if (mode === "pointer" && !e.evt.ctrlKey && !e.evt.metaKey) {
+      if (mode === "pointer" && !e.evt.ctrlKey && !e.evt.metaKey && !e.evt.shiftKey) {
         clearSelection();
       }
     },
@@ -569,8 +569,8 @@ export default function Canvas({ boardId }: CanvasProps) {
       }
 
       if (mode === "pointer") {
-        if (e.evt.ctrlKey || e.evt.metaKey) {
-          // Ctrl+drag: start selection rectangle (marquee)
+        if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
+          // Ctrl/Shift+drag: start selection rectangle (marquee)
           pointerInteractionRef.current = { type: "selRect", shiftHeld: e.evt.shiftKey };
           selRectRef.current = {
             startX: canvasPoint.x,
