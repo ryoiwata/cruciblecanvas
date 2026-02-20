@@ -131,7 +131,7 @@ export default function SelectionActionBar({ boardId }: SelectionActionBarProps)
   };
 
   return (
-    <div className="fixed bottom-10 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-white/90 px-2 py-1.5 shadow-md backdrop-blur-sm border border-gray-100">
+    <div className="flex items-center gap-1 rounded-lg bg-white/90 px-2 py-1.5 shadow-md backdrop-blur-sm border border-gray-100">
       <span className="mr-2 text-xs text-gray-400 select-none">
         {selectedObjectIds.length} selected
       </span>

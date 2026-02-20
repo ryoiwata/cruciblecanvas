@@ -205,9 +205,25 @@ export default function BoardPage() {
         <div className="flex-1 relative min-w-0 overflow-hidden">
           <Canvas boardId={boardId} />
           <ContextMenu boardId={boardId} />
-          <SelectionCounter />
-          <SelectionActionBar boardId={boardId} />
-          <ShortcutLegend />
+
+          {/*
+           * Bottom-center info stack — all floating canvas overlays collected here
+           * so they stay naturally centered within the visible canvas column.
+           * Using `absolute` (not `fixed`) means the stack is clipped to this
+           * container; no manual sidebar-width offsets required.
+           */}
+          <div className="absolute bottom-4 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2 pointer-events-none">
+            {/* Action bar — shown when objects are selected */}
+            <div className="pointer-events-auto">
+              <SelectionActionBar boardId={boardId} />
+            </div>
+            {/* Item count pill — shown when objects are selected */}
+            <div className="pointer-events-auto">
+              <SelectionCounter />
+            </div>
+            {/* Shortcut legend — always visible */}
+            <ShortcutLegend />
+          </div>
 
           {/* Floating message preview when sidebar is closed */}
           <MessagePreview onOpenSidebar={() => setSidebarOpen(true)} />

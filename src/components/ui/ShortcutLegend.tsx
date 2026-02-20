@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * ShortcutLegend — bottom-bar hint strip showing keyboard shortcuts.
+ * ShortcutLegend — hint strip showing keyboard shortcuts.
  *
- * Renders two rows of four shortcuts each. Anchored to the bottom-right so it
- * automatically avoids the chat sidebar when it is open (same dynamic-right
- * pattern used by the top-right header controls in page.tsx).
+ * Renders two rows of four shortcuts each. No positional styles; positioning
+ * is handled by the parent info-stack container in board/[boardId]/page.tsx.
+ * Because the info stack is `absolute` within the canvas flex column, it
+ * automatically stays inside the visible canvas area even when sidebars open.
  */
-
-import { useChatStore } from "@/lib/store/chatStore";
 
 // ---- Inline SVG icons -------------------------------------------------------
 
@@ -134,18 +133,8 @@ function ShortcutRow({ shortcuts }: { shortcuts: Shortcut[] }) {
 }
 
 export default function ShortcutLegend() {
-  const sidebarOpen = useChatStore((s) => s.sidebarOpen);
-  const sidebarWidth = useChatStore((s) => s.sidebarWidth);
-
-  // Chat sidebar is a flex sibling but ShortcutLegend is `fixed` (viewport coords),
-  // so we still need to offset right by the sidebar width to avoid overlap.
-  const rightOffset = sidebarOpen ? sidebarWidth + 8 : 16;
-
   return (
-    <div
-      className="fixed bottom-4 z-40 flex flex-col gap-1.5 rounded-md bg-white/60 px-3 py-2 shadow-sm backdrop-blur-sm"
-      style={{ right: rightOffset, transition: 'right 300ms ease-in-out' }}
-    >
+    <div className="flex flex-col gap-1.5 rounded-md bg-white/60 px-3 py-2 shadow-sm backdrop-blur-sm">
       <ShortcutRow shortcuts={ROW_1} />
       <div className="h-px w-full bg-gray-200/70" />
       <ShortcutRow shortcuts={ROW_2} />

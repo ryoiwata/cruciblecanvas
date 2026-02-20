@@ -48,16 +48,16 @@
   - [x] group rotatoe
   - [ ] Make group select right click reference the group, not the single item
   - [ ] Make frame always at the bottom stack
-- [ ] Delete, duplicate, copy/paste
+- [x] Delete, duplicate, copy/paste
   - [x] Make copy paste more obvious, also include buttons on the bottom
-    - [ ] Make short cuts two rows? 
+    - [x] Make short cuts two rows? 
 
 Others
 - [x] Clicking on an object will change default color in the tool bar
 - [ ] Include a tutorial mode?
 - [x] Ctrl automatically shifts back to pointer. 
 - [ ] Make shift be able tophave this option too. 
-- [ ] Change the tool bar so that opacity isn't sticking out(maybe pop out?)
+- [x] Change the tool bar so that opacity isn't sticking out(maybe pop out?)
 - [x] Add recent colors used that were items previkouslty selected
 - [x] Connector dots should increase in size to scale with view
 - [x] Make frame text size easier to read
@@ -74,7 +74,7 @@ Others
 - [] Line thickness and type
 - [] Border thickness and types
 - [] Fix up short cut on bottom, move out of chat's way?
-  - [ ] 2 rows for short cuts?
+  - [x] 2 rows for short cuts?
 - [] Connector should be able to connect to things in frame()
 - [] Sticky note should have more clearer lines
 - [] Framed items should be able to move around in frame, but stay in frame when it is being dragged it goes out of edge
@@ -104,15 +104,22 @@ REAL TODOs
 - Fix group select when right clicking one item highlight
 - Fix AI agent logo in chat to robot
 - Move main tool bar to top
+
+Biorender edits
 - Keep properties out, unless minimized or item is selected
 - Keep text box within sticky when typing
+- Keep Chat under the tool bar
+- Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
+- Make undo and redo button work
+- Change top AI button with chat
 
 
 ### Real-Time Collaboration
 
 - [ ] Multiplayer cursors with names and real-time movement
+  - [ ] Make it smoother with interpolation
 - [ ] Object creation/modification appears instantly for all users
-- [ ] Clear presence indicator (who's currently on the board)
+- [x] Clear presence indicator (who's currently on the board)
 - [ ] Conflict handling for simultaneous edits (document your approach)
 - [ ] Graceful disconnect/reconnect handling
   - [ ] Zoom out when coming back in to all items?
@@ -136,6 +143,7 @@ REAL TODOs
 - [ ] Add a sticky note with specified text and color
 - [ ] Create a shape at a specified position
 - [ ] Add a labeled frame
+  - [ ] Make a operational ai agent that just does the thing without saying anything
 
 **Manipulation**
 - [ ] Move objects (by type, color, or selection)

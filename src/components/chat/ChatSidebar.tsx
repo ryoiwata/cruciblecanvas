@@ -104,7 +104,7 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
 
   return (
     <div
-      className="flex flex-col h-screen border-l border-gray-200 bg-white transition-[width] duration-300 ease-in-out flex-shrink-0 relative"
+      className="flex flex-col h-full border-l border-gray-200 bg-white transition-[width] duration-300 ease-in-out flex-shrink-0 relative"
       style={{ width: sidebarOpen ? sidebarWidth : 0, overflow: sidebarOpen ? 'visible' : 'hidden' }}
     >
       {sidebarOpen && (
