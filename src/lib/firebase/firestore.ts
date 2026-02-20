@@ -1,6 +1,5 @@
 import {
   collection,
-  collectionGroup,
   doc,
   setDoc,
   getDoc,
@@ -193,8 +192,14 @@ export async function createBoardMetadata(
   userId: string,
   title: string
 ): Promise<void> {
-  const docRef = doc(db, "boards", boardId, "metadata", "config");
-  await setDoc(docRef, {
+  const metaRef = doc(db, "boards", boardId, "metadata", "config");
+  // Also register in the user's ownedBoards subcollection so getUserBoards
+  // can list boards without a collectionGroup query (which requires a
+  // manually-deployed Firestore index).
+  const ownedRef = doc(db, "users", userId, "ownedBoards", boardId);
+
+  const batch = writeBatch(db);
+  batch.set(metaRef, {
     title,
     createdBy: userId,
     createdAt: serverTimestamp(),
@@ -205,6 +210,8 @@ export async function createBoardMetadata(
     aiCommandsResetAt: serverTimestamp(),
     analysisHistory: [],
   });
+  batch.set(ownedRef, { boardId, createdAt: serverTimestamp() });
+  await batch.commit();
 }
 
 /**
@@ -237,20 +244,17 @@ export async function updateBoardMetadata(
 }
 
 /**
- * Fetches all boards created by a given user.
- * Uses collectionGroup query on "metadata" with createdBy filter.
- * Returns boards ordered by createdAt descending, limited to 50.
+ * Fetches all boards created by a given user, newest first.
  *
- * Note: requires a Firestore composite index on metadata collection
- * (createdBy ASC, createdAt DESC). Firebase will auto-prompt with a
- * link to create it on the first query error.
+ * Queries users/{userId}/ownedBoards (written at creation time) to avoid
+ * a collectionGroup query on "metadata" — which would require a manually-
+ * deployed Firestore collection-group index and fails in fresh projects.
  */
 export async function getUserBoards(
   userId: string
 ): Promise<(BoardMetadata & { boardId: string })[]> {
   const q = query(
-    collectionGroup(db, "metadata"),
-    where("createdBy", "==", userId),
+    collection(db, "users", userId, "ownedBoards"),
     orderBy("createdAt", "desc"),
     limit(50)
   );
@@ -259,10 +263,11 @@ export async function getUserBoards(
   const boards: (BoardMetadata & { boardId: string })[] = [];
 
   for (const docSnap of snapshot.docs) {
-    // Path: boards/{boardId}/metadata/config
-    const pathSegments = docSnap.ref.path.split("/");
-    const boardId = pathSegments[1]; // Extract boardId from path
-    boards.push({ ...(docSnap.data() as BoardMetadata), boardId });
+    const boardId = docSnap.data().boardId as string;
+    const meta = await getBoardMetadata(boardId);
+    if (meta) {
+      boards.push({ ...meta, boardId });
+    }
   }
 
   return boards;
