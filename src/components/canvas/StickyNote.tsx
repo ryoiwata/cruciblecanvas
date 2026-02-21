@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback, memo } from "react";
+import { useRef, useState, useCallback, memo, useEffect } from "react";
 import { Group, Rect, Text, Line } from "react-konva";
 import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
@@ -10,9 +10,52 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
-import { FONT_FAMILY_MAP } from "@/lib/types";
+import { FONT_FAMILY_MAP, STICKY_NOTE_SIZE_LIMITS } from "@/lib/types";
 import { borderResizingIds } from "@/lib/resizeState";
 import { overlapFraction } from "@/lib/utils";
+
+/**
+ * Measures the canvas-coordinate height needed to display `text` inside a
+ * sticky note of `canvasWidth`, given the font settings. Uses a hidden DOM
+ * element so the result accounts for actual browser text wrapping.
+ *
+ * Returns the total canvas height (including the 30px top text offset and
+ * 10px bottom margin that StickyNote applies to position its Konva Text node).
+ */
+function measureStickyTextHeight(
+  text: string,
+  canvasWidth: number,
+  fontSize: number,
+  fontFamily: string,
+): number {
+  if (typeof document === 'undefined' || !text) return 0;
+  // Match Konva text width: x=12, width=object.width-24
+  const textAreaWidth = canvasWidth - 24;
+  const lineHeightPx = Math.max(fontSize, 22);
+
+  const div = document.createElement('div');
+  div.style.cssText = [
+    'position:absolute',
+    'visibility:hidden',
+    'pointer-events:none',
+    `width:${textAreaWidth}px`,
+    `font-size:${fontSize}px`,
+    `font-family:${fontFamily}`,
+    `line-height:${lineHeightPx}px`,
+    'white-space:pre-wrap',
+    'word-break:break-word',
+    'padding:0',
+    'border:none',
+    'overflow:hidden',
+  ].join(';');
+  div.textContent = text;
+  document.body.appendChild(div);
+  const contentHeight = div.scrollHeight;
+  document.body.removeChild(div);
+
+  // 30px text top offset + content + 10px bottom margin
+  return 30 + contentHeight + 10;
+}
 
 interface StickyNoteProps {
   object: BoardObject;
@@ -52,6 +95,27 @@ export default memo(function StickyNote({
   const handleBorderHover = useCallback((hovering: boolean) => {
     setIsHoveringBorder(hovering);
   }, []);
+
+  // Auto-resize height when font size or font family changes from the properties panel.
+  // Only expands (never shrinks) so a manually-set larger height is preserved.
+  // Skips while the TextEditor is open — live growth is handled there.
+  useEffect(() => {
+    const { editingObjectId } = useCanvasStore.getState();
+    if (editingObjectId === object.id) return;
+    if (!object.text) return;
+
+    const fontFamilyStr = FONT_FAMILY_MAP[object.fontFamily || 'sans-serif'];
+    const fontSize = object.fontSize ?? 14;
+    const neededHeight = measureStickyTextHeight(object.text, object.width, fontSize, fontFamilyStr);
+    const clamped = Math.max(
+      STICKY_NOTE_SIZE_LIMITS.min.height,
+      Math.min(STICKY_NOTE_SIZE_LIMITS.max.height, Math.ceil(neededHeight))
+    );
+    if (clamped > object.height) {
+      updateObjectLocal(object.id, { height: clamped });
+      updateObject(boardId, object.id, { height: clamped }).catch(console.error);
+    }
+  }, [object.fontSize, object.fontFamily]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // RAF-throttled drag-move handler — drives frame capture glow effect at display refresh rate.
   // Defined before the LOD guard to satisfy rules-of-hooks (no conditional hook calls).

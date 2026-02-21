@@ -50,6 +50,11 @@ interface CanvasState {
   // Properties sidebar open/collapsed state — persists across selections
   isPropertiesOpen: boolean;
 
+  // Pending initial character for "type to edit" on sticky notes:
+  // set by useKeyboardShortcuts when a printable key enters edit mode,
+  // consumed by TextEditor on mount so the key appears in the textarea.
+  pendingEditChar: string | null;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -75,6 +80,7 @@ interface CanvasState {
   setFrameDragHighlightId: (id: string | null) => void;
   addRecentColor: (color: string) => void;
   setIsPropertiesOpen: (open: boolean) => void;
+  setPendingEditChar: (char: string | null) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -106,6 +112,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   frameDragHighlightId: null,
   recentColors: [],
   isPropertiesOpen: true,
+  pendingEditChar: null,
 
   setMode: (mode) =>
     set({
@@ -203,4 +210,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const filtered = s.recentColors.filter((c) => c !== color);
       return { recentColors: [color, ...filtered].slice(0, 5) };
     }),
+
+  setPendingEditChar: (char) => set({ pendingEditChar: char }),
 }));
