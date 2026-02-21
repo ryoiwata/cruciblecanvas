@@ -308,20 +308,38 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     hideContextMenu();
   };
 
+  /**
+   * Converts a viewport (clientX/Y) coordinate to a Konva world coordinate.
+   *
+   * Konva's stageX/Y are the pan offsets inside the canvas element — they are
+   * NOT the pixel position of the canvas element on screen. clientX/Y from
+   * right-click events are viewport-relative, so we must first subtract the
+   * canvas element's own screen position (via getBoundingClientRect) before
+   * applying the pan transform.
+   */
+  const clientToCanvas = (clientX: number, clientY: number) => {
+    const stageEl = document.querySelector('[data-testid="canvas-ready"] canvas');
+    const rect = stageEl?.getBoundingClientRect() ?? { left: 0, top: 0 };
+    const { stageX, stageY, stageScale } = useCanvasStore.getState();
+    return {
+      x: (clientX - rect.left - stageX) / stageScale,
+      y: (clientY - rect.top - stageY) / stageScale,
+    };
+  };
+
   const handlePaste = () => {
     if (!user || clipboard.length === 0) return;
 
-    // Convert right-click screen position to canvas coordinates
-    const { stageX, stageY, stageScale } = useCanvasStore.getState();
-    const cursorCanvasX = (contextMenu.x - stageX) / stageScale;
-    const cursorCanvasY = (contextMenu.y - stageY) / stageScale;
+    // Convert right-click viewport position to world canvas coordinates,
+    // accounting for the canvas element's own screen offset.
+    const { x: cursorCanvasX, y: cursorCanvasY } = clientToCanvas(contextMenu.x, contextMenu.y);
 
-    // Translate the clipboard items so their collective centroid lands at the cursor.
-    // This keeps relative positions intact when pasting multiple objects.
-    const centroidX = clipboard.reduce((sum, o) => sum + o.x + o.width / 2, 0) / clipboard.length;
-    const centroidY = clipboard.reduce((sum, o) => sum + o.y + o.height / 2, 0) / clipboard.length;
-    const dx = cursorCanvasX - centroidX;
-    const dy = cursorCanvasY - centroidY;
+    // Translate so the top-left corner of the collective bounding box lands at the cursor.
+    // Relative positions between multiple pasted objects are preserved.
+    const minX = Math.min(...clipboard.map((o) => o.x));
+    const minY = Math.min(...clipboard.map((o) => o.y));
+    const dx = cursorCanvasX - minX;
+    const dy = cursorCanvasY - minY;
 
     // Compute max zIndex so pasted objects appear on top
     const allObjects = useObjectStore.getState().objects;
@@ -369,12 +387,10 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     if (!user) return;
     useObjectStore.getState().snapshot();
     const newId = generateObjectId(boardId);
-    // Place near right-click position (approximate canvas coords)
-    const stageX = useCanvasStore.getState().stageX;
-    const stageY = useCanvasStore.getState().stageY;
-    const stageScale = useCanvasStore.getState().stageScale;
-    const x = Math.round((contextMenu.x - stageX) / stageScale / 20) * 20;
-    const y = Math.round((contextMenu.y - stageY) / stageScale / 20) * 20;
+    // Snap right-click world position to 20px grid
+    const { x: rawX, y: rawY } = clientToCanvas(contextMenu.x, contextMenu.y);
+    const x = Math.round(rawX / 20) * 20;
+    const y = Math.round(rawY / 20) * 20;
 
     // Compute max zIndex so new object appears on top
     const allObjects = useObjectStore.getState().objects;
@@ -411,11 +427,10 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     if (!user) return;
     useObjectStore.getState().snapshot();
     const newId = generateObjectId(boardId);
-    const stageX = useCanvasStore.getState().stageX;
-    const stageY = useCanvasStore.getState().stageY;
-    const stageScale = useCanvasStore.getState().stageScale;
-    const x = Math.round((contextMenu.x - stageX) / stageScale / 20) * 20;
-    const y = Math.round((contextMenu.y - stageY) / stageScale / 20) * 20;
+    // Snap right-click world position to 20px grid
+    const { x: rawX, y: rawY } = clientToCanvas(contextMenu.x, contextMenu.y);
+    const x = Math.round(rawX / 20) * 20;
+    const y = Math.round(rawY / 20) * 20;
 
     // Compute max zIndex so new object appears on top
     const allObjects = useObjectStore.getState().objects;
