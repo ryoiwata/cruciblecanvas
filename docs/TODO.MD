@@ -123,6 +123,11 @@ Low priority TODOs
 
 Actual TODOs
 - [x] Fix group select when right clicking one item highlight
+- Button Marquee needs to actually select items
+- When window is smaller, the distance between buttons should still be similar. Remove distance in gap between main tools and keyboard shortcuts
+- Right click paster needs to copy where the cursor is, not where the right clikc window is
+- Make right click window smaller
+
 - [ ] Right click copy and paste option
 - [ ] Paste should paste where the cursor is if pasting by right click, else it will duplicate diagonally from where the copied item is
   - [ ] Paste is pasting to somewhere that's not where the cursor is

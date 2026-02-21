@@ -250,6 +250,14 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     hideContextMenu();
   };
 
+  const handleCopy = () => {
+    if (!contextMenu.targetObjectId) return;
+    const obj = objects[contextMenu.targetObjectId];
+    if (!obj) return;
+    useCanvasStore.getState().copyToClipboard([obj]);
+    hideContextMenu();
+  };
+
   const handleDuplicate = () => {
     if (!contextMenu.targetObjectId || !user) return;
     const obj = objects[contextMenu.targetObjectId];
@@ -467,6 +475,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
       items.push({ label: "Edit Label", onClick: handleEditText });
     }
 
+    items.push({ label: "Copy", onClick: handleCopy });
     items.push({ label: "Duplicate", onClick: handleDuplicate });
 
     if (target.type === "frame") {
@@ -507,6 +516,18 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
         <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100">
           {count} objects selected
         </div>
+        <button
+          onClick={() => {
+            const selected = contextMenu.targetObjectIds
+              .map((id) => objects[id])
+              .filter((o): o is typeof objects[string] => !!o);
+            if (selected.length > 0) useCanvasStore.getState().copyToClipboard(selected);
+            hideContextMenu();
+          }}
+          className="w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+        >
+          Copy Group
+        </button>
         <button
           onClick={handleGroupDuplicate}
           className="w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"

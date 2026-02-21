@@ -70,7 +70,8 @@ export default memo(function ConnectorObject({
     if (e.evt.button !== 0) return;
     if (mode !== "pointer") return;
     e.cancelBubble = true;
-    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
+    // Multi-select mode: clicking always toggles (no Ctrl needed)
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey || useCanvasStore.getState().isMultiSelectMode) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -80,8 +81,13 @@ export default memo(function ConnectorObject({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // Auto-select on right-click if not already in current selection
+    let currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    if (!currentSelectedIds.includes(object.id)) {
+      useCanvasStore.getState().selectObject(object.id);
+      currentSelectedIds = [object.id];
+    }
     // If the clicked object is part of a multi-selection, target the whole group.
-    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
     const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,

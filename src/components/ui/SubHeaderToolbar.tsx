@@ -179,16 +179,17 @@ interface ShortcutChipProps {
   keys: string;
   onClick: () => void;
   disabled?: boolean;
+  isActive?: boolean;
 }
 
 /**
- * Compact clickable hint chip that shows an icon, label, and keyboard shortcut.
- * Clicking performs the associated action (or switches to the mode that enables it).
+ * Clickable shortcut chip rendered in the same vertical icon+label+key style as
+ * ToolButton. Clicking activates the associated canvas sub-mode.
  *
- * onMouseDown preventDefault prevents the browser from moving focus to this button,
- * keeping canvas pointer events working correctly for the next interaction.
+ * onMouseDown preventDefault prevents browser focus shift, keeping canvas
+ * pointer events working correctly for the next interaction.
  */
-function ShortcutChip({ icon, label, keys, onClick, disabled }: ShortcutChipProps) {
+function ShortcutChip({ icon, label, keys, onClick, disabled, isActive }: ShortcutChipProps) {
   return (
     <button
       type="button"
@@ -196,16 +197,20 @@ function ShortcutChip({ icon, label, keys, onClick, disabled }: ShortcutChipProp
       onClick={onClick}
       disabled={disabled}
       title={`${label}: ${keys}`}
-      className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors shrink-0 ${
+      className={`flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md transition-colors shrink-0 ${
         disabled
-          ? 'text-gray-300 cursor-not-allowed'
+          ? 'cursor-not-allowed text-gray-300'
+          : isActive
+          ? 'bg-indigo-50 text-indigo-600'
           : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
       }`}
     >
       {icon}
       <span className="text-[10px] font-medium leading-none">{label}</span>
-      <kbd className={`rounded border px-1 py-px font-mono text-[9px] leading-none ${
-        disabled ? 'border-gray-100 bg-gray-50 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-400'
+      <kbd className={`rounded border px-1 py-px font-mono text-[9px] leading-none mt-0.5 ${
+        disabled ? 'border-gray-100 bg-gray-50 text-gray-300'
+        : isActive ? 'border-indigo-200 bg-indigo-50 text-indigo-400'
+        : 'border-gray-200 bg-gray-100 text-gray-400'
       }`}>
         {keys}
       </kbd>
@@ -293,6 +298,10 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
   const setSelectedObjectIds = useCanvasStore((s) => s.setSelectedObjectIds);
   const copyToClipboard = useCanvasStore((s) => s.copyToClipboard);
+  const isMarqueeMode = useCanvasStore((s) => s.isMarqueeMode);
+  const isMultiSelectMode = useCanvasStore((s) => s.isMultiSelectMode);
+  const setMarqueeMode = useCanvasStore((s) => s.setMarqueeMode);
+  const setMultiSelectMode = useCanvasStore((s) => s.setMultiSelectMode);
 
   const clipboard = useCanvasStore((s) => s.clipboard);
   const past = useObjectStore((s) => s.past);
@@ -376,7 +385,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const isFrameActive = mode === 'create' && creationTool === 'frame';
 
   return (
-    <div className="flex h-14 w-full shrink-0 items-center border-b border-gray-200 bg-white px-3 z-30">
+    <div className="flex h-14 w-full shrink-0 items-center border-b border-gray-200 bg-white px-3 z-30 overflow-x-auto">
       {/* Undo / Redo */}
       <div className="flex items-center gap-0.5">
         <button
@@ -498,18 +507,27 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
 
       <Divider />
 
-      {/* Shortcut legend chips — clickable, each performs its action */}
+      {/* Shortcut legend chips — clickable, each activates a persistent pointer sub-mode */}
       <ShortcutChip
         icon={<MarqueeChipIcon />}
         label="Marquee"
         keys="Ctrl+Drag"
-        onClick={() => setMode('pointer')}
+        isActive={isMarqueeMode}
+        onClick={() => {
+          // Switch to pointer first, then toggle marquee sub-mode
+          if (mode !== 'pointer') setMode('pointer');
+          setMarqueeMode(!isMarqueeMode);
+        }}
       />
       <ShortcutChip
         icon={<MultiSelectChipIcon />}
-        label="Multi-select"
+        label="Multi-sel"
         keys="Ctrl+Click"
-        onClick={() => setMode('pointer')}
+        isActive={isMultiSelectMode}
+        onClick={() => {
+          if (mode !== 'pointer') setMode('pointer');
+          setMultiSelectMode(!isMultiSelectMode);
+        }}
       />
       <ShortcutChip
         icon={<SelectAllChipIcon />}
