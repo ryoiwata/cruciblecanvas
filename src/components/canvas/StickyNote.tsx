@@ -83,6 +83,7 @@ export default memo(function StickyNote({
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  const editingObjectId = useCanvasStore((s) => s.editingObjectId);
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
@@ -148,6 +149,9 @@ export default memo(function StickyNote({
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
   const fontFamily = FONT_FAMILY_MAP[object.fontFamily || "sans-serif"];
+  // True when this sticky is being actively edited — used to hide the Konva text
+  // node so the transparent DOM textarea doesn't show double text.
+  const isCurrentlyEditing = editingObjectId === object.id;
 
   // LOD: simplified render for extreme zoom-out — no text, lines, shadows
   if (isSimpleLod) {
@@ -304,9 +308,10 @@ export default memo(function StickyNote({
         />
       ))}
 
-      {/* Text content — y/lineHeight aligned with notepad lines.
-          fill uses textColor when set so StickyNoteModule color changes take effect. */}
-      {object.text !== undefined && object.text !== "" && (
+      {/* Text content — hidden while the DOM textarea is active so the transparent
+          overlay doesn't cause double-text rendering. The textarea takes over
+          text display during editing, then this node re-appears on commit. */}
+      {object.text !== undefined && object.text !== "" && !isCurrentlyEditing && (
         <Text
           text={object.text}
           width={object.width - 24}

@@ -203,14 +203,36 @@ export default function TextEditor({ boardId }: TextEditorProps) {
     ? 0
     : 10 * stageScale;
 
-  // Background: sticky notes show their background color; text objects are transparent
+  // Background:
+  //  - Sticky notes: transparent — the Konva background rect shows through, giving a
+  //    true in-place feel. The Konva <Text> node is hidden while editing so there
+  //    is no double-text underneath.
+  //  - Frame title bar: near-white so editing area is readable.
+  //  - Text objects: fully transparent to match the Konva Text node appearance.
   const bgColor = isFrame
     ? "rgba(255,255,255,0.95)"
-    : isText
-    ? "rgba(255,255,255,0.0)"
-    : object.color;
+    : "transparent";
 
-  const textColor = isText ? object.color : "#1a1a1a";
+  // Text color: sticky notes use the object's textColor field; text objects use
+  // the object color (same as Konva); frames use dark for readability.
+  const textColor = isStickyNote
+    ? (object.textColor ?? "#1a1a1a")
+    : isText
+    ? object.color
+    : "#1a1a1a";
+
+  // Border:
+  //  - Sticky notes: none — removes the purple flash when entering edit mode.
+  //    Also ensures the content width exactly matches the Konva Text node width
+  //    (box-sizing: border-box subtracts border from content width, so border: none
+  //    gives content width = screenWidth − 24*scale, matching Konva's x=12, width−24).
+  //  - Text objects: a subtle dashed outline so the editing region is visible.
+  //  - Frames/others: solid accent border.
+  const borderStyle = isStickyNote
+    ? "none"
+    : isText
+    ? "1px dashed #6366f1"
+    : "2px solid #6366f1";
 
   return (
     <div
@@ -275,13 +297,15 @@ export default function TextEditor({ boardId }: TextEditorProps) {
           paddingLeft: `${paddingHoriz}px`,
           paddingRight: `${paddingHoriz}px`,
           paddingBottom: `${paddingBottom}px`,
-          border: isText ? `1px dashed #6366f1` : "2px solid #6366f1",
-          borderRadius: `${4 * stageScale}px`,
+          border: borderStyle,
+          borderRadius: isStickyNote ? 0 : `${4 * stageScale}px`,
           outline: "none",
           resize: "none",
           overflow: "hidden",
           background: bgColor,
           color: textColor,
+          // Cursor color matches the sticky's text color so it's legible on any background.
+          caretColor: textColor,
           lineHeight: cssLineHeight,
           boxSizing: "border-box",
         }}
