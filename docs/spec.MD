@@ -35,26 +35,35 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 - Framework: Next.js 14+ (App Router)
 - UI Library: React 18
 - Canvas: Konva.js with react-konva wrapper
-- State: Zustand (lightweight global state)
+- State: Zustand v5 (lightweight global state)
 - Styling: TailwindCSS
-- Language: TypeScript
+- Language: TypeScript (strict mode)
 
 **Backend**
 - Database (Persistent): Firebase Firestore
 - Database (Ephemeral): Firebase Realtime Database
 - Auth: Firebase Auth (Anonymous + Google + GitHub OAuth)
 - Deployment: Vercel
-- Functions: Vercel Edge Functions (API routes)
+- Functions: Vercel API Routes (Node.js runtime — **not** Edge, required for OpenTelemetry)
 
 **AI Layer**
-- LLM: Anthropic Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`)
-- SDK: Vercel AI SDK
-- Pattern: Function calling with tool schema
+- LLM: Anthropic Claude Sonnet 4.6 (`claude-sonnet-4-6`)
+- SDK: `ai` v6 (Vercel AI SDK v4 family) + `@ai-sdk/anthropic`
+  - Tool schema: `inputSchema: zodSchema(z.object({...}))` (**not** `parameters`)
+  - Step limiting: `stopWhen: stepCountIs(15)` (**not** `maxSteps`)
+  - Streaming: `toTextStreamResponse()` (**not** `toDataStreamResponse()`)
+- Pattern: Agentic tool-calling with multi-step execution
+
+**Observability**
+- Platform: Langfuse (traces, cost tracking)
+- Protocol: OpenTelemetry — initialized in `src/instrumentation.ts` via `@langfuse/otel` + `@opentelemetry/sdk-node`
+- Next.js hook: `experimental: { instrumentationHook: true }` in `next.config.mjs`
+- AI route uses `experimental_telemetry: { isEnabled: true }` on `streamText` calls
 
 **Development Tools**
 - AI Assistants: Claude Code, Cursor
 - Version Control: Git + GitHub
-- Testing: Manual multi-browser testing (Chrome DevTools)
+- Testing: Manual multi-browser (Chrome DevTools); Playwright for E2E; Vitest for unit
 
 ### 2.2 System Architecture Diagram
 
@@ -70,25 +79,27 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 │  ├─ Canvas Renderer (Konva.js)                              │
 │  ├─ State Management (Zustand)                              │
 │  ├─ Auth Context (Firebase Auth: Anon + Google + GitHub)    │
-│  └─ Real-time Listeners (Firestore + RTDB)                  │
+│  ├─ Real-time Listeners (Firestore + RTDB)                  │
+│  └─ Observability (Langfuse via OpenTelemetry)              │
 └──────────────────┬──────────────────────────────────────────┘
                    │
       ┌────────────┼────────────┐
       │            │            │
       ▼            ▼            ▼
 ┌─────────┐  ┌─────────┐  ┌──────────────┐
-│Firestore│  │Realtime │  │ Vercel Edge  │
-│ (Board  │  │   DB    │  │  Functions   │
-│ Objects)│  │(Cursors │  │  (AI Route)  │
-│         │  │ +Locks) │  │ +Token Auth  │
+│Firestore│  │Realtime │  │ Vercel API   │
+│ (Board  │  │   DB    │  │  Routes      │
+│ Objects)│  │(Cursors │  │  (Node.js)   │
+│         │  │ +Locks  │  │ +Token Auth  │
+│         │  │+Streams)│  │              │
 └─────────┘  └─────────┘  └──────┬───────┘
                                   │
-                                  ▼
-                          ┌──────────────┐
-                          │   Anthropic  │
-                          │Claude Sonnet │
-                          │     4.5      │
-                          └──────────────┘
+                     ┌────────────┼────────────┐
+                     ▼            ▼            ▼
+              ┌──────────┐  ┌──────────┐  ┌──────────┐
+              │Anthropic │  │ Firebase │  │ Langfuse │
+              │Sonnet 4.6│  │  Admin   │  │  OTel    │
+              └──────────┘  └──────────┘  └──────────┘
 ```
 
 ---
@@ -100,8 +111,7 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 **Anonymous Auth (Guest Session)**
 - Firebase Anonymous Auth generates a persistent UID
 - User is prompted for a display name (multiplayer alias) before entering a board
-- Contributions (objects, edits) are tied to the anonymous UID and persist in Firestore across page refreshes
-- A persistent slim banner sits at the top of the canvas: "Guest Session — Save to Account" with a one-click account linking option
+- A persistent slim banner at top: "Guest Session — Save to Account" with one-click account linking
 - Account linking merges anonymous UID data with the authenticated account
 
 **Social OAuth**
@@ -111,20 +121,13 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 
 ### 3.2 Next.js Middleware & Routing
 
-```typescript
-// middleware.ts
-// Redirects root route (/) → /dashboard
-// Route protection:
-//   /dashboard → requires auth (redirect to /auth if not authenticated)
-//   /board/[id] → public boards: allow all; private boards: auth + whitelist check
-//   /auth → public (login/signup page)
-```
-
 **Route Structure:**
 - `/` → redirects to `/dashboard`
 - `/auth` → authentication screen
 - `/dashboard` → board management (requires auth)
 - `/board/[id]` → board workspace (access depends on board visibility)
+
+**Performance bypass:** `NEXT_PUBLIC_PERF_BYPASS=true` skips auth guard in the board page for performance testing.
 
 ### 3.3 Board Visibility Model
 
@@ -132,31 +135,19 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 - All new boards are created as public by default
 - Anyone with the board URL can view and edit
 - Anonymous users are prompted for a display name before participating
-- Board URL never changes — toggling visibility uses the same URL
 
 **Private Mode (isPublic: false)**
 - Only the board owner or users in the `invitedEmails` array can access
-- Access is verified by matching the authenticated user's email against the whitelist
-- No automated email notifications — owner shares the URL manually
-- Guests must sign in with the exact invited email to gain access
-- Toggle via the Share modal (confirmation dialog when changing visibility)
+- Access verified by matching the authenticated user's email against the whitelist
+- Toggle via the Share modal
+
+**Dual-write pattern:** When the creator toggles privacy, the component writes to both Firestore (`boards/{boardId}/metadata/config.isPublic`) and RTDB (`boards/{boardId}/privacy.isPublic`) for real-time propagation without a Firestore read.
 
 ### 3.4 Contacts List
 
 - Auto-persists profiles of authenticated users who have collaborated on the same board
-- Available in two locations: dashboard sidebar AND the Share modal (for quick invite)
-- Authenticated users only — anonymous guests are not tracked as contacts
+- Available in: dashboard sidebar AND the Share modal (for quick invite)
 - Stored per-user in Firestore: `users/{userId}/contacts/{contactId}`
-- Contains: display name, email, photo URL, last collaboration timestamp
-
-### 3.5 Auth Screen UI
-
-- Centered card on a clean background
-- Display name input field (for anonymous/guest entry)
-- Prominent "Continue as Guest" button (primary action, brand purple)
-- "Sign in with Google" button (secondary action)
-- "Sign in with GitHub" button (secondary action)
-- Brand color: `#6366f1` (vibrant purple)
 
 ---
 
@@ -167,94 +158,118 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 **Collection: `boards/{boardId}/objects/{objectId}`**
 
 ```typescript
+type ObjectType =
+  | 'stickyNote'
+  | 'rectangle'
+  | 'circle'
+  | 'frame'
+  | 'connector'
+  | 'colorLegend'
+  | 'line'      // Free-form straight line (start = (x,y), direction = (width, height))
+  | 'text';     // Standalone free-form text element (transparent background)
+
+type AnalyticalRole = 'critique' | 'assumption' | 'gap_flag' | 'criterion' | 'option' | 'evaluation';
+type ConnectorStyle = 'solid' | 'dashed' | 'dotted';
+type StickyFontFamily = 'sans-serif' | 'handwritten' | 'monospace';
+type LineEffect = 'none' | 'arrow' | 'filled-arrow' | 'open-arrow' | 'dot';
+type LineType = 'straight' | 'elbow' | 'curved';
+type TextAlign = 'left' | 'center' | 'right';
+type TextVerticalAlign = 'top' | 'middle' | 'bottom';
+
 interface BoardObject {
   // Core identification
-  id: string                    // Auto-generated Firestore doc ID
-  type: ObjectType              // 'stickyNote' | 'rectangle' | 'circle' | 'frame' | 'connector' | 'colorLegend'
+  id: string;
+  type: ObjectType;
 
   // Spatial properties
-  x: number                    // X coordinate in canvas space
-  y: number                    // Y coordinate in canvas space
-  width: number                // Width in pixels
-  height: number               // Height in pixels
-  rotation?: number            // Rotation in degrees (optional)
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation?: number;            // Degrees; all object Groups receive this
 
-  // Visual properties
-  color: string                // Hex color or named color
-  text?: string                // Text content (sticky notes, frames)
+  // Core visual properties
+  color: string;                // Fill color (hex)
+  text?: string;                // Text content
+  opacity?: number;             // 0–1, defaults to 1
+  zIndex?: number;              // Explicit layer order; higher = in front
+  fontFamily?: StickyFontFamily;
+  fontSize?: number;            // Canvas units; TextObject default 16
+  thickness?: number;           // Stroke width in canvas units; 1–10
+  borderType?: 'solid' | 'dashed' | 'dotted';
+
+  // Extended visual properties (Properties Sidebar)
+  strokeColor?: string;         // Border/stroke color distinct from fill
+  textColor?: string;           // Text fill color independent of object fill
+  textAlign?: TextAlign;
+  textVerticalAlign?: TextVerticalAlign;
+  lineType?: LineType;          // Connector/line routing style
+  startEffect?: LineEffect;     // Arrow/dot at line start
+  endEffect?: LineEffect;       // Arrow/dot at line end
+  startEffectSize?: number;     // Scale % (default 100)
+  endEffectSize?: number;       // Scale % (default 100)
 
   // Ownership & timestamps
-  createdBy: string            // User ID from Firebase Auth (includes anonymous UIDs)
-  createdAt: Timestamp         // Server timestamp (also used as z-index)
-  updatedAt: Timestamp         // Server timestamp
+  createdBy: string;
+  createdAt: Timestamp | number; // number during optimistic create
+  updatedAt: Timestamp | number;
 
   // AI attribution
-  isAIGenerated?: boolean      // true if created by AI agent
-  aiCommandId?: string         // Groups objects from same AI command (for rollback)
+  isAIGenerated?: boolean;
+  aiCommandId?: string;         // Groups objects from same command (rollback)
+  isAIPending?: boolean;        // true while streaming → 50% opacity
 
   // Relationships
-  parentFrame?: string         // ID of containing frame (if nested)
-  connectedTo?: string[]       // IDs of related objects (for connectors)
+  parentFrame?: string;         // ID of containing frame
+  connectedTo?: string[];       // Connector endpoint object IDs
 
   // AI-specific metadata
-  role?: AnalyticalRole        // 'critique' | 'assumption' | 'gap_flag' | 'criterion' | 'option' | 'evaluation'
+  role?: AnalyticalRole;
   metadata?: {
-    analysisType?: 'red_team' | 'decision_map' | 'gap_analysis'
-    critiqueTarget?: string    // ID of object being critiqued
-    severity?: 'low' | 'medium' | 'high'
-    decisionContext?: string   // Associated decision statement
-    score?: number             // Evaluation score (1-10)
-    persona?: 'skeptic' | 'investor' | 'counsel'
-  }
+    analysisType?: 'red_team' | 'decision_map' | 'gap_analysis';
+    critiqueTarget?: string;
+    severity?: 'low' | 'medium' | 'high';
+    decisionContext?: string;
+    score?: number;
+    persona?: 'skeptic' | 'investor' | 'counsel';
+    connectorStyle?: ConnectorStyle; // legacy; prefer borderType
+  };
 
   // Color Legend specific (type: 'colorLegend')
-  legendEntries?: {
-    color: string              // Hex color
-    meaning: string            // Strategic meaning (e.g., "Validated", "Critical Risk")
-  }[]
+  legendEntries?: { color: string; meaning: string }[];
 }
-
-type ObjectType = 'stickyNote' | 'rectangle' | 'circle' | 'frame' | 'connector' | 'colorLegend'
-type AnalyticalRole = 'critique' | 'assumption' | 'gap_flag' | 'criterion' | 'option' | 'evaluation'
 ```
 
 **Collection: `boards/{boardId}/metadata`**
 
 ```typescript
 interface BoardMetadata {
-  title: string
-  createdAt: Timestamp
-  createdBy: string            // User ID (owner)
+  title: string;
+  createdAt: Timestamp;
+  createdBy: string;
 
   // Visibility & access
-  isPublic: boolean            // Default: true
-  invitedEmails: string[]      // Email whitelist for private boards
+  isPublic: boolean;            // Default: true
+  invitedEmails: string[];
 
   // AI configuration
-  aiPersona: 'neutral' | 'skeptical_investor' | 'opposing_counsel'
+  aiPersona: 'mason' | 'neutral' | 'skeptical_investor' | 'opposing_counsel';
 
   // Rate limiting
-  aiCommandsToday: number      // Board-level daily counter
-  aiCommandsResetAt: Timestamp // Daily reset timestamp
+  aiCommandsToday: number;
+  aiCommandsResetAt: Timestamp;
 
   // Analysis history
-  analysisHistory: AnalysisRecord[]
+  analysisHistory: AnalysisRecord[];
 
-  // Board context / AI Lore (sidecar pattern)
+  // AI-extracted board context (sidecar)
   boardContext?: {
-    mainTopics: string[]       // AI-extracted themes (displayed as tag chips)
-    openQuestions: string[]    // Unanswered questions identified
-    keyDecisions: string[]     // Major choices on board
-    executiveSummary: string   // 2-3 sentence narrative overview
-    lastAnalyzed: Timestamp
-  }
-}
-
-interface AnalysisRecord {
-  timestamp: number
-  type: 'red_team' | 'decision_map' | 'gap_analysis'
-  objectCount: number
-  summary: string
+    mainTopics: string[];
+    openQuestions: string[];
+    keyDecisions: string[];
+    executiveSummary: string;
+    lastAnalyzed: Timestamp;
+  };
 }
 ```
 
@@ -262,66 +277,25 @@ interface AnalysisRecord {
 
 ```typescript
 interface UserProfile {
-  displayName: string
-  email?: string               // null for anonymous users
-  photoURL?: string
-  isAnonymous: boolean
-  createdAt: Timestamp
-  aiCommandsThisHour: number   // Per-user hourly counter
-  aiCommandsResetAt: Timestamp // Hourly reset timestamp
-}
-```
-
-**Collection: `users/{userId}/contacts/{contactId}`**
-
-```typescript
-interface Contact {
-  displayName: string
-  email: string
-  photoURL?: string
-  lastCollaborated: Timestamp
-  sharedBoards: string[]       // Board IDs collaborated on
+  displayName: string;
+  email?: string;
+  photoURL?: string;
+  isAnonymous: boolean;
+  createdAt: Timestamp;
 }
 ```
 
 ### 4.2 Realtime Database Schema
 
-**Path: `/boards/{boardId}/cursors/{userId}`**
+**Path: `/boards/{boardId}/cursors/{userId}`** — Live cursor position, name, color
 
-```typescript
-interface Cursor {
-  x: number                    // Cursor X position in canvas space
-  y: number                    // Cursor Y position in canvas space
-  name: string                 // User display name
-  color: string                // Unique color per user
-  timestamp: number            // Last update timestamp (ms)
-}
-```
+**Path: `/boards/{boardId}/presence/{userId}`** — Online status, name, lastSeen
 
-**Path: `/boards/{boardId}/presence/{userId}`**
+**Path: `/boards/{boardId}/locks/{objectId}`** — Soft object locks with `onDisconnect` cleanup
 
-```typescript
-interface Presence {
-  name: string
-  email?: string
-  photoURL?: string
-  color: string                // Consistent with cursor color
-  online: boolean
-  lastSeen: number             // Unix timestamp (ms)
-  isAnonymous: boolean
-}
-```
+**Path: `/boards/{boardId}/privacy`** — Mirrors `isPublic` from Firestore for real-time access gating
 
-**Path: `/boards/{boardId}/locks/{objectId}`**
-
-```typescript
-interface ObjectLock {
-  userId: string               // User who holds the lock
-  userName: string             // Display name for visual indicator
-  timestamp: number            // Lock acquisition time (ms)
-  // onDisconnect() automatically removes this entry
-}
-```
+**Path: `/boards/{boardId}/aiStreams/{commandId}`** — Streaming AI response text for live chat display
 
 ---
 
@@ -329,161 +303,181 @@ interface ObjectLock {
 
 ### 5.1 Infinite Canvas
 
-**Requirements:**
-- Pan: Default interaction mode — click and drag to move viewport (stage.x / stage.y)
-- Zoom: Mouse wheel (center on cursor position)
-- Dot grid background: Infinite repeating dots at 20px intervals
-- Viewport culling: Only render objects in visible area
-
-**Technical Implementation:**
-- Konva Stage with `draggable` prop (enabled only in Pan Mode)
-- Zoom calculation maintains cursor position as zoom center
-- Zoom range: 5% (0.05x) to 500% (5.0x)
-- Dot grid rendered on static layer (no event listeners)
-- Viewport bounds calculated from Stage transform
-
-**Performance Targets:**
-- 60 FPS during pan/zoom
-- Smooth interactions with 200+ objects
-- No jitter or lag during transforms
+- **Pan:** Default interaction mode — click and drag to move viewport (stage.x / stage.y)
+- **Zoom:** Mouse wheel (center on cursor position); range 5% (0.05x) to 500% (5.0x)
+- **Dot grid:** Infinite repeating dots at 20px intervals, static layer (no event listeners)
+- **Viewport culling:** R-tree spatial index (`rbush` library) for O(log N + k) object visibility queries. Visible objects updated via RAF-throttled viewport subscriber.
+- **LOD rendering:** Objects below `LOD_SIMPLE_THRESHOLD = 0.15` zoom render in simplified form (`isSimpleLod` prop) — outlines only, no text, no event handlers.
+- **Canvas sizing:** `containerRef` + `ResizeObserver` — Stage auto-resizes when PropertiesSidebar or ChatSidebar opens/closes (no `window.innerWidth` reads).
+- **Performance bypass:** `data-testid="canvas-ready"` on wrapper div for test targeting.
 
 ### 5.2 Mode-Based Interaction System
 
-The canvas operates in three mutually exclusive modes:
+The canvas operates in named modes stored in `canvasStore.mode`:
 
-#### Pan Mode (Default)
-- **Activation:** Escape key, or clicking the pan tool, or after any mode completes
-- **Behavior:** Click-and-drag moves the viewport (stage.x/stage.y). No object interaction.
-- **Cursor:** Grab/hand icon
-- **Toolbar:** Pan tool highlighted
+#### Pointer Mode (Default)
+- **Activation:** `Escape` key, tool buttons, or after create completes
+- **Behavior:** Click to select objects. Ctrl/Cmd+Click to multi-select. Drag empty canvas = marquee selection rectangle (AABB hit-test on release). Drag object = move.
+- **Sub-modes (pointer only):**
+  - **Marquee Mode** (`isMarqueeMode`): Activated via Marquee chip in toolbar. Drag always draws selection rectangle without needing Ctrl. Clicking empty canvas exits the mode.
+  - **Multi-Select Mode** (`isMultiSelectMode`): Activated via Multi-sel chip. Every object click toggles selection (no Ctrl needed). Clicking empty canvas exits. Mutually exclusive with Marquee Mode.
 
-#### Select Mode
-- **Activation:** Click the Select tool in the toolbar (or press `1`)
-- **Behavior:** Click to select objects. Ctrl+Click to multi-select. Click-and-drag draws a semi-transparent selection rectangle performing AABB hit-test on release. Selected objects show Transformer handles.
-- **Cursor:** Crosshair or default arrow
-- **Toolbar:** Select tool highlighted
-- **Exit:** Press Escape or re-click the Select tool → returns to Pan Mode
+#### Pan Mode
+- **Activation:** Hand/pan tool in toolbar
+- **Behavior:** Click-and-drag moves the viewport. No object interaction.
 
 #### Create Mode
-- **Activation:** Click a creation tool (Sticky Note, Rectangle, Circle, Frame, Connector)
-- **Behavior:** Click on canvas to place object at default size. Tool stays active — click again to place another. Object is placed snapped to the 20px grid.
-- **Cursor:** Crosshair with small icon of the object type being created
-- **Toolbar:** Active creation tool highlighted
-- **Exit:** Press Escape → returns to Pan Mode
+- **Activation:** Click a creation tool (Sticky Note, Rectangle, Circle, Frame, Line, Text)
+- **Behavior:** Click on canvas to place object at default size. Tool stays active for repeated placement. Objects snap to 20px grid.
+- **Exit:** Escape → returns to Pointer Mode
 
 ### 5.3 Board Objects
 
 #### Sticky Notes
-- Default dimensions: 200×150px
-- Size limits: 80×60px (min) to 600×600px (max)
-- Editable text: Double-click to edit via scale-aware HTML textarea overlay (rotation ignored — note snaps to 0° during editing)
-- Text overflow: Auto-resize height to fit content (width stays fixed)
+- Default: 200×150px; min 80×60px; max 600×600px
+- Double-click to edit via scale-aware HTML textarea overlay (hidden when not editing to prevent double-text)
+- Auto-resize height to fit content
+- Auto-resize when font size or family changes
 - Colors: Yellow (#FEFF9C), Pink (#FF7EB9), Cyan (#7AFCFF), Mint (#98FF98), Plum (#DDA0DD), Coral (#FFAB91)
-- Font: Sans-serif, 14px
-- Padding: 10px
-- AI badge: Small sparkle icon in corner if `isAIGenerated: true`
+- Lines rendered inside to give notepad appearance
+- Pressing a character key while a sticky note is selected enters edit mode with that character pre-filled
 
-#### Shapes
-- **Rectangle:** Solid fill, rounded corners (4px)
-- **Circle:** Solid fill, perfect circle
-- Default dimensions: 100×100px
-- Size limits: 20×20px (min) to 800×800px (max)
-- Resizable with Transformer handles when selected
+#### Shapes (Rectangle, Circle)
+- Default: 100×100px; min 20×20px; max 800×800px
+- Separate fill color and stroke color
+- Border style: solid, dashed, dotted
+- Resizable via Transformer handles
 
 #### Frames
-- Visual container for grouping objects
-- Title bar: 40px height, bold text
-- Semi-transparent background: 10% opacity
-- Border: 2px solid
-- Size limits: 150×100px (min) to 4000×4000px (max)
-- **Auto-nesting:** Objects with >50% overlap automatically set `parentFrame`. Children are spatially locked — moving the frame moves all children.
-- **Deframe All:** Right-click frame → "Deframe All" severs all parent-child relationships in a batch, keeping objects in place.
-- **Manual assignment:** Right-click an object near a frame → "Add to Frame: [title]"
+- Visual container for grouping objects; title bar (40px height)
+- Semi-transparent background; border scales with zoom
+- Auto-nesting: Objects with >50% overlap automatically set `parentFrame`
+- Moving frame moves all children (spatially locked children)
+- Children rendered above frame (zIndex bump on nesting)
+- **Deframe:** Right-click child → "Deframe" removes `parentFrame`; right-click frame → "Deframe All" severs all relationships
 
 #### Connectors
-- Start/end object IDs stored in `connectedTo` array
-- **Anchor points:** Edge-to-edge (nearest point). Connector endpoints snap to the nearest edge point between source and target objects. Endpoints update in real-time when objects are dragged.
-- **Creation:** Hover an object → small anchor dots appear on edges → drag from one anchor to another object
-- Styles: solid, dashed, dotted
-- Colors: Used for semantic meaning (red = critique, blue = dependency)
-- Label: Optional text at midpoint
-- **Orphan behavior:** If either endpoint object is deleted, the connector is automatically deleted
+- Start/end object IDs in `connectedTo`; edge-to-edge (nearest point)
+- Endpoints update in real-time when objects drag
+- Connector anchor dots shown on hover, scale with zoom
+- Styles: solid, dashed, dotted; start/end effects (arrows, dots)
+- Orphan cleanup: Deleted when either endpoint object is deleted
+- Click connector object to select and drag it
+
+#### Lines (Free-form)
+- Type `line`; start = (x, y), direction vector = (width, height) — both can be negative
+- Wide invisible hit area (12px stroke) for easy clicking on thin lines
+- Thickness and border style configurable
+
+#### Text (Standalone)
+- Type `text`; transparent background — text only
+- Double-click to edit via TextEditor overlay
+- Auto-delete if text is empty after editing
+- Defaults to black, larger font than sticky notes
+- Transparent hit rect for clickability
 
 #### Color Legend (Special Canvas Object)
-- A special board object (type: `colorLegend`) rendered on the canvas
-- Displays the shared color-to-meaning mapping (e.g., Green = "Validated", Red = "Critical Risk")
-- Positionable and resizable like any other object
+- Type `colorLegend`; positionable and resizable like any other object
+- Displays shared color-to-meaning mapping
 - Editable by any user — syncs in real-time
-- AI can reference the legend when generating objects
-- Users create/edit via a dedicated "Legend" tool or right-click context menu
+- AI can reference the legend when placing objects
 
 ### 5.4 Grid Snapping
 
-- Objects magnetically snap to a 20px grid intersection by default during drag and creation
-- Ensures all AI and human content is perfectly aligned
-- Hold **Cmd/Ctrl** (or **Alt**) to temporarily bypass the grid for free-form organic positioning
-- Grid snap applies to both position and creation placement
+- Objects snap to 20px grid intersections during drag and creation
+- Hold **Cmd/Ctrl** to bypass for free-form positioning
 
 ### 5.5 Selection & Manipulation
 
 **Selection:**
-- Single-click: Select object (show Transformer handles) — requires Select Mode
-- Ctrl + Click: Add/remove objects from multi-selection
-- Drag rectangle: Draw selection box in Select Mode → AABB hit-test selects all objects within bounds
+- Single-click: Select object (show Transformer handles)
+- Ctrl/Cmd/Shift+Click: Add/remove from multi-selection
+- Drag empty canvas: Draw AABB selection rectangle → selects all objects within bounds
+- Right-click object: Auto-selects it if not already in current selection
+- **Marquee Mode toggle:** Drag always draws selection rect (no modifier needed)
+- **Multi-Select Mode toggle:** Every click toggles without Ctrl; click empty canvas to exit
 
 **Operations:**
-- **Move:** Click + drag selected objects (in Select Mode)
-- **Resize:** Transformer handles when selected
-- **Delete:** Select + Delete key → confirmation dialog. Ctrl+Delete bypasses confirmation for instant removal.
-- **Duplicate:** Ctrl+D → duplicate selected objects with +20px diagonal offset (x+20, y+20). Duplicates are placed on top (highest zIndex + 1). Parent frame reference is cleared.
-- **Copy/Paste:** Ctrl+C to copy, Ctrl+V to paste. Works with multi-select. Uses **cascading diagonal offset**: the first paste places objects at +20px (x+20, y+20), the second paste at +40px, third at +60px, etc. The `pasteCount` resets to 0 when a new copy operation is performed. Pasted objects receive fresh IDs, are assigned to the current user, and are placed on top of the z-stack.
-- **Deframe All:** Right-click selected frame → context menu action
+- **Move:** Drag selected objects
+- **Resize:** Transformer handles (8 anchors) — group resize supported for multi-select
+- **Rotate:** Rotation handle on Transformer — saved as `rotation` field; group rotation supported
+- **Delete:** `Delete`/`Backspace` → confirmation dialog; `Ctrl+Delete` bypasses confirmation
+- **Duplicate:** `Ctrl+D` → +20px diagonal offset; parent frame reference cleared
+- **Copy:** `Ctrl+C` or right-click → "Copy" / "Copy Group" in context menu
+- **Paste via `Ctrl+V`:** Cascading diagonal offset — first paste at +20px, second at +40px, etc. (`pasteCount` resets on new copy)
+- **Paste via right-click:** Cursor-position paste. Top-left corner of the pasted group aligns to the canvas coordinates at the right-click cursor position. Coordinate conversion uses `getBoundingClientRect()` on the Konva canvas element to account for header heights and sidebar widths.
+- **Undo/Redo:** `Ctrl+Z` / `Ctrl+Shift+Z`; implemented in objectStore snapshot history; also undoes AI commands
+- **Layer ordering:** `Ctrl+]` (forward), `Ctrl+Shift+]` (front), `Ctrl+[` (back), `Ctrl+Shift+[` (back)
+- **Deframe:** Right-click child object → "Deframe" in context menu
 
 **Visual Feedback:**
-- Selection border: 2px solid blue (#2196F3)
+- Selection border: 2px solid #2196F3
 - Transformer handles: 8 resize anchors + rotation handle
-- Hover state: Cursor changes to pointer (in Select Mode)
+- Frame capture glow: Frame glows brand-purple when dragging an object over it (`frameDragHighlightId` in canvasStore)
+- Parent frame indicator: Purple stroke on framed children
 
-### 5.6 Real-Time Collaboration
+### 5.6 Context Menu
+
+Right-click on any object or empty canvas to open context menu. Menu items are context-sensitive:
+
+**Single object selected:**
+- Copy, Duplicate
+- Edit (text objects)
+- Deframe (objects with `parentFrame`)
+- Bring to Front / Send to Back / Bring Forward / Send Backward
+- Add to Frame (when object is near a frame)
+- Delete
+
+**Multiple objects selected (group):**
+- Copy Group, Duplicate Group
+- Align submenu (Left, Right, Top, Bottom, Center H, Center V)
+- Delete Group
+
+**Empty canvas:**
+- Paste (at cursor canvas coordinates)
+- Create Sticky Note (at cursor canvas coordinates)
+- Create Shape (at cursor canvas coordinates)
+
+**Coordinate conversion for canvas paste/create:**
+```typescript
+// clientToCanvas: converts viewport clientX/Y → canvas world coordinates
+const stageEl = document.querySelector('[data-testid="canvas-ready"] canvas');
+const rect = stageEl.getBoundingClientRect();
+const { stageX, stageY, stageScale } = useCanvasStore.getState();
+return {
+  x: (clientX - rect.left - stageX) / stageScale,
+  y: (clientY - rect.top - stageY) / stageScale,
+};
+```
+
+### 5.7 Real-Time Collaboration
 
 #### Multiplayer Cursors
-- **Update Rate:** 30 Hz (33ms throttle)
-- **Display:** Circle (12px radius) + name label below
-- **Color:** Generated from user ID hash (consistent per user)
-- **Optimization:** Only send updates if cursor moved >5px
-- **Cleanup:** Automatic removal via onDisconnect() when user leaves
+- Update rate: 30 Hz (33ms throttle); minimum 5px movement to send
+- Display: Circle + name label; color generated from user ID hash
+- Cleanup: onDisconnect() removes cursor record automatically
 
 #### Object Synchronization
 - **Pattern:** Optimistic updates + Firestore listeners
-- **Flow:**
-  1. User action → Immediate Zustand update (optimistic)
-  2. Write to Firestore asynchronously
-  3. Firestore listener triggers → Update Zustand (reconcile)
-  4. React re-renders Konva canvas
+- **Conflict resolution:** Last-write-wins (Firestore server timestamp)
+- **Latency target:** <100ms from action to remote render
 
-- **Conflict Resolution:** Last-write-wins (Firestore server timestamp)
-- **Latency Target:** <100ms from action to remote render
-
-#### Soft Locking (Drag Conflict Prevention)
-- When a user starts dragging an object, a lock is acquired in Realtime Database at `/boards/{boardId}/locks/{objectId}`
-- Other users see a visual lock indicator on the object and cannot drag it
-- Lock is stored with `onDisconnect()` cleanup — automatically released if user disconnects/crashes
-- Lock released when drag ends (dragend event)
-- Lock includes userId and userName for the visual indicator
+#### Soft Locking
+- Lock acquired in RTDB at `/boards/{boardId}/locks/{objectId}` when drag starts
+- Other users see visual lock indicator; object is non-draggable
+- `onDisconnect()` auto-releases on disconnect/crash
+- Released on `dragend`
 
 #### Presence System
-- **Online Indicator:** User avatar stack in top-right corner (overlapping circles, first 3-4 shown, "+N" for overflow). Click to expand full list.
-- **Detection:** onValue listener on `/presence/{userId}`
-- **Offline Threshold:** 30 seconds of inactivity
-- **Cleanup:** onDisconnect() removes presence record
-- **Anonymous users:** Shown with display name and generated avatar color
+- Avatar stack in top-right (overlapping circles, "+N" overflow)
+- Offline threshold: 30 seconds inactivity
+- Anonymous users shown with display name and generated avatar color
 
-### 5.7 Offline State Handling
+### 5.8 Offline State Handling
 
-- **Detection:** Monitor Firebase connection state
-- **Visual indicator:** Yellow banner at top of canvas: "You are offline. Changes will sync when reconnected." Dismissible. Reappears on each disconnect.
-- **Behavior:** Firestore offline persistence (IndexedDB cache) handles queued writes
-- **Reconnection:** Brief "Syncing..." state during reconnection, then banner disappears
+- **Detection:** Firebase connection state listener
+- **Visual indicator:** Yellow banner: "You are offline. Changes will sync when reconnected."
+- **Behavior:** Firestore offline persistence (IndexedDB) handles queued writes
 
 ---
 
@@ -491,127 +485,157 @@ The canvas operates in three mutually exclusive modes:
 
 ### 6.1 Design Language
 
-- **Theme:** Light mode only. Clean, modern SaaS-style.
-- **Brand Color:** `#6366f1` (vibrant purple) for primary actions and accents
-- **Aesthetic:** Minimalism, high-contrast primary actions, generous whitespace
-- **Border Radius:** `0.5rem` (8px) on all floating panels, cards, and modals
-- **Shadows:** Subtle drop shadows on floating elements (`shadow-md` equivalent)
+- **Theme:** Light mode only
+- **Brand color:** `#6366f1` (vibrant purple) for primary actions and accents
+- **Border radius:** 8px on floating panels, cards, modals
+- **Shadows:** Subtle drop shadows on floating elements
 - **Typography:** System sans-serif font stack
-- **Canvas Background:** Light gray/white with dot grid pattern (20px intervals)
+- **Canvas background:** White with dot grid pattern (20px intervals)
 
 ### 6.2 Workspace Layout
 
+The workspace uses a **two-tier header** layout (BioRender-style) with fixed heights and flex siblings for sidebars:
+
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ [Guest Session Banner - slim, top, with "Save to Account" link]    │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│                                                                     │
-│                                                                     │
-│  ┌──────────┐                               ┌────────────────────┐ │
-│  │ Board    │                               │ Online • 👤👤👤+2 │ │
-│  │ Title    │                               │ (Presence stack)   │ │
-│  │ (editable│    ┌────────────────────┐     └────────────────────┘ │
-│  │  inline) │    │                    │                             │
-│  └──────────┘    │   INFINITE CANVAS  │     ┌────────────────────┐ │
-│                  │   (Dot Grid)       │     │ AI Sidebar         │ │
-│                  │                    │     │ ┌────────────────┐ │ │
-│                  │                    │     │ │ Persona: [▼]   │ │ │
-│                  │                    │     │ ├────────────────┤ │ │
-│                  │                    │     │ │ Chat messages  │ │ │
-│                  │                    │     │ │ ...            │ │ │
-│                  │                    │     │ ├────────────────┤ │ │
-│                  │                    │     │ │ [Input field]  │ │ │
-│                  └────────────────────┘     │ │ /r /d /g       │ │ │
-│                                             │ └────────────────┘ │ │
-│  ┌──────────┐                               └────────────────────┘ │
-│  │ 100% 🔍 │                                                       │
-│  │ (Zoom +  │                                                       │
-│  │  Help)   │                                                       │
-│  └──────────┘                                                       │
-│  (Bottom-left)                                                      │
-│                                                                     │
-│         ┌───────────────────────────────────────────────┐           │
-│         │ ↖ Pointer │ 📝 Sticky │ ◻ Rect │ ○ Circle │  │           │
-│         │ ▣ Frame │ ╱ Connector │ 🎨 Color │ Align… │  │           │
-│         └───────────────────────────────────────────────┘           │
-│              (Bottom-centered floating toolbar + Shortcut Legend)    │
-└─────────────────────────────────────────────────────────────────────┘
+│ [Guest Session Banner — slim, conditionally shown]                 │
+├──────────────────────────────────────── TopHeader h-12 ────────────┤
+│ [≡] [CrucibleCanvas title (inline, editable)] │ [Presence] [👁] [Share] [Chat] [Dashboard] [Log Off] │
+├─────────────────────────────────────── SubHeader h-11 ─────────────┤
+│ [↩Undo] [↪Redo] │ [↖Pointer] [Lines▾] [Shapes▾] [T Text] [📝Sticky] │ [Align▾] [Arrange▾] │ [⬚Marq] [⊕Multi-sel] [⊞All] [⎘Copy] │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│ ┌─PropertiesSidebar─┐  ┌──────── Infinite Canvas ──────┐  ┌─Chat──┐ │
+│ │ w-72 (collapsible)│  │  (Dot Grid)                   │  │sidebar│ │
+│ │ [Shape Module]    │  │  [Objects, Cursors, Selection] │  │ w-80  │ │
+│ │ [Text Module]     │  │                               │  │       │ │
+│ │ [Frame Module]    │  │                               │  │       │ │
+│ │ [Line Module]     │  │                               │  │       │ │
+│ │ [Sticky Module]   │  │                               │  │       │ │
+│ └───────────────────┘  └───────────────────────────────┘  └───────┘ │
+│                                                                       │
+│ [Cursor coords bottom-left]    [Zoom %]                              │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-### 6.3 Bottom-Centered Floating Toolbar
+**Flex layout:**
+- Root: `flex flex-col h-screen`
+- Headers: `h-12` (TopHeader) + `h-11` (SubHeaderToolbar)
+- Work area: `flex flex-1` — PropertiesSidebar (left) + Canvas (flex-1) + ChatSidebar (right)
 
-- Horizontal bar centered at **bottom** of canvas (`fixed bottom-4 left-1/2 -translate-x-1/2`), floating over the dot grid
-- Rounded corners (`rounded-xl`), subtle drop shadow, semi-transparent white background with `backdrop-blur-md`
-- **Tools (left to right):**
-  - Pointer (↖ icon, shortcut `1`) — default active
-  - Sticky Note (📝 icon, shortcut `2`)
-  - Rectangle (◻ icon, shortcut `3`)
-  - Circle (○ icon, shortcut `4`)
-  - Frame (▣ icon, shortcut `5`)
-  - Connector (╱ icon, shortcut `6`)
-- **Separator**, then: Color Picker popup, Align menu, Arrange (layer) menu
-- **Conditional sections** (appear when objects are selected):
-  - Font selector (visible when sticky notes are selected): sans-serif, handwritten, monospace
-  - Opacity slider (visible when non-connector objects are selected): 10%–100%
-- **Active tool:** Highlighted with indigo tint (`bg-indigo-100 text-indigo-600`) + cursor changes
-- **Behavior:** Clicking a tool activates its mode. Escape returns to Pointer.
+### 6.3 TopHeader
 
-### 6.3.1 Shortcut Legend
+Located at `src/components/canvas/` (board page top-level).
 
-- A secondary bar positioned **above** the toolbar (`fixed bottom-[58px]`)
-- Semi-transparent white background with `backdrop-blur-sm`
-- Displays two keyboard shortcuts with inline SVG icons:
-  - **Select:** `Ctrl + Drag` (marquee icon)
-  - **Multi-Select:** `Ctrl + Click` (overlapping rectangles icon)
-- Uses `<kbd>` elements for shortcut keys, monospace font at 10px
+**Contents (left to right):**
+- Hamburger/brand icon
+- `CanvasTitle` — inline editable board title (`inline={true}` prop; no fixed positioning)
+- Spacer
+- `PresenceIndicator` — avatar stack
+- `PrivacyToggle` — emoji pill (👀 public / 🥸 private)
+- `ShareButton`
+- Chat toggle (💬 Chat)
+- Dashboard link
+- Log Off
 
-### 6.4 Color Picker
+### 6.4 SubHeaderToolbar
 
-**Dual-mode picker accessible from object toolbar (appears when object is selected):**
+Located at `src/components/ui/SubHeaderToolbar.tsx`.
 
-1. **Quick-Access Grid:** Shows the Color Legend's palette with each color's assigned strategic meaning. One-click to apply.
-2. **Power Mode (expandable):** Full hex input field + color wheel for custom colors. For power users needing full creative control.
+**Sections (left to right):**
+1. **Undo / Redo** — buttons hooked to `objectStore` snapshot history
+2. **Separator**
+3. **Tool buttons** — each is a vertical `ToolButton` (icon + label + optional `kbd`):
+   - Pointer (↖, shortcut `1`)
+   - Lines dropdown (Line `\`, Connector `⌇`)
+   - Shapes dropdown (Rectangle `□`, Circle `○`, Frame `⊞`)
+   - Text (`T`, shortcut `T`)
+   - Sticky Note (📝, shortcut `S`)
+4. **Separator**
+5. **AlignMenu** — pops up alignment grid
+6. **ArrangeMenu** — pops up layer ordering controls
+7. **Separator**
+8. **Shortcut chips** — vertical layout matching ToolButton style (icon + label + `kbd`), with `isActive` state:
+   - Marquee (⬚, `isActive = isMarqueeMode`) — toggles `isMarqueeMode`
+   - Multi-sel (⊕, `isActive = isMultiSelectMode`) — toggles `isMultiSelectMode`
+   - Select All (⊞)
+   - Copy (⎘)
 
-**Recommended Colors (with legend meanings):**
-- Synced board-level Color Legend maps specific colors to strategic meanings (e.g., Green = "Validated", Red = "Critical Risk")
-- Legend is a canvas object that all users see and can edit
+Container has `overflow-x-auto` for small-window scrolling.
 
-### 6.5 AI Sidebar
+**`ShortcutChip` component:** Vertical `flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md`. When `isActive`: `bg-indigo-50 text-indigo-600`.
 
-- **Position:** Right side, collapsible
-- **Width:** ~25% of screen when open
-- **Layout behavior:** Pushes canvas (Konva Stage resizes) when opened. Smooth transition.
-- **Components (top to bottom):**
-  1. **Persona toggle:** Segmented control or dropdown — always visible at top. Options: Neutral Critic, Skeptical Investor, Opposing Counsel.
-  2. **Rate limit display:** Subtle counter showing remaining AI commands (e.g., "18/20 commands this hour")
-  3. **Chat messages:** Scrollable area. User messages right-aligned, AI responses left-aligned. Chat-style with timestamps.
-  4. **Input field:** Text input at bottom with send button. Supports slash commands: `/r` (red team), `/d` (decision map), `/g` (find gaps).
-- **History:** Rolling window of last 5 command/response pairs maintained in context. Lost on page refresh.
+### 6.5 Properties Sidebar
 
-### 6.6 Share Modal
+Located at `src/components/properties/`.
 
-- Triggered by "Share" button in the top bar
-- **Contents:**
-  - Public/Private toggle switch (confirmation dialog when switching to public)
-  - Board URL display with "Copy Link" button
-  - **Invite section (private boards):** Email input + "Add" button. List of invited emails with remove option.
-  - **Contacts quick-invite:** List of past collaborators from contacts. One-click to add their email to the whitelist.
-- Board URL format: `/board/[random-id]` (e.g., `/board/abc123xyz`)
+**Layout:** Left flex sibling in work area. `w-72` when open, `w-0` when closed. Opened/closed by a toggle button.
 
-### 6.7 Presence Indicators
+**Modules** (context-sensitive to selected object type):
+- `ShapeModule` — fill color, stroke color, border style, border thickness, opacity
+- `TextModule` — font family, font size, text color, text align, opacity
+- `FrameModule` — fill color, stroke color, border style, frame title, opacity
+- `StickyNoteModule` — fill color, font family, font size, text align, opacity
+- `LineModule` — stroke color, line thickness, border type, start/end effects, line type
 
-- **Location:** Top-right corner of workspace
-- **Format:** Overlapping avatar circles (first 3-4 visible) with "+N" overflow count
-- **Click to expand:** Full list of online users with names and cursor colors
-- **"Online" status label** next to the avatar stack
-- **Anonymous users:** Show display name with colored circle (no photo)
+**Common controls:**
+- `ColorRow` — hex color input + color picker popup
+- `SliderRow` — labeled range slider
+- `DropdownRow` — labeled select
+- `AlignButtonGroup` — text alignment toggle
 
-### 6.8 Zoom & Help Controls
+**DimensionModule:** Shows and edits `width` × `height` for the selected object.
 
-- **Location:** Bottom-left corner
-- **Zoom display:** Current zoom percentage (e.g., "100%"). Click to reset to 100%.
-- **Help trigger:** Small "?" icon. Opens a help overlay or links to keyboard shortcuts reference.
+**PresetsSection:** Color palette presets (6 pastels, expandable to 18).
+
+**RecentColorsSection:** Up to 12 most recently used colors across all tool types.
+
+### 6.6 Chat Sidebar (AI + Group Chat)
+
+Located at `src/components/chat/`.
+
+**Position:** Right flex sibling. Collapsible. Pushing canvas (Stage resizes via ResizeObserver).
+
+**Components:**
+- `ChatSidebar` — top-level container
+- `PersonaSelector` — dropdown; Mason listed first as "⚙ The Mason"
+- `ChatTimeline` — unified message list (no mode filtering; renders all messages)
+- `ChatMessage` — individual message bubble
+- `AIStreamMessage` — streaming AI response with live text
+- `ChatInput` — inline toggle button (✨/👥) left of input switches send target between AI and group; send button color reflects target
+- `ObjectRefChip` — clickable chips for referenced canvas objects
+- `MessagePreview` — preview of pending message
+
+**Chat modes:**
+- `chatMode: 'ai' | 'group'` — stored in `useChatStore`; per-message send target (not a filter)
+- Both AI responses and group chat appear in the same unified timeline
+
+**Keyboard shortcut:** `/` opens the sidebar and focuses input (skips if editing text)
+
+**Clarification pending state:**
+- Amber pulsing dot (animate-ping) on chat toggle button when `clarificationPending`
+- Sidebar header shows "Waiting for your input..." amber status text
+
+### 6.7 Share Modal
+
+Triggered by "Share" button in TopHeader.
+
+**Contents:**
+- Public/Private toggle (confirmation dialog on switch)
+- Board URL with "Copy Link" button
+- Invite section (private): email input + "Add"; list of invited emails with remove
+- Contacts quick-invite: past collaborators for one-click invite
+
+### 6.8 Presence Indicators
+
+- **Location:** TopHeader right side
+- **Format:** Overlapping avatar circles (3-4 visible) + "+N" overflow
+- Anonymous users: display name with colored circle
+
+### 6.9 Zoom & Coordinate Controls
+
+- **Zoom display:** Bottom area of canvas; click to reset to 100%
+- **Cursor coordinates:** Shown in bottom-left, updates on mouse move in canvas world space
 
 ---
 
@@ -620,578 +644,415 @@ The canvas operates in three mutually exclusive modes:
 ### 7.1 Dashboard Layout
 
 - **URL:** `/dashboard`
-- **Requires:** Authentication (middleware redirects unauthenticated users to `/auth`)
-- **Layout:** Responsive card grid (3-4 cards per row on desktop, 1-2 on smaller screens)
-- **Top bar:** Search bar (filters boards by title/tags) + "Join Board" field + "New Board" button
+- **Layout:** Responsive card grid (3-4 cards per row desktop, 1-2 mobile)
+- **Top bar:** Search bar + "Join Board" field + "New Board" button
 
 ### 7.2 Board Cards
 
-**Progressive Disclosure Model:**
-- **Default view:** Board title, last modified date, public/private indicator
-- **Tag chips:** 3-5 AI-generated tags shown on the card (e.g., "Logic Gap Found", "Q4 Roadmap") — generated by the "Summarize Board" action
-- **Hover/expand:** 2-3 sentence executive summary fades in, providing narrative overview of strategic progress and AI's latest critique
-- **Actions:** Open, Delete (with confirmation), Summarize Board
+- Board title, last modified date, public/private indicator
+- AI-generated tags (3-5 chips) on explicit "Summarize Board" trigger
+- Hover: 2-3 sentence executive summary
+- Actions: Open, Delete (confirmation), Summarize Board
 
 ### 7.3 Board Creation
 
-- **Trigger:** "New Board" button in dashboard header opens a focused modal
-- **Modal contents:** Title input field (required), "Create" button
-- **Defaults:** Board is public (`isPublic: true`), empty canvas
-- **Result:** Navigates to `/board/[new-random-id]`
+- "New Board" button → modal with title input
+- Defaults: public (`isPublic: true`), empty canvas
+- Navigates to `/board/[new-random-id]`
 
 ### 7.4 Board Title
 
-- Set during creation via the modal
-- Editable inline by clicking the title text in the board's top bar (contentEditable or input swap)
+- Editable inline in TopHeader (`contentEditable` or input swap)
 - Changes sync to Firestore metadata immediately
 
 ### 7.5 Board Join Field
 
-- Text input on the dashboard that accepts:
-  - Full board URL (e.g., `https://cruciblecanvas.app/board/abc123`)
-  - Just the board ID (e.g., `abc123`)
-- Auto-parses the ID from pasted URLs
-- Navigates to the board on submit
+- Accepts full URL or just board ID
+- Auto-parses board ID from pasted URLs
+- Navigates to board on submit
 
 ### 7.6 Board Deletion
 
-- Hard delete with confirmation dialog ("This will permanently delete the board and all its objects. This cannot be undone.")
-- Only the board creator can delete
-- Deletes all sub-collections: objects, metadata, RTDB cursors/presence/locks
-- No archive or recovery functionality
-
-### 7.7 AI-Augmented Board Summaries (Sidecar Pattern)
-
-- **Trigger:** Explicit "Summarize Board" button on dashboard card
-- **Process:** Sends board state to Claude, which extracts topics, questions, decisions, and writes a summary
-- **Storage:** Written to `boardContext` field in board metadata (separate from core board state)
-- **Output:** Tag chips + executive summary displayed on the dashboard card
-- **Cost management:** Only generated on explicit user request — never automatic
+- Hard delete with confirmation
+- Only board creator can delete
+- Deletes all sub-collections (objects, metadata, RTDB data)
 
 ---
 
 ## 8. AI Agent Capabilities
 
-### 8.1 Operating Modes
+### 8.1 Personas
 
-#### Execution Mode (Base MVP)
-**Purpose:** Direct board manipulation via natural language
-**Input:** User command text
-**Output:** Firestore writes (create/move/delete objects)
+The AI agent operates in one of four personas, stored in `BoardMetadata.aiPersona`:
 
-**Example Commands:**
-- "Create a yellow sticky note that says 'User Research'"
-- "Move all pink sticky notes to the right"
-- "Delete the rectangle in the top-left corner"
-- "Change the sticky note color to green"
+| Persona | ID | Behavior |
+|---------|-----|----------|
+| The Mason | `mason` | Silent executor — tool calls only, 1-2 sentence summary response, no explanations or suggestions |
+| Neutral Critic | `neutral` | Balanced strategic advisor; Socratic |
+| Skeptical Investor | `skeptical_investor` | VC mindset; unit economics, market validation focus |
+| Opposing Counsel | `opposing_counsel` | Adversarial lawyer; legal exposure, precedent focus |
 
-#### Analysis Mode (Red Team / Find Gaps)
-**Purpose:** Critical analysis of board content
-**Input:** Board state snapshot (viewport-only) + analytical directive
-**Output:** Critique frame with flagged notes + connectors
+**Mason is the default persona** (set in `chatStore.ts` persisted initial value).
 
-**Capabilities:**
-1. **Red Team This:** Identify assumptions, contradictions, missing data, edge cases
-2. **Find the Gaps:** Scan for unexplored topics, unanswered questions, missing dependencies
+**Mason-specific behavior:**
+- Always calls `getBoardState` first before executing commands
+- Responds with 1-2 sentence summary only; never explains or suggests
+- Uses `askClarification` tool when intent is ambiguous (other personas don't have this tool)
+- Output: "Clarification needed: {question}" sentinel string, parsed client-side via `/^clarification needed:/i` regex
+- Tools: limited to board manipulation tools; `redTeamThis`, `mapDecision`, `findGaps` are excluded
+- Non-Mason personas: analytical tools enabled; `askClarification` excluded
 
-**Output Structure:**
-- Empty frame with loading spinner appears immediately (progressive skeleton)
-- Objects fill in as tool calls resolve
-- Critique sticky notes (pink for high severity, coral for medium/low)
-- Dashed connectors linking critique → original object
-- Severity emojis: 🔴 Critical, 🟡 Important, 🟢 Minor
-- Sparkle icon badge on all AI-generated objects
-
-#### Synthesis Mode (Decision Mapping)
-**Purpose:** Generate structured decision frameworks
-**Input:** Decision statement + framework type
-**Output:** Organized layout with criteria, options, evaluations
-
-**Framework Types:**
-1. **Options Matrix:** Rows = options, Columns = criteria, Cells = scores
-2. **Tradeoff Analysis:** Two columns (Gains vs Losses)
-3. **Pros/Cons Grid:** Classic argument structure
-
-**Output Structure:**
-- Main decision frame (cyan background)
-- Criterion headers (green sticky notes, top row)
-- Option labels (yellow sticky notes, left column)
-- Evaluation cells (color-coded by score: red <4, yellow 4-7, green >7)
+**Turn history for clarification:**
+- When `wasPendingClarification`, last 6 AI messages are included in the `messages[]` array sent to the API route, enabling contextual follow-ups
 
 ### 8.2 AI Object Placement
 
-**Default position:** Below the current selection. If no selection, below the viewport center.
+**Spatial planning (`src/lib/ai/spatialPlanning.ts`) — two-pass algorithm:**
 
-**Draggable AI Thinking Avatar:**
-1. When an AI command is triggered, an "AI Thinking Avatar" icon appears at the default position
-2. While the LLM streams, the user can drag this icon to any location on the canvas
-3. The final output "grows" from the avatar's final resting position
-4. If the user doesn't interact with the avatar, output renders at the default position
+*Pass 1 — Viewport fit:*
+- Scans viewport for the first clear anchor point that fits the output cluster
+- Generates a sqrt(N)-column grid cluster with 200×160 cell size + 20px gap
+- Frames are opaque blocks (AABB excluded from scan)
+- Result: `source: 'viewport'`
 
-**Completion notification:**
-- Toast notification: "Analysis complete — 12 objects created" with a "Jump to analysis" button
-- Clicking the button pans the canvas to center on the generated output
-- No auto-pan — user controls when to navigate to results
+*Pass 2 — Reflow (if viewport too crowded):*
+- Places cluster below the lowest existing object at viewport.x left edge
+- Result: `source: 'reflow'`; prompts.ts appends '[below viewport]' hint
 
-### 8.3 AI Error Handling & Rollback
+All positions snapped to 20px grid.
 
-- If the Anthropic API fails (rate limit, timeout, network error) during a multi-step analysis:
-  - **All objects created by that command are rolled back** (deleted from Firestore)
-  - Objects are grouped by `aiCommandId` for batch deletion
-  - Error toast: "Analysis failed — no changes made. Try again?"
-  - The progressive skeleton frame is also removed
-- Clean board state guaranteed — no partial outputs
+### 8.3 Tool Schema
 
-### 8.4 AI Undo (MVP)
-
-- **Scope:** AI-action undo only. Single level.
-- **Trigger:** "Undo AI Analysis" button appears in the sidebar after an AI command completes. Also triggered by Ctrl+Z.
-- **Behavior:** Bulk deletes all objects with the most recent `aiCommandId`
-- **Multiplayer:** No consensus mechanism for MVP. Undo applies immediately for all users.
-- **Limitation:** Only undoes the last AI command. User-created objects are not undoable.
-
-### 8.5 AI Rate Limiting
-
-**Per-User Limit:** 20 commands per hour
-- Tracked in `users/{userId}/profile.aiCommandsThisHour`
-- Counter resets hourly (tracked by `aiCommandsResetAt`)
-- Shown in sidebar: "18/20 commands this hour"
-
-**Per-Board Limit:** 50 commands per day
-- Tracked in `boards/{boardId}/metadata.aiCommandsToday`
-- Counter resets daily (tracked by `aiCommandsResetAt`)
-- Prevents abuse on popular public boards
-
-**Enforcement:** Server-side validation in the Vercel Edge Function before calling Claude
-
-### 8.6 AI Context Serialization
-
-**Viewport-only context:** Only objects currently visible in the user's viewport are sent to the AI.
-
-**Serialization format:** Nested JSON with frame grouping
-
+**Manipulation tools (all personas):**
 ```typescript
-interface AIBoardContext {
-  viewportBounds: { x: number, y: number, width: number, height: number }
-  frames: {
-    id: string
-    title: string
-    x: number           // Integer (rounded to save tokens)
-    y: number
-    children: {
-      id: string
-      type: ObjectType
-      text?: string
-      color: string
-      rel_pos: { x: number, y: number }  // Position relative to frame top-left
-    }[]
-  }[]
-  orphanObjects: {       // Objects not in any frame
-    id: string
-    type: ObjectType
-    text?: string
-    color: string
-    x: number
-    y: number
-    spatialRegion: string // 'top-left' | 'top-center' | 'top-right' | 'center-left' | 'center' | 'center-right' | 'bottom-left' | 'bottom-center' | 'bottom-right'
-  }[]
-  connectors: {
-    id: string
-    from: string         // Object ID
-    to: string           // Object ID
-    style: string
-    label?: string
-  }[]
-  colorLegend?: {
-    color: string
-    meaning: string
-  }[]
-  metadata: {
-    totalObjectCount: number
-    visibleObjectCount: number
-    persona: string
-    recentAnalyses: string[]
-  }
-}
+createStickyNote(text, x, y, color, fontFamily?, fontSize?)
+createShape(type: 'rectangle' | 'circle', x, y, width, height, color)
+createFrame(title, x, y, width, height)
+createConnector(startObjectId, endObjectId, style, color, label?)
+createLine(x, y, endX, endY, color, thickness?)
+createTextBox(text, x, y, fontSize?, color?)
+moveObject(objectId, x, y)
+updateText(objectId, text)
+changeColor(objectId, color)
+deleteObject(objectId)
+arrangeObjects(objectIds, layout: 'grid' | 'horizontal' | 'vertical', spacing)
 ```
 
-### 8.7 AI Tool Schema
-
-**Base Manipulation Tools:**
+**Analytical tools (non-Mason only):**
 ```typescript
-createStickyNote(text: string, x: number, y: number, color: string)
-createShape(type: 'rectangle' | 'circle', x: number, y: number, width: number, height: number, color: string)
-createFrame(title: string, x: number, y: number, width: number, height: number)
-createConnector(startObjectId: string, endObjectId: string, style: 'solid' | 'dashed' | 'dotted', color: string, label?: string)
-moveObject(objectId: string, x: number, y: number)
-updateText(objectId: string, text: string)
-changeColor(objectId: string, color: string)
-deleteObject(objectId: string)
-arrangeObjects(objectIds: string[], layout: 'grid' | 'horizontal' | 'vertical', spacing: number)
+redTeamThis(targetObjectIds, focusAreas, persona)
+mapDecision(decisionStatement, frameworkType, options?, criteria?)
+findGaps(scope, targetIds?, gapTypes)
 ```
 
-**Analytical Tools:**
-```typescript
-redTeamThis(
-  targetObjectIds: string[],
-  focusAreas: ('assumptions' | 'contradictions' | 'missing_data' | 'edge_cases')[],
-  persona: 'skeptic' | 'investor' | 'counsel'
-)
-
-mapDecision(
-  decisionStatement: string,
-  frameworkType: 'options_matrix' | 'tradeoff_analysis' | 'pros_cons',
-  options?: string[],
-  criteria?: string[]
-)
-
-findGaps(
-  scope: 'entire_board' | 'selected_frame' | 'selected_objects',
-  targetIds?: string[],
-  gapTypes: ('unexplored_topics' | 'unanswered_questions' | 'missing_dependencies')[]
-)
-```
-
-**Context Tools:**
+**Context tools (all personas):**
 ```typescript
 getBoardState() → AIBoardContext
-getObjectsByFrame(frameId: string) → BoardObject[]
-analyzeBoardSemantics() → { topics: string[], openQuestions: string[], themes: string[] }
+getObjectsByFrame(frameId) → BoardObject[]
+analyzeBoardSemantics() → { topics, openQuestions, themes }
 ```
 
-### 8.8 System Prompts
-
-**Base Context (Always Included):**
-```
-You are an AI assistant for CrucibleCanvas, a strategic thinking whiteboard.
-
-Current board state:
-- Total objects: ${objectCount}
-- Visible objects: ${visibleCount}
-- Frames: ${frameCount}
-- Key topics: ${topics.join(', ')}
-- Recent analyses: ${analysisHistory.map(a => a.type).join(', ')}
-- Color Legend: ${colorLegend.map(e => `${e.color}=${e.meaning}`).join(', ')}
-
-Your capabilities:
-1. Create and manipulate visual objects (sticky notes, shapes, frames, connectors)
-2. Analyze board content for logical consistency and gaps
-3. Generate structured decision frameworks
-4. Provide critical counter-arguments and identify assumptions
-
-All objects you create will be marked with an AI badge for attribution.
-```
-
-**Execution Mode:**
-```
-MODE: Direct Board Manipulation
-
-Execute user commands literally and efficiently.
-- Place new objects in visible viewport area, snapped to 20px grid
-- Use color semantics from the board's Color Legend when available
-- Default color semantics: yellow=ideas, pink=critiques, green=approved, cyan=frameworks
-- Create connectors to show relationships
-- Keep sticky note text concise (2-3 sentences max)
-```
-
-**Analysis Mode:**
-```
-MODE: Critical Analysis (Red Team / Gap Finding)
-
-Your role: Challenge the user's thinking systematically.
-
-Critical thinking framework:
-1. ASSUMPTIONS: What's taken for granted without evidence?
-2. CONTRADICTIONS: Where do statements conflict?
-3. MISSING DATA: What evidence is absent but necessary?
-4. EDGE CASES: What scenarios break this logic?
-
-Output structure:
-- Create analysis frame (pink background for Red Team, cyan for Gap Analysis)
-- Each critique = separate sticky note with severity indicator
-- Link critiques to original claims via dashed red connectors
-- Be specific and actionable (not generic doubts)
-
-Severity levels:
-🔴 Critical flaw (invalidates core assumption)
-🟡 Important gap (weakens argument)
-🟢 Minor consideration (for completeness)
-```
-
-**Synthesis Mode:**
-```
-MODE: Decision Framework Generation
-
-Your role: Structure complex decisions visually.
-
-Framework types available:
-1. OPTIONS MATRIX: Grid layout (rows=options, cols=criteria, cells=scored evaluations)
-2. TRADEOFF ANALYSIS: Two-column layout (Gains vs Losses)
-3. PROS/CONS GRID: Classic structured argument map
-
-Layout principles:
-- Use frames to group related elements
-- Color code consistently using the board's Color Legend
-- Create visual hierarchy (headers larger than cells)
-- Limit frameworks to 4-8 core elements for clarity
-- Include rationale with every evaluation score
-- Snap all objects to 20px grid for alignment
-```
-
-**Persona Variations:**
+**Mason-only tool:**
 ```typescript
-const personas = {
-  skeptical_investor: `
-  You are a venture capitalist who has reviewed 1,000+ pitches.
-  Focus: market validation, unit economics, competitive moats, scaling risks, burn rate.
-  Tone: Direct, numbers-focused, skeptical of hand-waving and unvalidated assumptions.
-  `,
-
-  opposing_counsel: `
-  You are a lawyer representing the opposing side in litigation.
-  Focus: legal exposure, contractual gaps, liability, regulatory compliance, precedent.
-  Tone: Adversarial but professional, evidence-focused, precedent-driven.
-  `,
-
-  neutral_critic: `
-  You are a strategic advisor with no agenda or bias.
-  Focus: logical consistency, evidence quality, alternative perspectives, blind spots.
-  Tone: Balanced, constructive, intellectually honest, Socratic.
-  `
-}
+askClarification(question: string) → { clarificationSent: true, question: string }
+// Execute returns sentinel; client detects /^clarification needed:/i
 ```
+
+### 8.4 AI Context Serialization
+
+Viewport-only: only objects currently visible in the user's viewport are sent. Format: nested JSON with frame grouping, integer coordinates, `rel_pos` within frames.
+
+### 8.5 AI Error Handling & Rollback
+
+- If API fails mid-command: all objects from that `aiCommandId` are deleted from Firestore
+- Objects tracked by `aiCommandId` field for batch rollback via `deleteObjectsByAiCommand`
+- Error toast shown; board state guaranteed clean
+
+### 8.6 AI Undo
+
+- `Ctrl+Z` triggers objectStore snapshot rollback (not AI-specific; applies to all changes)
+- AI commands also roll back via snapshot (pre-command snapshot taken before execution)
+
+### 8.7 AI Rate Limiting
+
+- **Per-board:** 50 commands/day tracked in `BoardMetadata.aiCommandsToday`
+- Enforced server-side in the API route before calling Claude
+- Rate limit check uses server timestamps, not client-supplied values
+
+### 8.8 API Route
+
+`src/app/api/ai-command/route.ts`
+
+- **Runtime:** `export const runtime = 'nodejs'` (Node.js, not Edge — required for OTel NodeSDK)
+- **Auth:** Firebase ID token validated via Firebase Admin SDK; 401 on missing/invalid token
+- **Streaming:** `streamText` with `stopWhen: stepCountIs(15)`, `toTextStreamResponse()`
+- **Telemetry:** `experimental_telemetry: { isEnabled: true }` on `streamText`
+- **Tool filtering:** `MASON_EXCLUDED_TOOLS = {redTeamThis, mapDecision, findGaps}`; `NON_MASON_EXCLUDED_TOOLS = {askClarification}`
 
 ### 8.9 AI Cost Projections
 
-**Development Phase:**
-- Estimated API calls: 200-400 commands during testing
-- Token consumption: ~10K-20K tokens per command (varies by board size)
-- Projected cost: $10-20
-
-**Production Estimates:**
-
 | User Scale | Commands/User/Month | Monthly Cost | Assumptions |
 |------------|---------------------|--------------|-------------|
-| 100 users  | 5                   | $2.50        | 500 commands × $0.005 avg |
-| 1,000 users| 5                   | $25          | 5K commands × $0.005 avg |
-| 10,000 users| 5                  | $250         | 50K commands × $0.005 avg (need context pruning) |
-| 100,000 users| 5                 | $2,500       | 500K commands × $0.005 avg (need caching layer) |
+| 100 users  | 5                   | ~$2.50       | 500 commands × $0.005 avg |
+| 1,000 users| 5                   | ~$25         | 5K commands × $0.005 avg |
+| 10,000 users| 5                  | ~$250        | viewport-only context pruning needed |
+| 100,000 users| 5                 | ~$2,500      | caching layer needed |
 
-**Cost Optimization Strategies:**
-1. **Viewport-Only Context:** Only send visible objects (already implemented)
-2. **Integer Coordinates:** Round x/y to integers to save tokens
-3. **Relative Positions:** Use rel_pos within frames to compress spatial data
-4. **Rate Limiting:** Per-user (20/hr) and per-board (50/day) limits
-5. **Caching:** Cache analysis results for repeated queries on unchanged board state
-6. **Batch Operations:** Single tool call for "create 10 sticky notes" instead of 10 separate calls
+**Cost optimization strategies:**
+1. Viewport-only context (implemented)
+2. Integer coordinates to save tokens (implemented)
+3. Relative positions within frames (implemented)
+4. Rate limiting: 50 commands/board/day (implemented, server-side)
 
 ---
 
-## 9. Voice-to-Visual Feature (Optional)
+## 9. Performance
 
-### 9.1 Architecture
+### 9.1 Targets
 
-**Browser Speech API Integration:**
-- Use `SpeechRecognition` API (Chrome/Edge only)
-- No backend changes required
-- Voice → text → existing AI pipeline
+| Metric | Target |
+|--------|--------|
+| Canvas FPS | 60 FPS |
+| Object sync latency | <100ms |
+| Cursor sync latency | <50ms |
+| Initial load | <2s |
+| AI first token | <3s |
+| Object capacity | 500+ objects |
+| Concurrent users | 5+ |
 
-**Implementation Flow:**
-1. User clicks mic button in toolbar
-2. `SpeechRecognition` starts listening
-3. On utterance end, transcribed text sent to `/api/ai-command`
-4. Claude processes as normal text command
-5. Tool calls execute → Firestore writes → real-time sync
+### 9.2 Implemented Optimizations
 
-### 9.2 UI Components
+**Viewport culling (Phase 1):**
+- Removed `onDragMove` handlers from ShapeObject, StickyNote, FrameObject (eliminated drag-flood re-renders)
+- ConnectorObject uses narrow per-endpoint selectors (not full objects map)
 
-**Mic Button:**
-- Icon: 🎤 (microphone)
-- States: inactive (gray), listening (red pulse animation), processing (blue)
-- Position: Toolbar (next to AI chat button)
+**Spatial index (Phase 4):**
+- `rbush` R-tree in `objectStore.ts` (`spatialIndex`, `rebuildSpatialIndex`)
+- `src/types/rbush.d.ts` provides type declarations
+- `BoardObjects.tsx` uses `spatialIndex.search()` for O(log N + k) culling
 
-**Transcription Display:**
-- Live text display above canvas
-- Shows: "You said: [transcribed text]"
-- Fades out after 3 seconds
+**LOD rendering (Phase 5):**
+- `LOD_SIMPLE_THRESHOLD = 0.15` in `types.ts`
+- `isSimpleLod` prop on ShapeObject, StickyNote, FrameObject, TextObject, LineObject
+- LOD guard placed after all hooks but before heavy rendering
 
-**Error Handling:**
-- No microphone access: Hide mic button
-- Unsupported browser: Show tooltip "Voice input requires Chrome/Edge"
-- Recognition error: Show "Couldn't hear you. Try again?"
+**Keyboard shortcuts (Phase 6):**
+- `useKeyboardShortcuts` dep array: `[mode, editingObjectId, performDelete, boardId]`
+- All reactive reads moved to `getState()` inside handlers — no re-register on selection change
 
-### 9.3 Graceful Degradation
+**Performance testing (Phase 7):**
+- `NEXT_PUBLIC_PERF_BYPASS=true` skips auth guard
+- `data-testid="canvas-ready"` on Canvas wrapper for Playwright targeting
+- `scripts/seed-perf-board.ts` creates 7000 objects; `npm run seed-perf`
+- `tests/performance/fps-benchmark.spec.ts`; `npm run test:perf`
 
-- Feature hidden in unsupported browsers (Firefox, Safari)
-- No impact on core functionality if disabled
-- Optional enhancement, not MVP requirement
+### 9.3 Canvas Architecture
 
----
-
-## 10. Onboarding & Tutorial
-
-### 10.1 Interactive Tutorial (First Board Creation)
-
-Triggered when a user creates their first board. 5-step guided overlay with "Skip Tour" button.
-
-**Step 1: Create a Sticky Note**
-- Highlight the Sticky Note tool in the toolbar
-- Prompt: "Click the sticky note tool, then click on the canvas to place one"
-- Advance on: sticky note created
-
-**Step 2: Edit Text**
-- Highlight the created sticky note
-- Prompt: "Double-click the sticky note to edit its text"
-- Advance on: text edited and confirmed
-
-**Step 3: Drag to Move**
-- Prompt: "Switch to Select mode, then drag your sticky note to a new position"
-- Advance on: object moved
-
-**Step 4: Open AI Sidebar**
-- Highlight the AI sidebar toggle
-- Prompt: "Click to open the AI assistant"
-- Advance on: sidebar opened
-
-**Step 5: Run an Analysis**
-- Prompt: "Type 'Red team this' and press Enter to see the AI challenge your idea"
-- Advance on: AI command executed
-
-**Completion:** "You're ready! Invite collaborators with the Share button." Dismisses overlay.
+**Layer structure:**
+1. Static Layer: Dot grid background, no event listeners
+2. Dynamic Layer: Board objects (draggable)
+3. Cursor Layer: Remote cursors, always on top
+4. Selection UI Layer: Transformer handles, selection rectangle
 
 ---
 
-## 11. Keyboard Shortcuts
+## 10. Keyboard Shortcuts
 
-### 11.1 Tool Switching
+### 10.1 Tool Switching
 | Shortcut | Action |
 |----------|--------|
-| `1` | Pointer Mode (default) |
+| `1` | Pointer Mode |
 | `2` | Sticky Note tool |
 | `3` | Rectangle tool |
 | `4` | Circle tool |
 | `5` | Frame tool |
 | `6` | Connector tool |
-| `Escape` | Return to Pointer Mode / Deselect all |
+| `Escape` | Return to Pointer / Deselect all |
 
-### 11.2 Object Operations
+### 10.2 Object Operations
 | Shortcut | Action |
 |----------|--------|
-| `Delete` / `Backspace` | Delete selected (with confirmation dialog) |
-| `Ctrl+Delete` / `Ctrl+Backspace` | Delete selected (bypass confirmation) |
+| `Delete` / `Backspace` | Delete selected (confirmation dialog) |
+| `Ctrl+Delete` | Delete selected (bypass confirmation) |
 | `Ctrl+C` | Copy selected objects |
 | `Ctrl+V` | Paste with cascading +20px diagonal offset |
 | `Ctrl+D` | Duplicate selected with +20px diagonal offset |
+| `Ctrl+Z` | Undo (snapshot rollback) |
+| `Ctrl+Shift+Z` | Redo |
+| `Ctrl+A` | Select all objects |
 | `Ctrl+]` | Bring forward one layer |
 | `Ctrl+Shift+]` | Bring to front |
 | `Ctrl+[` | Send backward one layer |
 | `Ctrl+Shift+[` | Send to back |
 
-### 11.3 AI Shortcuts (in sidebar input)
+### 10.3 Canvas Navigation
 | Shortcut | Action |
 |----------|--------|
-| `/r` | Red Team Analysis |
-| `/d` | Decision Map |
-| `/g` | Find Gaps |
-
-### 11.4 Navigation
-| Shortcut | Action |
-|----------|--------|
-| `Space + Drag` | Pan (from any mode) |
 | `Mouse Wheel` | Zoom (centered on cursor) |
+| `Space + Drag` | Pan (from any mode) |
 | `Cmd/Ctrl + Drag` | Bypass grid snapping |
 
+### 10.4 AI / Chat
+| Shortcut | Action |
+|----------|--------|
+| `/` | Open chat sidebar and focus input |
+
 ---
 
-## 12. Performance Requirements
+## 11. Source Structure
 
-### 12.1 Targets
+```
+src/
+  app/
+    auth/page.tsx             # Authentication (guest, Google, GitHub)
+    dashboard/page.tsx        # Board listing, creation, join
+    board/[boardId]/page.tsx  # Main canvas workspace
+    api/
+      boards/new/route.ts     # Board creation API (auth guard)
+      ai-command/route.ts     # AI streaming endpoint (Node.js runtime)
+    layout.tsx                # Root layout with AuthProvider
+    middleware.ts             # Routes / → /dashboard
 
-| Metric | Target | Measurement Method |
-|--------|--------|-------------------|
-| Canvas FPS | 60 FPS | Chrome DevTools Performance profiler |
-| Object Sync Latency | <100ms | Timestamp diff (write → remote render) |
-| Cursor Sync Latency | <50ms | Timestamp diff (mousemove → remote cursor) |
-| Initial Load Time | <2s | Lighthouse Performance score |
-| AI Command Execution | <3s | Streaming response time to first token |
-| Object Capacity | 500+ | Manual testing with object creation loop |
-| Concurrent Users | 5+ | Manual testing with multiple browser windows |
+  components/
+    auth/AuthCard.tsx
+    canvas/
+      Canvas.tsx              # Konva Stage + all interaction handlers
+      BoardObjects.tsx        # Spatial-culled object renderer
+      SelectionLayer.tsx      # Transformer + selection rect
+      CursorLayer.tsx         # Remote cursor rendering
+      TextEditor.tsx          # HTML textarea overlay for text editing
+      DotGrid.tsx             # Static dot grid background
+      ShapeObject.tsx
+      StickyNote.tsx
+      FrameObject.tsx
+      ConnectorObject.tsx
+      TextObject.tsx
+      ColorLegendObject.tsx
+      LineObject.tsx
+      AnchorPoints.tsx        # Connector drag anchor dots
+      GhostPreview.tsx        # Resize ghost preview
+      ResizeBorder.tsx
+    chat/
+      ChatSidebar.tsx
+      ChatTimeline.tsx
+      ChatMessage.tsx
+      AIStreamMessage.tsx
+      ChatInput.tsx
+      PersonaSelector.tsx
+      ObjectRefChip.tsx
+      MessagePreview.tsx
+    properties/
+      PropertiesSidebar.tsx
+      PresetsSection.tsx
+      RecentColorsSection.tsx
+      TransparencyControl.tsx
+      controls/
+        ColorRow.tsx
+        SliderRow.tsx
+        DropdownRow.tsx
+        AlignButtonGroup.tsx
+      modules/
+        ShapeModule.tsx
+        TextModule.tsx
+        FrameModule.tsx
+        StickyNoteModule.tsx
+        LineModule.tsx
+        DimensionModule.tsx
+    ui/
+      SubHeaderToolbar.tsx    # Two-tier header: tool buttons + shortcut chips
+      AlignMenu.tsx
+      ArrangeMenu.tsx
+      ContextMenu.tsx         # Right-click context menu
+      ColorPicker.tsx
+      ColorPickerPopup.tsx
+      BorderStyleMenu.tsx
+      CanvasTitle.tsx         # Inline-editable board title
+      PresenceIndicator.tsx
+      PrivacyToggle.tsx
+      ShareButton.tsx
+      ShortcutLegend.tsx      # (Legacy — superseded by SubHeaderToolbar chips)
+      SelectionActionBar.tsx
+      SelectionCounter.tsx
+      OpacityPopup.tsx
+      SaveToAccountBanner.tsx
+      DeleteDialog.tsx
+      Toast.tsx
+      Toolbar.tsx             # (Legacy floating toolbar — currently unused)
 
-### 12.2 Optimization Strategies
+  hooks/
+    useFirestoreSync.ts       # Firestore real-time object listener
+    useMultiplayer.ts         # Presence init, heartbeat, reconnection
+    usePresenceSync.ts        # Presence data sync (child listeners)
+    useLockSync.ts            # Object lock management
+    useFrameNesting.ts        # Frame auto-nesting logic
+    useKeyboardShortcuts.ts   # All keyboard event handlers
 
-**Viewport Culling:**
-```typescript
-const isInViewport = (obj: BoardObject, viewport: Viewport): boolean => {
-  const vpLeft = -viewport.x / viewport.scale
-  const vpTop = -viewport.y / viewport.scale
-  const vpRight = vpLeft + window.innerWidth / viewport.scale
-  const vpBottom = vpTop + window.innerHeight / viewport.scale
+  lib/
+    ai/
+      tools.ts                # createAITools factory (Vercel AI SDK v6)
+      spatialPlanning.ts      # Two-pass viewport-fit + reflow algorithm
+      prompts.ts              # MASON_SYSTEM_PROMPT, buildSystemPrompt, PERSONA_PROMPTS
+    firebase/
+      config.ts               # Firebase app init
+      auth.ts                 # Authentication functions
+      firestore.ts            # Firestore CRUD helpers
+      rtdb.ts                 # RTDB presence/cursor/lock/privacy helpers
+      admin.ts                # Firebase Admin SDK (server-only)
+    store/
+      canvasStore.ts          # UI state (mode, selection, viewport, clipboard, sub-modes)
+      objectStore.ts          # Board objects, locks, spatial index, snapshot history
+      authStore.ts            # User authentication state
+      presenceStore.ts        # Remote user presence
+      chatStore.ts            # useChatStore + usePersonaStore
+    types.ts                  # All TypeScript interfaces and type aliases
+    utils.ts                  # Utility functions (getStrokeDash, etc.)
+    resizeState.ts            # borderResizingIds set (memo skip during resize)
 
-  const padding = 200 // Buffer for smooth entry/exit
+  providers/
+    AuthProvider.tsx          # Auth state initialization
 
-  return !(
-    obj.x + obj.width < vpLeft - padding ||
-    obj.x > vpRight + padding ||
-    obj.y + obj.height < vpTop - padding ||
-    obj.y > vpBottom + padding
-  )
-}
+  instrumentation.ts          # OTel init for Langfuse (Next.js hook)
+  types/
+    rbush.d.ts                # Type declarations for rbush v4
+
+scripts/
+  seed-perf-board.ts          # Creates 7000 objects for performance testing
+
+tests/
+  performance/
+    fps-benchmark.spec.ts     # Playwright FPS benchmark
 ```
 
-**Layer Splitting:**
-- Layer 1 (Static): Dot grid background, no event listeners
-- Layer 2 (Dynamic): Board objects, draggable
-- Layer 3 (Cursors): Remote cursors, always on top
-- Layer 4 (Selection UI): Transformer handles, selection rectangle
-
-**Debounced Sync:**
-- Only write to Firestore on drag **end**, not during drag
-- Local optimistic updates for instant feedback
-- Rollback on Firestore write failure
-
-**Throttled Cursor Updates:**
-- Update rate: 30 Hz (33ms intervals)
-- Distance threshold: Only send if cursor moved >5px
-- Reduces Realtime DB bandwidth significantly
-
-**Board Loading:**
-- All objects loaded at once from Firestore on initial board open
-- Loading spinner shown until complete
-- Firestore real-time listeners activated after initial load
-
 ---
 
-## 13. Security
+## 12. Security
 
-### 13.1 API Route Protection
+### 12.1 API Route Protection
 
-- **Server-side token validation:** Every request to `/api/ai-command` must include a Firebase ID token
-- Token verified against Firebase Admin SDK on each request (~50ms latency)
+- Every request to `/api/ai-command` verified via Firebase Admin SDK ID token
 - Unauthenticated requests rejected with 401
 - Rate limit checks performed server-side after token validation
+- AI-generated content validated for schema/length before Firestore writes
 
-### 13.2 Firestore Security Rules
+### 12.2 Firestore Security Rules
 
 ```javascript
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
+    function isAuthenticated() { return request.auth != null; }
     function isOwner(boardId) {
-      return get(/databases/$(database)/documents/boards/$(boardId)/metadata/config).data.createdBy == request.auth.uid;
+      return get(/databases/$(database)/documents/boards/$(boardId)/metadata/config)
+        .data.createdBy == request.auth.uid;
     }
-
     function isBoardPublic(boardId) {
-      return get(/databases/$(database)/documents/boards/$(boardId)/metadata/config).data.isPublic == true;
+      return get(/databases/$(database)/documents/boards/$(boardId)/metadata/config)
+        .data.isPublic == true;
     }
-
     function isInvited(boardId) {
-      return request.auth.token.email in get(/databases/$(database)/documents/boards/$(boardId)/metadata/config).data.invitedEmails;
+      return request.auth.token.email in
+        get(/databases/$(database)/documents/boards/$(boardId)/metadata/config).data.invitedEmails;
     }
-
     function canAccessBoard(boardId) {
       return isOwner(boardId) || isBoardPublic(boardId) || isInvited(boardId);
     }
@@ -1202,18 +1063,15 @@ service cloud.firestore {
       allow update: if isAuthenticated() && canAccessBoard(boardId);
       allow delete: if isAuthenticated() && isOwner(boardId);
     }
-
     match /boards/{boardId}/objects/{objectId} {
-      allow read: if canAccessBoard(boardId);  // Allow unauthenticated read for public boards (read-only preview)
+      allow read: if canAccessBoard(boardId);
       allow create: if isAuthenticated() && canAccessBoard(boardId);
       allow update: if isAuthenticated() && canAccessBoard(boardId);
       allow delete: if isAuthenticated() && canAccessBoard(boardId);
     }
-
     match /users/{userId}/profile {
       allow read, write: if request.auth.uid == userId;
     }
-
     match /users/{userId}/contacts/{contactId} {
       allow read, write: if request.auth.uid == userId;
     }
@@ -1221,456 +1079,123 @@ service cloud.firestore {
 }
 ```
 
-### 13.3 Realtime Database Security Rules
+### 12.3 Realtime Database Security Rules
 
-> **Implementation note:** The deployed rules (`database.rules.json`) use collection-level `.read` for cursors and presence (instead of per-user `.read`) to allow `onChildAdded`/`onChildChanged` listeners at the collection root. Per-user read rules would block subscribing to the full cursor/presence list. Write rules remain per-user to prevent impersonation. A `privacy` node is included for mirroring board visibility into RTDB.
+Collection-level `.read` for cursors/presence (allows `onChildAdded`/`onChildChanged` at collection root); per-user `.write` to prevent impersonation. RTDB includes `aiStreams` node for streaming AI responses.
 
-```json
-{
-  "rules": {
-    "boards": {
-      "$boardId": {
-        "cursors": {
-          ".read": "auth != null",
-          "$userId": {
-            ".write": "auth != null && auth.uid === $userId"
-          }
-        },
-        "presence": {
-          ".read": "auth != null",
-          "$userId": {
-            ".write": "auth != null && auth.uid === $userId"
-          }
-        },
-        "locks": {
-          ".read": "auth != null",
-          ".write": "auth != null"
-        },
-        "privacy": {
-          ".read": "auth != null",
-          ".write": "auth != null"
-        }
-      }
-    }
-  }
-}
+---
+
+## 13. Environment Variables
+
+```bash
+# Firebase client config (public)
+NEXT_PUBLIC_FIREBASE_API_KEY=
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
+NEXT_PUBLIC_FIREBASE_APP_ID=
+NEXT_PUBLIC_FIREBASE_DATABASE_URL=
+
+# AI (server-only)
+ANTHROPIC_API_KEY=
+
+# Firebase Admin (server-only) — one of the two patterns:
+FIREBASE_ADMIN_SERVICE_ACCOUNT=   # Full JSON string (alternative)
+FIREBASE_ADMIN_CLIENT_EMAIL=      # Service account email
+FIREBASE_ADMIN_PRIVATE_KEY=       # Service account private key
+
+# Observability (server-only)
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
+LANGFUSE_BASEURL=                 # Optional; defaults to cloud
+
+# Development / Testing
+NEXT_PUBLIC_PERF_BYPASS=true      # Skips auth guard for performance testing
 ```
 
 ---
 
 ## 14. Browser Support
 
-### 14.1 Supported Browsers
-
 | Browser | Version | Notes |
 |---------|---------|-------|
-| Chrome | 90+ | Full support including SpeechRecognition |
-| Firefox | 90+ | Full support except SpeechRecognition (voice feature hidden) |
-| Safari | 15+ | Full support except SpeechRecognition (voice feature hidden) |
-| Edge | 90+ | Full support including SpeechRecognition (Chromium-based) |
+| Chrome | 90+ | Full support |
+| Firefox | 90+ | Full support |
+| Safari | 15+ | Full support |
+| Edge | 90+ | Full support (Chromium-based) |
 
-### 14.2 Mobile Handling
-
-- **Desktop-only application.** Mobile browsers are not supported.
-- When a mobile viewport is detected (`window.innerWidth < 768px` or touch-only device), display a blocking message: "CrucibleCanvas requires a desktop browser for the best experience."
-- No attempt to render the canvas or toolbar on mobile
+**Mobile:** Desktop-only. `window.innerWidth < 768px` shows blocking message.
 
 ---
 
 ## 15. Deployment
 
-### 15.1 Hosting
-
 **Platform:** Vercel
-**Domain:** Custom domain (cruciblecanvas.app) or Vercel subdomain
-**Environment:** Production + Preview (automatic PR deployments)
+**Runtime note:** AI route must use `runtime = 'nodejs'` (not Edge) — OTel NodeSDK requires Node.js runtime.
 
-**Configuration:**
-```bash
-# vercel.json
-{
-  "framework": "nextjs",
-  "buildCommand": "npm run build",
-  "devCommand": "npm run dev",
-  "installCommand": "npm install"
-}
-```
-
-**Environment Variables (Vercel Dashboard):**
-```
-NEXT_PUBLIC_FIREBASE_API_KEY=...
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=...
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=...
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=...
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
-NEXT_PUBLIC_FIREBASE_APP_ID=...
-NEXT_PUBLIC_FIREBASE_DATABASE_URL=...
-ANTHROPIC_API_KEY=...
-FIREBASE_ADMIN_PROJECT_ID=...
-FIREBASE_ADMIN_CLIENT_EMAIL=...
-FIREBASE_ADMIN_PRIVATE_KEY=...
-```
-
-### 15.2 Firebase Configuration
-
-**Firestore:**
-- Database: `(default)` in `us-central1`
-- Security rules deployed via Firebase CLI
-
-**Realtime Database:**
-- Database: `cruciblecanvas-default-rtdb` in `us-central1`
-- Security rules deployed via Firebase CLI
-
-**Authentication:**
-- Providers: Anonymous, Google, GitHub OAuth
-- Authorized domains: `cruciblecanvas.app`, `*.vercel.app`
-- Account linking enabled (anonymous → social)
+**Firebase:**
+- Firestore: `(default)` database, `us-central1`
+- Realtime Database: `cruciblecanvas-default-rtdb`, `us-central1`
+- Auth providers: Anonymous, Google, GitHub OAuth
 
 ---
 
-## 16. Testing Plan
+## 16. Known Limitations & Trade-offs
 
-### 16.1 Multiplayer Sync Tests
-
-**Test 1: Simultaneous Object Creation**
-- Setup: 2 users, different browsers
-- Action: Both users create sticky notes rapidly (10 each)
-- Expected: All 20 notes appear for both users within 100ms
-- Pass Criteria: No missing objects, no duplicates
-
-**Test 2: Simultaneous Editing**
-- Setup: 2 users editing same sticky note text
-- Action: User A types "Strategy", User B types "Plan"
-- Expected: Last-write-wins (either "Strategy" or "Plan")
-- Pass Criteria: No merge conflicts, consistent state across users
-
-**Test 3: Network Disconnection**
-- Setup: 1 user, stable connection
-- Action: Create 5 objects → disable network → create 5 more → re-enable network
-- Expected: Firestore offline cache persists all 10 objects, syncs on reconnect. Yellow banner shown during offline.
-- Pass Criteria: All objects appear after reconnect
-
-**Test 4: Rapid Drag Operations**
-- Setup: 2 users dragging different objects simultaneously
-- Action: Each user drags 10 objects in quick succession
-- Expected: Smooth dragging, no jitter, positions sync correctly
-- Pass Criteria: 60 FPS maintained, <100ms sync latency
-
-**Test 5: Cursor Sync Performance**
-- Setup: 2 users moving cursors rapidly
-- Action: Move cursor in circles/figure-8 patterns
-- Expected: Remote cursor follows smoothly, no lag
-- Pass Criteria: <50ms latency, 30 Hz update rate
-
-**Test 6: Soft Locking**
-- Setup: 2 users, same board
-- Action: User A starts dragging an object. User B attempts to drag the same object.
-- Expected: User B sees lock indicator. Object does not respond to User B's drag.
-- Pass Criteria: Lock acquired/released cleanly. Lock auto-releases on disconnect.
-
-### 16.2 AI Agent Tests
-
-**Test 7: Basic Creation Commands**
-- Input: "Create a yellow sticky note that says 'User Research'"
-- Expected: Sticky note created with exact text and color, sparkle badge visible
-- Pass Criteria: Correct object type, position in viewport, accurate text
-
-**Test 8: Multi-Step Layout Commands**
-- Input: "Create a 2x3 grid of sticky notes for a SWOT analysis"
-- Expected: 6 sticky notes arranged in grid (snapped to 20px grid)
-- Pass Criteria: Correct layout, consistent spacing, appropriate labels
-
-**Test 9: Red Team Analysis**
-- Setup: Board with 3-4 sticky notes describing a product strategy
-- Input: "Red team this strategy"
-- Expected: Empty frame with spinner → critique notes fill in → connectors link to originals
-- Pass Criteria: Specific critiques, correct connector targets, severity indicators, AI badges
-
-**Test 10: Decision Mapping**
-- Input: "Map the decision: should we expand to Europe?"
-- Expected: Options matrix with 3-4 options, 4-5 criteria, scored evaluations
-- Pass Criteria: Correct framework structure, scores with rationales, color-coded cells
-
-**Test 11: Find Gaps**
-- Setup: Board with incomplete strategy (mentions "pricing" but no details)
-- Input: "Find gaps in this board"
-- Expected: Gap flags identifying missing content
-- Pass Criteria: Accurate gap identification, flags positioned near related content
-
-**Test 12: AI Rollback on Error**
-- Setup: Simulate API failure mid-analysis (e.g., network timeout after 3 objects created)
-- Expected: All partially created objects are deleted. Error toast shown.
-- Pass Criteria: Board state is clean — no orphaned AI objects
-
-**Test 13: AI Undo**
-- Setup: Run a Red Team analysis that creates 8 objects
-- Action: Click "Undo AI Analysis" or press Ctrl+Z
-- Expected: All 8 objects removed. Board returns to pre-analysis state.
-- Pass Criteria: Clean removal, no orphan connectors
-
-**Test 14: AI Rate Limiting**
-- Action: Send 21 AI commands within one hour
-- Expected: 21st command rejected with message: "Rate limit reached. Try again later."
-- Pass Criteria: Server-side enforcement, friendly error message
-
-### 16.3 Access Control Tests
-
-**Test 15: Public Board Guest Access**
-- Setup: Public board, unauthenticated user opens URL
-- Expected: Board visible in read-only mode. Ghost button for auth. Contextual tooltip on restricted actions.
-- Pass Criteria: Board renders, no editing possible, auth flow works
-
-**Test 16: Private Board Access Denied**
-- Setup: Private board, authenticated user NOT in invitedEmails
-- Expected: Access denied page/message
-- Pass Criteria: No board data leaked
-
-**Test 17: Anonymous Account Linking**
-- Setup: Anonymous user creates objects, then clicks "Save to Account" and signs in with Google
-- Expected: All anonymous objects retain ownership under the new authenticated account
-- Pass Criteria: Seamless transition, no data loss
-
-### 16.4 Performance Tests
-
-**Test 18: Object Capacity**
-- Action: Create 500 sticky notes using AI batch command
-- Expected: 60 FPS during pan/zoom
-- Pass Criteria: No frame drops, smooth interactions
-
-**Test 19: Concurrent Users**
-- Setup: 5 users on same board
-- Action: All users create/move objects simultaneously
-- Expected: No degradation in sync latency or FPS
-- Pass Criteria: <100ms sync, 60 FPS maintained
-
-**Test 20: Network Throttling**
-- Setup: Chrome DevTools → Network tab → Fast 3G
-- Action: Create objects, move cursor, issue AI commands
-- Expected: Sync still works, graceful degradation
-- Pass Criteria: No crashes, eventual consistency
-
----
-
-## 17. Implementation Phases
-
-### Phase 1: Foundation (Hours 0-4)
-- [ ] Next.js 14 + Firebase project setup
-- [ ] Next.js Middleware (/ → /dashboard redirect)
-- [ ] Firebase Auth with Anonymous + Google + GitHub providers
-- [ ] Auth screen UI (centered card, guest + social login)
-- [ ] Realtime DB schema for cursors and presence
-- [ ] Cursor sync working between 2 browsers
-- **Gate:** Two users see each other's cursors in real-time
-
-### Phase 2: Core Objects (Hours 4-12)
-- [ ] Firestore schema for board objects and metadata
-- [ ] Konva.js canvas with dot grid background
-- [ ] Mode-based interaction system (Pan, Select, Create)
-- [ ] Sticky note creation with Zustand store
-- [ ] Firestore listeners for real-time sync
-- [ ] Drag-and-drop with optimistic updates + soft locking
-- [ ] Grid snapping (20px default, modifier key bypass)
-- [ ] Test simultaneous sticky note creation
-- **Gate:** Two users can create and move sticky notes simultaneously with soft locking
-
-### Phase 3: Board Features (Hours 12-18)
-- [ ] Rectangle and circle shapes
-- [ ] Text editing (double-click → scale-aware textarea overlay, auto-resize height)
-- [ ] Selection system (Select mode, Ctrl+Click multi-select, drag rectangle)
-- [ ] Color picker (dual-mode: legend palette + power mode)
-- [ ] Delete with confirmation dialog (Ctrl+Delete bypass)
-- [ ] Copy/paste (Ctrl+C/V/D)
-- [ ] Frames (auto-nest, deframe all, context menu actions)
-- [ ] Connectors (edge-to-edge, drag from edge handles, auto-delete on orphan)
-- [ ] Color Legend canvas object
-- [ ] Bottom-centered floating toolbar with Shortcut Legend
-- **Gate:** Full CRUD operations work for all object types, multi-select functional
-
-### Phase 4: AI Integration (Hours 18-24)
-- [ ] Vercel AI SDK + Claude Sonnet 4.5 setup
-- [ ] Server-side Firebase token validation on API route
-- [ ] AI context serialization (viewport-only, nested JSON with rel_pos)
-- [ ] Base manipulation tools (create, move, delete)
-- [ ] Progressive skeleton (empty frame + spinner) for analysis output
-- [ ] AI Thinking Avatar (draggable placement)
-- [ ] Red Team Analysis tool
-- [ ] Decision Mapping tool
-- [ ] Find Gaps tool
-- [ ] Collapsible AI sidebar with chat-style messages
-- [ ] Persona toggle in sidebar
-- [ ] AI rate limiting (per-user + per-board)
-- [ ] AI rollback on error
-- [ ] AI undo (single level)
-- [ ] AI attribution badges (sparkle icon)
-- **Gate:** AI executes 6+ command types including all 3 analytical modes
-
-### Phase 5: Polish & Deployment (Hours 24-30)
-- [ ] Dashboard with card grid layout
-- [ ] Board creation modal + title editing
-- [ ] Board join field (URL or ID)
-- [ ] Share modal (public/private toggle, invite by email, contacts quick-invite)
-- [ ] Contacts list (auto-persist collaborators)
-- [ ] Board deletion (hard delete with confirmation)
-- [ ] Presence indicators (avatar stack with overflow)
-- [ ] Zoom controls (bottom-left)
-- [ ] Offline banner notification
-- [ ] Mobile blocking message
-- [ ] 5-step interactive tutorial
-- [ ] Guest session banner with account linking
-- [ ] AI-augmented board summaries (Summarize Board button)
-- [ ] Loading states and error handling
-- [ ] Deploy to Vercel
-- [ ] End-to-end testing with 5 concurrent users
-- [ ] Voice-to-Visual integration (optional)
-
----
-
-## 18. Success Criteria
-
-### MVP Requirements (24-Hour Gate)
-- [ ] Infinite board with pan/zoom (60 FPS) and dot grid
-- [ ] Mode-based interaction (Pan, Select, Create)
-- [ ] Sticky notes with editable text (auto-resize height)
-- [ ] At least one shape type (rectangle)
-- [ ] Create, move, edit, and delete objects
-- [ ] Grid snapping (20px default)
-- [ ] Real-time sync between 2+ users (<100ms)
-- [ ] Soft locking for drag conflicts
-- [ ] Multiplayer cursors with name labels (<50ms)
-- [ ] Presence awareness (who's online)
-- [ ] User authentication (Anonymous + Google OAuth)
-- [ ] Board visibility (public by default)
-- [ ] Deployed and publicly accessible
-
-### Full Feature Set (Day 4-7)
-- [ ] All MVP requirements passed
-- [ ] Multi-select (Ctrl+Click + drag rectangle)
-- [ ] Copy/paste/duplicate
-- [ ] Frames with auto-nest and deframe
-- [ ] Connectors (edge-to-edge, drag from handles)
-- [ ] Color Legend canvas object
-- [ ] AI agent executes 6+ command types
-- [ ] Red Team Analysis (progressive skeleton, critique frames with connectors)
-- [ ] Decision Mapping (options matrix or tradeoff analysis)
-- [ ] Find the Gaps (logical consistency checking)
-- [ ] AI sidebar with chat messages and persona toggle
-- [ ] AI rate limiting (20/user/hr, 50/board/day)
-- [ ] AI rollback on error + AI undo
-- [ ] Dashboard with board cards, search, join field
-- [ ] Share modal with public/private toggle + invite by email
-- [ ] Contacts list
-- [ ] 5-step interactive tutorial
-- [ ] Guest session with account linking
-- [ ] Voice-to-Visual (optional)
-- [ ] Performance targets met (500+ objects, 5+ users)
-
-### Demo Quality
-- [ ] 3-5 minute demo video recorded
-- [ ] Real-time collaboration demonstrated
-- [ ] All 3 AI analytical modes shown
-- [ ] Architecture explanation included
-- [ ] Social post published (X or LinkedIn)
-
----
-
-## 19. Known Limitations & Trade-offs
-
-### Accepted Trade-offs
-1. **Last-Write-Wins Conflict Resolution:** Simultaneous edits to the same object's text result in one winning. Soft locking prevents drag conflicts but not text edit conflicts. No operational transforms or CRDTs (out of MVP scope).
-
-2. **Firestore Vendor Lock-In:** Heavily dependent on Firebase. Migration would require significant refactoring. Accepted for speed-to-MVP.
-
-3. **Cursor Sync Costs:** Realtime DB bandwidth scales linearly with users. Mitigated by 30 Hz throttling + distance threshold, but still expensive at scale.
-
-4. **AI Token Costs:** Grows with board complexity. Viewport-only context helps, but large viewports still expensive. Rate limiting provides a cost ceiling.
-
-5. **Viewport-Only AI Context:** AI cannot reason about off-screen objects. May miss connections between visible and non-visible content. Accepted for token cost control.
-
-6. **Single-Level AI Undo:** Only undoes the last AI command. Cannot undo user actions or earlier AI commands. Full undo/redo is post-MVP.
-
-7. **No Minimap:** Users on large boards must manually pan to find content. Mitigated by the AI "Jump to analysis" toast notification.
-
-8. **Light Mode Only:** No dark mode. Reduces design/testing scope.
+1. **Last-Write-Wins:** Simultaneous text edits result in one winning. No OT or CRDTs.
+2. **Viewport-only AI context:** AI cannot reason about off-screen objects.
+3. **Light mode only:** No dark mode for MVP.
+4. **Desktop-only:** No mobile touch gestures.
+5. **Board-level rate limit:** 50 AI commands/day (no per-user limit currently enforced).
+6. **LOD at extreme zoom-out:** Objects below 0.15× zoom render as simplified placeholders.
 
 ### Not Implemented (Out of Scope)
-- Full undo/redo (beyond AI undo)
+- Full multi-level undo/redo for all user actions (only snapshot-based, limited depth)
 - Multiplayer consensus undo
 - Export to PDF/PNG
 - Commenting system
 - Granular permissions (editor vs viewer roles)
-- Real-time text editing with field-level merge
 - Mobile touch gestures
-- Offline mode (beyond Firestore cache)
 - Minimap
-- Dark mode
-- Board archiving
-- Workspace/folder hierarchy
+- Board archiving / workspace hierarchy
 - Automated email notifications for invites
+- Voice-to-Visual (planned optional feature)
+- Interactive tutorial / onboarding overlay
 
 ---
 
-## 20. Decision Log (Interview Results)
-
-This section documents all design decisions made during the specification interview.
+## 17. Decision Log
 
 | # | Topic | Decision | Rationale |
 |---|-------|----------|-----------|
-| 1 | Board access model | Hybrid link-sharing (public default, toggleable private) | Satisfies "publicly accessible" rubric requirement while providing AI cost control foundation |
-| 2 | AI object rendering | Progressive skeleton (empty frame + spinner, objects fill in) | Provides perceived responsiveness without partial layout flicker |
-| 3 | Board entry point | Dashboard with card grid | Standard SaaS pattern, board management hub |
-| 4 | Drag conflicts | Soft locking via RTDB with onDisconnect cleanup | Prevents jarring teleportation, auto-recovers from crashes |
-| 5 | Share mechanics | Same URL, toggle visibility | Simpler implementation, less user confusion about which URL to share |
-| 6 | Lock lifecycle | RTDB with onDisconnect | Leverages existing RTDB infra, handles crash recovery automatically |
-| 7 | Dashboard cards | AI-augmented metadata (tag chips + executive summary on hover) | Progressive disclosure keeps dashboard clean while surfacing AI "lore" |
-| 8 | Connectors | Edge-to-edge (nearest point) | Most natural visual, requires intersection math but avoids lines through objects |
-| 9 | Text editing | Scale-aware HTML overlay (rotation ignored) | Handles 90% of cases, avoids complex CSS transform math |
-| 10 | AI chat UI | Collapsible right sidebar with chat messages | Supports conversation history, persona toggle always visible |
-| 11 | AI attribution | Subtle sparkle icon badge | Non-intrusive, always visible, builds trust |
-| 12 | Frame nesting | Auto-nest on 50% overlap + Deframe All (context menu) | Intuitive drag behavior with escape hatch |
-| 13 | AI context pruning | Viewport-only objects | Token-efficient, user sees what AI analyzes |
-| 14 | Undo/redo | AI-undo only for MVP (single level) | Pragmatic scope control; full undo is post-MVP |
-| 15 | AI placement | Below selection + draggable AI Avatar + toast notification | Maximum user control without auto-panning disruption |
-| 16 | Z-index | Timestamp-based (createdAt ms) | Collision-resistant, simple, leverages existing data |
-| 17 | Color system | Shared Color Legend (canvas object) + dual-mode picker | Strategic color semantics visible to all; power mode for advanced users |
-| 18 | AI lore updates | Manual "Summarize Board" trigger | Controls AI costs, user-initiated only |
-| 19 | Keyboard shortcuts | Minimal tool switching (1-5) + AI slash commands (/r, /d, /g) | Low learning curve with power-user AI shortcuts |
-| 20 | Board lifecycle | Hard delete, title editable inline | Simple, no archive complexity |
-| 21 | Guest access | Read-only preview → auth → full refresh with viewport encoding in URL | Frictionless preview with secure auth transition |
-| 22 | Delete confirmation | Always confirm by default; Ctrl+Delete bypasses | Protects group content while enabling power-user speed |
-| 23 | URL structure | /board/[random-id] | No information leakage, simple routing |
-| 24 | AI rate limits | 20/user/hour + 50/board/day | Generous for serious work, prevents abuse on public boards |
-| 25 | AI chat history | Rolling window (last 5 pairs) | Enables follow-ups without persistent storage costs |
-| 26 | Board loading | All objects at once | Simple implementation, acceptable for target board sizes |
-| 27 | Theme | Light mode only | Reduces design scope for 7-day sprint |
-| 28 | Presence UI | Avatar stack with +N overflow | Scalable, standard pattern |
-| 29 | Minimap | No minimap | Simplicity; "Jump to" toast covers main navigation need |
-| 30 | AI serialization | Nested JSON with frame grouping + rel_pos | Both global and local context for AI; integer coords save tokens |
-| 31 | Object size limits | Moderate type-specific (Sticky: 80-600, Shape: 20-800, Frame: 150-4000) | Prevents extremes while allowing large strategic layouts |
-| 32 | Zoom bounds | 5% to 500% | Wide range for massive boards and detail work |
-| 33 | Privacy toggle | Share button + modal | Groups all sharing controls; intentional action required |
-| 34 | Tutorial | 5-step interactive tour (create, edit, drag, AI sidebar, run analysis) | Covers core loop, skippable |
-| 35 | AI response format | Chat-style messages in sidebar | Explains what AI did, supports follow-up conversation |
-| 36 | Mobile | Desktop-only, block with message | No mobile optimization for 7-day sprint |
-| 37 | Multi-select | Ctrl+Click + drag rectangle (MVP) | Dependency for bulk AI tools and spatial transforms |
-| 38 | Orphan connectors | Auto-delete when endpoint deleted | Clean board, no broken visuals |
-| 39 | Color legend storage | Canvas object (special board object) | Visible, positionable, AI-referenceable |
-| 40 | Dashboard layout | Responsive card grid | Standard, effective, scales with board count |
-| 41 | Object creation | Click tool → click canvas (sticky tool mode, Escape to exit) | Fast repeated placement, clear mode indicator |
-| 42 | Copy/paste | In MVP (Ctrl+C/V/D) | Multi-select makes this natural to include |
-| 43 | Sidebar layout | Push canvas (resize) | No content hidden, clean separation |
-| 44 | Toolbar position | **Bottom-centered** floating bar (updated from top) | Keeps tools near the user's hands; avoids competing with board title and presence indicators at top. Shortcut Legend bar sits above the toolbar. |
-| 45 | Board join | Full URL or ID accepted | Forgiving input, auto-parses URLs |
-| 46 | Offline indicator | Yellow banner notification | Clear, non-alarming, dismissible |
-| 47 | Grid style | Dot grid (20px intervals) | Clean, minimal, modern |
-| 48 | Grid snapping | 20px default, Cmd/Ctrl to bypass | Ensures alignment while allowing organic positioning |
-| 49 | Browser support | All modern (Chrome, Firefox, Safari, Edge) | Widest reach with graceful degradation for voice feature |
-| 50 | API auth | Server-side Firebase token validation | Secure against direct API exploitation |
-| 51 | Anonymous auth | Firebase Anonymous + display name entry + account linking | Low-friction guest access with upgrade path |
-| 52 | Board default | Always public (isPublic: true) | Matches collaboration-first vision |
-| 53 | Invite system | Email whitelist, no automated notifications, manual URL sharing | Bulletproof access control tied to verified identity |
-| 54 | Contacts | Auto-persist authenticated collaborators, dashboard + Share modal | Quick re-invite for returning collaborators |
-| 55 | Frame actions | Right-click context menu (Deframe All, Add to Frame) | Standard discoverable pattern |
-| 56 | Board title | Set on creation modal, edit inline in top bar | Clear creation flow with easy renaming |
-| 57 | Mode system | Three modes (Pan default, Select, Create) with Escape reset | Clear interaction model, prevents accidental actions |
-| 58 | Cursor feedback | Cursor changes per mode + toolbar highlight | Double visual feedback for mode awareness |
-| 59 | AI error handling | Full rollback of partial objects | Clean board state guaranteed on failure |
+| 1 | Board access | Hybrid link-sharing (public default, toggleable) | Satisfies "publicly accessible" rubric + AI cost control |
+| 2 | Toolbar position | **Top two-tier header** (not floating bottom) | BioRender-style; keeps tools near keyboard; canvas gets full height |
+| 3 | AI SDK | `ai` v6 + `@ai-sdk/anthropic` (not legacy Vercel AI SDK) | Required for agentic multi-step tool use, `stopWhen: stepCountIs()` |
+| 4 | AI model | `claude-sonnet-4-6` (not 4.5) | Best capability/cost for multi-step agentic commands |
+| 5 | API runtime | Node.js (not Edge) | OTel NodeSDK requires Node.js; Edge lacks `process.env` support needed |
+| 6 | Spatial index | `rbush` R-tree in objectStore | O(log N + k) culling vs O(N) linear scan; handles 1000+ objects |
+| 7 | LOD threshold | 0.15 (15% zoom) | Invisible at 15% zoom; LOD removes text/interactions below this |
+| 8 | Paste alignment | Top-left corner at cursor (right-click) | More intuitive than centroid placement |
+| 9 | Paste offset | Cascading +20px diagonal (Ctrl+V) | Prevents stacking, shows each paste distinctly |
+| 10 | Coordinate conversion | `getBoundingClientRect()` on canvas element | `stageX/Y` are pan offsets only, not screen position; headers + sidebar offset must be subtracted |
+| 11 | Sub-modes | `isMarqueeMode` + `isMultiSelectMode` boolean flags | Preserves `mode === "pointer"` for drag-move logic; no new mode needed |
+| 12 | Mason persona | Silent executor, first in PersonaSelector | Ops-only agent for direct board manipulation without explanation |
+| 13 | Mason tools | Excludes `redTeamThis`, `mapDecision`, `findGaps` | Mason is operational only; analytical tools for human-facing personas |
+| 14 | `askClarification` | Mason-only tool | Only Mason needs to confirm ambiguous intent; other personas respond verbally |
+| 15 | Spatial planning | Two-pass (viewport-fit → reflow) | Maximizes visible placement; degrades gracefully to below-viewport |
+| 16 | Observability | Langfuse via OTel | Traces AI calls, costs, latency without custom instrumentation |
+| 17 | Drag flooding | Removed `onDragMove` from shape/sticky/frame | Prevented per-frame Zustand updates during drag; major FPS improvement |
+| 18 | Sidebar layout | Flex siblings (PropertiesSidebar, Canvas, ChatSidebar) | Stage auto-resizes via ResizeObserver; no fixed positioning math |
+| 19 | Turn history | Last 6 messages included when `wasPendingClarification` | Enables contextual follow-up without persistent storage |
+| 20 | Dual-write privacy | Firestore + RTDB mirror | Real-time propagation without extra Firestore reads per client |
+| 21 | Soft locking | RTDB with `onDisconnect` | Crash-safe; auto-releases on disconnect |
+| 22 | Color semantics | Shared Color Legend canvas object | Visible to all users; AI-referenceable |
+| 23 | Text editing | HTML textarea overlay (hidden Konva text while editing) | Prevents double-text render; textarea handles IME, spell-check |
+| 24 | Frame nesting | Auto-nest on 50% overlap + Deframe context menu | Intuitive drag behavior with escape hatch |
+| 25 | Delete confirmation | Always confirm; Ctrl+Delete bypasses | Protects group content; power-user fast path |
+| 26 | Board default | Always public | Collaboration-first |
+| 27 | Grid snapping | 20px default; Cmd/Ctrl to bypass | Alignment without sacrificing flexibility |
+| 28 | Zoom bounds | 5%–500% | Wide range for massive boards and detail work |
+| 29 | Orphan connectors | Auto-delete when endpoint deleted | Clean board; no broken visuals |
+| 30 | Minimap | Not implemented | "Jump to analysis" toast covers navigation need for MVP |
