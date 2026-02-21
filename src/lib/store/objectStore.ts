@@ -133,6 +133,18 @@ interface ObjectState {
    * or when the object has no parentFrame.
    */
   expandFrameToContainChild: (childId: string) => { frameId: string; patch: Partial<BoardObject> } | null;
+
+  /**
+   * Called when a framed child finishes a drag.
+   * If the child has no bounding-box overlap with its parent frame it is
+   * deframed (parentFrame cleared).  If it still overlaps, the frame is
+   * expanded to contain it (plus 24 px padding).
+   * Returns an action descriptor so the caller can persist the change to Firestore.
+   */
+  deframeOrExpandChild: (childId: string) =>
+    | { action: 'deframe'; childId: string; frameId: string }
+    | { action: 'expand'; frameId: string; patch: Partial<BoardObject> }
+    | null;
 }
 
 export const useObjectStore = create<ObjectState>((set, get) => ({
@@ -282,6 +294,51 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
   getChildrenOfFrame: (frameId) => {
     const objs = get().objects;
     return Object.values(objs).filter((o) => o.parentFrame === frameId);
+  },
+
+  deframeOrExpandChild: (childId) => {
+    const { objects } = get();
+    const child = objects[childId];
+    if (!child?.parentFrame) return null;
+    const frame = objects[child.parentFrame];
+    if (!frame || frame.type !== 'frame') return null;
+
+    const childRight = child.x + child.width;
+    const childBottom = child.y + child.height;
+    const frameRight = frame.x + frame.width;
+    const frameBottom = frame.y + frame.height;
+
+    // Zero bounding-box overlap → child has fully left the frame → deframe it
+    const hasOverlap =
+      child.x < frameRight &&
+      childRight > frame.x &&
+      child.y < frameBottom &&
+      childBottom > frame.y;
+
+    if (!hasOverlap) {
+      get().updateObjectLocal(childId, { parentFrame: undefined });
+      return { action: 'deframe' as const, childId, frameId: frame.id };
+    }
+
+    // Still overlapping → expand frame to contain child with padding
+    const PADDING = 24;
+    const newX      = Math.min(frame.x, child.x - PADDING);
+    const newY      = Math.min(frame.y, child.y - PADDING);
+    const newRight  = Math.max(frameRight,  childRight  + PADDING);
+    const newBottom = Math.max(frameBottom, childBottom + PADDING);
+
+    const needsExpansion =
+      newX < frame.x || newY < frame.y || newRight > frameRight || newBottom > frameBottom;
+
+    if (needsExpansion) {
+      const patch: Partial<BoardObject> = {
+        x: newX, y: newY, width: newRight - newX, height: newBottom - newY,
+      };
+      get().updateObjectLocal(frame.id, patch);
+      return { action: 'expand' as const, frameId: frame.id, patch };
+    }
+
+    return null;
   },
 
   getFramesContaining: (objectId) => {

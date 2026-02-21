@@ -161,7 +161,9 @@ export default function TextEditor({ boardId }: TextEditorProps) {
           top: screenY,
           width: screenWidth,
           height: editHeight,
-          transform: `scale(1)`,
+          // Rotate the textarea to match the object's canvas rotation so the
+          // editor overlay stays aligned with the rotated Konva Group.
+          transform: `rotate(${object.rotation ?? 0}deg)`,
           transformOrigin: "top left",
           fontSize: `${baseFontSize * stageScale}px`,
           fontFamily: object.type === "stickyNote" || object.type === "text"

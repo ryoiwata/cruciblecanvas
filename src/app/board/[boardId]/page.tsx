@@ -150,22 +150,22 @@ export default function BoardPage() {
           <ShareButton boardId={boardId} />
           <div className="h-5 w-px bg-gray-200" />
 
-          {/* AI chat toggle */}
+          {/* Chat toggle — chat bubble icon with "Chat" label */}
           <button
             onClick={toggleSidebar}
-            title="Toggle AI chat (press /)"
+            title="Toggle chat (press /)"
             className="relative flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100"
           >
-            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-              <rect x="4" y="6" width="12" height="9" rx="2" stroke="currentColor" strokeWidth="1.5" fill="none" />
-              <line x1="10" y1="6" x2="10" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              <circle cx="10" cy="2.5" r="1" fill="currentColor" />
-              <circle cx="7.5" cy="10" r="1.2" fill="currentColor" />
-              <circle cx="12.5" cy="10" r="1.2" fill="currentColor" />
-              <path d="M7.5 12.5 Q10 14 12.5 12.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" fill="none" />
-              <line x1="1.5" y1="10" x2="4" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              <line x1="16" y1="10" x2="18.5" y2="10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path
+                d="M2 3a2 2 0 012-2h12a2 2 0 012 2v9a2 2 0 01-2 2H6l-4 4V3z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+                fill="none"
+              />
             </svg>
+            <span>Chat</span>
             {unreadCount > 0 && (
               <span className="absolute -top-0.5 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white leading-none">
                 {unreadCount > 9 ? '9+' : unreadCount}

@@ -141,11 +141,13 @@ export default memo(function ShapeObject({
       updateObjectLocal(object.id, { x, y });
     }
 
-    // Auto-expand parent frame if child was dragged beyond its boundary
+    // Deframe child if dragged fully outside its parent frame; otherwise expand frame.
     if (object.parentFrame) {
-      const expansion = useObjectStore.getState().expandFrameToContainChild(object.id);
-      if (expansion) {
-        updateObject(boardId, expansion.frameId, expansion.patch).catch(console.error);
+      const result = useObjectStore.getState().deframeOrExpandChild(object.id);
+      if (result?.action === 'deframe') {
+        updateObject(boardId, result.childId, { parentFrame: '' }).catch(console.error);
+      } else if (result?.action === 'expand') {
+        updateObject(boardId, result.frameId, result.patch).catch(console.error);
       }
     }
 

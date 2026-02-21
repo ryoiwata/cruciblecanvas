@@ -99,8 +99,9 @@ export default memo(function StickyNote({
     );
   }
 
-  // Generate notepad lines
-  const lineSpacing = 22;
+  // Generate notepad lines — spacing adapts to font size so text stays on the lines.
+  const effectiveFontSize = object.fontSize ?? 14;
+  const lineSpacing = Math.max(22, effectiveFontSize * 1.57);
   const lineStartY = 30; // Start below top padding
   const lineMarginX = 8;
   const notepadLines: number[] = [];
@@ -144,11 +145,13 @@ export default memo(function StickyNote({
       updateObjectLocal(object.id, { x, y });
     }
 
-    // Auto-expand parent frame if child was dragged beyond its boundary
+    // Deframe child if dragged fully outside its parent frame; otherwise expand frame.
     if (object.parentFrame) {
-      const expansion = useObjectStore.getState().expandFrameToContainChild(object.id);
-      if (expansion) {
-        updateObject(boardId, expansion.frameId, expansion.patch).catch(console.error);
+      const result = useObjectStore.getState().deframeOrExpandChild(object.id);
+      if (result?.action === 'deframe') {
+        updateObject(boardId, result.childId, { parentFrame: '' }).catch(console.error);
+      } else if (result?.action === 'expand') {
+        updateObject(boardId, result.frameId, result.patch).catch(console.error);
       }
     }
 

@@ -98,25 +98,33 @@ Others
 
 Maybe TODOs
 
+Performance TODOs
 
+Real-Time Collaboration TODOs
+
+AI TODOs
+- Create an AI agent that's specifically for operations
+- Make it light weight with the context. Output Json that can 
 
 REAL TODOs
 - [FIX] Fix drag item within frame
 - [x] Remove layers from legend
 - [x] Remove duplicate from legend
 - [x] Remove copy and delete text preview
-- [ ] Remove shape outline changer as an option for any item
+- [x] Remove shape outline changer as an option for any item
 - [] Fix group select when right clicking one item highlight
 - [] Fix AI agent logo in chat to robot instead of sparkle
-- [] Change the chat icon on the top from robot to a chat bubble with the word Chat next to it 
+- [x] Change the chat icon on the top from robot to a chat bubble with the word Chat next to it 
 - [x] Move main tool bar to top
 - [ ] Font should be edited when clicking on sticky note for that whole sticky
-- [ ] Frames should adjust size and not overlap items inside. Frame should be big enough to accomodate all items put in. Shapes should be adjusted to all fit in.
-- [ ] Make sure that items in frame can move within the frame no matter what
-- [ ] If item in frame is taken out, then it actually is deframed
+- [ ] When selecting the text on sticky, it should stay the same, not go into its own box and change size. Text on sticky should be selected as is.
+- [x] Frames should adjust size when big item is put in.  
+- [ ] Frames should move items around so no item is overlapped inside and frame should adjust size if bigger is needed based on moved around items. Shapes should be adjusted to all fit in.
+- [x] Make sure that items in frame can move within the frame no matter what
+- [x] If item in frame is taken out, then it actually is deframed
 - [x] Items in frames should be allowed to freely move within the frame
 - [x] Change presets to something more meaningful
-- [ ] Default line size should be bigger
+- [ ] Default line thickness should be bigger, like 10
 - [ ] Line types need to be fixed
   - [ ] ie straight, curvy, etc.
 - [x] Properties should only reflect the item type being selected or was previously selected ie shape types shouldn't have any text options
@@ -130,6 +138,7 @@ REAL TODOs
 - [x] Cursor should have coordinates
 - [x] Make undo and redo button work
 - [ ] Make it more clear that free form text is being selected 
+- [ ] Free form text behavior selection behavior should be fixed
 - [ ] - Fix ordering of tool shorcut numbers, have number next to tool label
 - [x] Fix sticky text editing
 - [x] Make presets more pastel colors
@@ -138,19 +147,23 @@ REAL TODOs
 - [ ] Sticky note h and v align are not working
 - [ ] Redudant text color option for sticky note
 - [ ] Lines should adjust for sticky notes with increase text size
-- [ ] Free form text shows double when adding text
+- [x] Free form text shows double when adding text
 - [ ] Free form text has double box when selected
 - [ ] Text disappears when rotated
 - [ ] Separate rectangle and circle item on item list. Not put them in shape category
 - [ ] Line dash type and shape outline need to be fixed so that it actually changes to dashed
-- [ ] Properties tab should be closed via the side, not the top
-- [ ] Make black one of the preset colors in the front(Use a white font for the text inside it)
+- [x] Properties tab should be closed via the side, not the top
+- [x] Make black one of the preset colors in the front(Use a white font for the text inside it)
+- [ ] Limit the presets to 6, add option so see more with 18 pastelle colors
+- [ ] Color text box in Fill box for shape should be ssmaller, same size as Hex code, but little bigger. should not be cut off. 
+- [ ] Make canvas be able to have titles with space in them
+- [ ] Selection reference
 
 
 
 Biorender edits
 - [x] Keep properties out, unless minimized or item is selected
-- [ ] Keep text box within sticky when typing
+- [x] Keep text box within sticky when typing
 - [x] Keep Chat under the tool bar
 - [] Change top AI button with Chat icon and word chat
 - [x] Don't make text box stick out when editing text. Make it stay on the item that contains the text in line.
@@ -175,6 +188,9 @@ Biorender edits
 - [ ] Graceful disconnect/reconnect handling
   - [ ] Zoom out when coming back in to all items?
 - [ ] Board state persists after all users leave and return
+
+TODOs
+- Check Google login
 
 ### Performance Targets
 

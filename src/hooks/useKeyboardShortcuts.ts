@@ -146,7 +146,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
 
       // Tool switching — number keys and letter aliases
       switch (e.key) {
-        // Number shortcuts (legacy)
+        // Number shortcuts matching toolbar order (1–6)
         case "1":
           canvasState.setMode("pointer");
           return;
@@ -160,16 +160,10 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
           canvasState.enterCreateMode("circle");
           return;
         case "5":
-          canvasState.enterCreateMode("line");
+          canvasState.enterCreateMode("text");
           return;
         case "6":
           canvasState.enterCreateMode("frame");
-          return;
-        case "7":
-          canvasState.enterCreateMode("connector");
-          return;
-        case "8":
-          canvasState.enterCreateMode("text");
           return;
         // Letter shortcuts (matches toolbar badges)
         case "l":

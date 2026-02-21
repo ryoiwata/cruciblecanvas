@@ -40,14 +40,14 @@ export default memo(function TextObject({
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  const editingObjectId = useCanvasStore((s) => s.editingObjectId);
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
   const user = useAuthStore((s) => s.user);
 
-  const isSelected = selectedObjectIds.includes(object.id);
+  const isEditing = editingObjectId === object.id;
 
   // ---- Event handlers — defined before LOD guard to satisfy rules-of-hooks ----
 
@@ -101,11 +101,13 @@ export default memo(function TextObject({
       updateObject(boardId, object.id, { x: newX, y: newY }).catch(console.error);
       if (user) releaseLock(boardId, object.id);
 
-      // Auto-expand parent frame if text was dragged beyond its boundary
+      // Deframe child if dragged fully outside its parent frame; otherwise expand frame.
       if (object.parentFrame) {
-        const expansion = useObjectStore.getState().expandFrameToContainChild(object.id);
-        if (expansion) {
-          updateObject(boardId, expansion.frameId, expansion.patch).catch(console.error);
+        const result = useObjectStore.getState().deframeOrExpandChild(object.id);
+        if (result?.action === 'deframe') {
+          updateObject(boardId, result.childId, { parentFrame: '' }).catch(console.error);
+        } else if (result?.action === 'expand') {
+          updateObject(boardId, result.frameId, result.patch).catch(console.error);
         }
       }
     },
@@ -154,7 +156,8 @@ export default memo(function TextObject({
         fill="transparent"
       />
 
-      {/* Text content — textColor overrides the legacy color field when set */}
+      {/* Text content — hidden while the HTML textarea overlay is active to prevent double-text.
+          textColor overrides the legacy color field when set. */}
       <Text
         text={object.text ?? ''}
         width={object.width}
@@ -164,6 +167,7 @@ export default memo(function TextObject({
         align={object.textAlign ?? 'left'}
         wrap="word"
         listening={false}
+        visible={!isEditing}
       />
 
       {/* Capture indicator — purple stroke when parented to a frame */}
@@ -173,18 +177,6 @@ export default memo(function TextObject({
           height={object.height}
           stroke="#7C3AED"
           strokeWidth={3}
-          fill="transparent"
-          listening={false}
-        />
-      )}
-
-      {/* Selection outline */}
-      {isSelected && (
-        <Rect
-          width={object.width}
-          height={object.height}
-          stroke="#2196F3"
-          strokeWidth={2}
           fill="transparent"
           listening={false}
         />

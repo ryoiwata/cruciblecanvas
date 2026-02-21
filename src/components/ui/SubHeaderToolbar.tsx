@@ -19,8 +19,7 @@
  * z-index is above canvas content (z-30) but below global overlays (z-50).
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback } from 'react';
 import { Cable } from 'lucide-react';
 import { useCanvasStore } from '@/lib/store/canvasStore';
 import { useObjectStore } from '@/lib/store/objectStore';
@@ -30,7 +29,7 @@ import {
   updateObject,
   deleteObject,
 } from '@/lib/firebase/firestore';
-import type { ObjectType, BoardObject } from '@/lib/types';
+import type { BoardObject } from '@/lib/types';
 import AlignMenu from './AlignMenu';
 import ArrangeMenu from './ArrangeMenu';
 
@@ -112,13 +111,6 @@ function StickyIcon() {
   );
 }
 
-function ChevronDownIcon() {
-  return (
-    <svg width="8" height="8" viewBox="0 0 9 9" fill="none" aria-hidden="true">
-      <path d="M1.5 3L4.5 6L7.5 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
 
 // ---- Divider helper ----------------------------------------------------------
 
@@ -163,109 +155,6 @@ function ToolButton({ label, icon, isActive, disabled, shortcut, onClick }: Tool
   );
 }
 
-// ---- Shapes dropdown (portal-rendered to escape overflow clipping) -----------
-
-interface DropdownItem {
-  id: ObjectType;
-  label: string;
-  icon: React.ReactNode;
-}
-
-interface ShapesDropdownProps {
-  isGroupActive: boolean;
-  activeCreationTool: ObjectType | null;
-  onSelect: (tool: ObjectType) => void;
-}
-
-const SHAPE_ITEMS: DropdownItem[] = [
-  { id: 'rectangle', label: 'Rectangle', icon: <RectIcon /> },
-  { id: 'circle',    label: 'Circle',    icon: <CircleIcon /> },
-];
-
-function ShapesDropdown({ isGroupActive, activeCreationTool, onSelect }: ShapesDropdownProps) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const popupRef = useRef<HTMLDivElement>(null);
-
-  // Close on outside click
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (
-        triggerRef.current && !triggerRef.current.contains(target) &&
-        popupRef.current && !popupRef.current.contains(target)
-      ) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  // Calculate popup position below the trigger button
-  const getPopupStyle = (): React.CSSProperties => {
-    if (!triggerRef.current) return { display: 'none' };
-    const rect = triggerRef.current.getBoundingClientRect();
-    return {
-      position: 'fixed',
-      left: rect.left,
-      top: rect.bottom + 4,
-      minWidth: 140,
-      zIndex: 200,
-    };
-  };
-
-  return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={`flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md transition-colors ${
-          isGroupActive
-            ? 'bg-indigo-50 text-indigo-600'
-            : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
-        }`}
-      >
-        <span className="flex items-center gap-0.5">
-          <RectIcon />
-          <ChevronDownIcon />
-        </span>
-        <span className="text-[10px] font-medium leading-none">Shape</span>
-      </button>
-
-      {open &&
-        createPortal(
-          <div
-            ref={popupRef}
-            style={getPopupStyle()}
-            className="rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
-          >
-            {SHAPE_ITEMS.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  onSelect(item.id);
-                  setOpen(false);
-                }}
-                className={`flex w-full items-center gap-2.5 px-3 py-2 text-sm transition-colors ${
-                  activeCreationTool === item.id
-                    ? 'bg-indigo-50 text-indigo-600'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <span className="flex w-4 items-center justify-center">{item.icon}</span>
-                {item.label}
-              </button>
-            ))}
-          </div>,
-          document.body
-        )}
-    </>
-  );
-}
 
 // ---- Undo/Redo logic ---------------------------------------------------------
 
@@ -329,8 +218,8 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const isPointerActive = mode === 'pointer';
   const isLineActive = mode === 'create' && creationTool === 'line';
   const isConnectorActive = mode === 'create' && creationTool === 'connector';
-  const isShapesGroupActive =
-    mode === 'create' && (creationTool === 'rectangle' || creationTool === 'circle');
+  const isRectActive = mode === 'create' && creationTool === 'rectangle';
+  const isCircleActive = mode === 'create' && creationTool === 'circle';
   const isTextActive = mode === 'create' && creationTool === 'text';
   const isStickyActive = mode === 'create' && creationTool === 'stickyNote';
   const isFrameActive = mode === 'create' && creationTool === 'frame';
@@ -398,11 +287,22 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
 
       <Divider />
 
-      {/* Shape dropdown (Rectangle, Circle) — portal-rendered to avoid overflow clipping */}
-      <ShapesDropdown
-        isGroupActive={isShapesGroupActive}
-        activeCreationTool={creationTool}
-        onSelect={(tool) => enterCreateMode(tool)}
+      {/* Rectangle — standalone primary tool */}
+      <ToolButton
+        label="Rect"
+        icon={<RectIcon />}
+        isActive={isRectActive}
+        shortcut="3"
+        onClick={() => enterCreateMode('rectangle')}
+      />
+
+      {/* Circle — standalone primary tool */}
+      <ToolButton
+        label="Circle"
+        icon={<CircleIcon />}
+        isActive={isCircleActive}
+        shortcut="4"
+        onClick={() => enterCreateMode('circle')}
       />
 
       {/* Text */}
@@ -410,7 +310,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Text"
         icon={<span className="font-bold text-sm leading-none" aria-hidden="true">T</span>}
         isActive={isTextActive}
-        shortcut="T"
+        shortcut="5"
         onClick={() => enterCreateMode('text')}
       />
 
@@ -428,7 +328,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Frame"
         icon={<FrameIcon />}
         isActive={isFrameActive}
-        shortcut="F"
+        shortcut="6"
         onClick={() => enterCreateMode('frame')}
       />
 

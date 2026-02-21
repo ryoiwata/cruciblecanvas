@@ -54,7 +54,7 @@ function getModuleSet(type: BoardObject['type']): ModuleKey[] {
     case 'circle':
       return ['dimension', 'shape'];
     case 'stickyNote':
-      return ['stickyNote', 'text'];
+      return ['dimension', 'stickyNote', 'text'];
     case 'line':
     case 'connector':
       return ['line'];
@@ -228,95 +228,86 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
   );
 
   return (
-    <aside
-      className={`relative flex h-full flex-col overflow-hidden border-r border-gray-200 bg-[#F8F9FA] transition-all duration-200 ${
-        isPropertiesOpen ? 'w-72' : 'w-10'
-      }`}
-      aria-label="Properties"
-    >
-      {/* Collapse / expand button — always in the top-right corner */}
+    <div className="relative flex h-full shrink-0">
+      {/* The sidebar panel — collapses to w-0 (fully hidden) when closed */}
+      <aside
+        className={`flex h-full flex-col overflow-hidden border-r border-gray-200 bg-[#F8F9FA] transition-all duration-200 ${
+          isPropertiesOpen ? 'w-72' : 'w-0'
+        }`}
+        aria-label="Properties"
+      >
+        {/* Expanded content — fixed width so it doesn't squash during the CSS transition */}
+        {isPropertiesOpen && (
+          <div className="flex h-full w-72 flex-col overflow-y-auto">
+            {displayObject ? (
+              <div className="flex flex-col gap-4 p-4 pt-4">
+                {/* Styles / Presets */}
+                <section>
+                  <p className="mb-2 text-sm font-semibold text-gray-700">Styles</p>
+                  <PresetsSection object={displayObject} onChange={handleChange} />
+                </section>
+
+                <div className="border-t border-gray-200" />
+
+                {/* Transparency — shared across all types */}
+                <section>
+                  <TransparencyControl object={displayObject} onChange={handleChange} />
+                </section>
+
+                <div className="border-t border-gray-200" />
+
+                {/* Type-specific modules — rendered in the order returned by getModuleSet */}
+                <section>
+                  {getModuleSet(displayObject.type).map((moduleKey, i, arr) => (
+                    <Fragment key={moduleKey}>
+                      {moduleKey === 'dimension' && (
+                        <DimensionModule object={displayObject} onChange={handleChange} />
+                      )}
+                      {moduleKey === 'shape' && (
+                        <ShapeModule object={displayObject} onChange={handleChange} />
+                      )}
+                      {moduleKey === 'stickyNote' && (
+                        <StickyNoteModule object={displayObject} onChange={handleChange} />
+                      )}
+                      {moduleKey === 'text' && (
+                        <TextModule object={displayObject} onChange={handleChange} />
+                      )}
+                      {moduleKey === 'line' && (
+                        <LineModule object={displayObject} onChange={handleChange} />
+                      )}
+                      {moduleKey === 'frame' && (
+                        <FrameModule object={displayObject} onChange={handleChange} />
+                      )}
+                      {i < arr.length - 1 && <div className="my-3 border-t border-gray-100" />}
+                    </Fragment>
+                  ))}
+                </section>
+
+                {/* Multi-select indicator */}
+                {selectedObjectIds.length > 1 && (
+                  <p className="text-center text-xs text-gray-400">
+                    {selectedObjectIds.length} objects selected — changes apply to all
+                  </p>
+                )}
+              </div>
+            ) : (
+              // No prior selection — show global canvas presets
+              <CanvasPresetsPanel />
+            )}
+          </div>
+        )}
+      </aside>
+
+      {/* Side toggle tab — floats on the right edge, visible when panel is open or closed */}
       <button
         type="button"
         onClick={() => setIsPropertiesOpen(!isPropertiesOpen)}
         title={isPropertiesOpen ? 'Collapse properties panel' : 'Expand properties panel'}
-        className="absolute right-1 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600"
+        className="absolute right-0 top-1/2 z-10 flex h-12 w-5 -translate-y-1/2 translate-x-full items-center justify-center rounded-r-md border border-l-0 border-gray-200 bg-white text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
         aria-label={isPropertiesOpen ? 'Collapse' : 'Expand'}
       >
         {isPropertiesOpen ? <ChevronLeftIcon /> : <ChevronRightIcon />}
       </button>
-
-      {/* Collapsed strip — show a vertical "Properties" label */}
-      {!isPropertiesOpen && (
-        <div className="flex flex-1 items-center justify-center">
-          <span
-            className="text-[10px] font-semibold uppercase tracking-widest text-gray-300"
-            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-          >
-            Properties
-          </span>
-        </div>
-      )}
-
-      {/* Expanded content — fixed width so it doesn't squash during the transition */}
-      {isPropertiesOpen && (
-        <div className="flex h-full w-72 flex-col overflow-y-auto pt-9">
-          {displayObject ? (
-            <div className="flex flex-col gap-4 p-4 pt-2">
-              {/* Styles / Presets */}
-              <section>
-                <p className="mb-2 text-sm font-semibold text-gray-700">Styles</p>
-                <PresetsSection object={displayObject} onChange={handleChange} />
-              </section>
-
-              <div className="border-t border-gray-200" />
-
-              {/* Transparency — shared across all types */}
-              <section>
-                <TransparencyControl object={displayObject} onChange={handleChange} />
-              </section>
-
-              <div className="border-t border-gray-200" />
-
-              {/* Type-specific modules — rendered in the order returned by getModuleSet */}
-              <section>
-                {getModuleSet(displayObject.type).map((moduleKey, i, arr) => (
-                  <Fragment key={moduleKey}>
-                    {moduleKey === 'dimension' && (
-                      <DimensionModule object={displayObject} onChange={handleChange} />
-                    )}
-                    {moduleKey === 'shape' && (
-                      <ShapeModule object={displayObject} onChange={handleChange} />
-                    )}
-                    {moduleKey === 'stickyNote' && (
-                      <StickyNoteModule object={displayObject} onChange={handleChange} />
-                    )}
-                    {moduleKey === 'text' && (
-                      <TextModule object={displayObject} onChange={handleChange} />
-                    )}
-                    {moduleKey === 'line' && (
-                      <LineModule object={displayObject} onChange={handleChange} />
-                    )}
-                    {moduleKey === 'frame' && (
-                      <FrameModule object={displayObject} onChange={handleChange} />
-                    )}
-                    {i < arr.length - 1 && <div className="my-3 border-t border-gray-100" />}
-                  </Fragment>
-                ))}
-              </section>
-
-              {/* Multi-select indicator */}
-              {selectedObjectIds.length > 1 && (
-                <p className="text-center text-xs text-gray-400">
-                  {selectedObjectIds.length} objects selected — changes apply to all
-                </p>
-              )}
-            </div>
-          ) : (
-            // No prior selection — show global canvas presets
-            <CanvasPresetsPanel />
-          )}
-        </div>
-      )}
-    </aside>
+    </div>
   );
 }

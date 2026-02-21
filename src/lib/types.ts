@@ -355,7 +355,7 @@ export const LINE_DEFAULTS = {
   width: 120,
   height: 0,
   color: "#374151",
-  thickness: 2,
+  thickness: 3,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -408,6 +408,8 @@ export interface StylePreset {
 }
 
 export const STYLE_PRESETS: StylePreset[] = [
+  // Dark
+  { id: 'jet-black', label: 'Jet Black', color: '#111827', strokeColor: '#000000', textColor: '#FFFFFF', previewBg: '#111827', previewBorder: '#000000' },
   // Neutrals
   { id: 'soft-white',      label: 'Soft White',      color: '#FFFFFF', strokeColor: '#D1D5DB', textColor: '#374151', previewBg: '#FFFFFF', previewBorder: '#D1D5DB' },
   { id: 'pale-cloud',      label: 'Pale Cloud',      color: '#F3F4F6', strokeColor: '#CBD5E1', textColor: '#374151', previewBg: '#F3F4F6', previewBorder: '#CBD5E1' },
