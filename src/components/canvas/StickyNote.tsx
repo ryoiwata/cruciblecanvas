@@ -12,6 +12,7 @@ import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
 import { FONT_FAMILY_MAP } from "@/lib/types";
 import { borderResizingIds } from "@/lib/resizeState";
+import { overlapFraction } from "@/lib/utils";
 
 interface StickyNoteProps {
   object: BoardObject;
@@ -32,6 +33,8 @@ export default memo(function StickyNote({
 }: StickyNoteProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const groupRef = useRef<Konva.Group>(null);
+  // RAF handle for frame-glow detection during drag — coalesces move events per frame
+  const frameDragRafRef = useRef(0);
 
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
@@ -39,6 +42,7 @@ export default memo(function StickyNote({
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
+  const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
   const user = useAuthStore((s) => s.user);
@@ -48,6 +52,34 @@ export default memo(function StickyNote({
   const handleBorderHover = useCallback((hovering: boolean) => {
     setIsHoveringBorder(hovering);
   }, []);
+
+  // RAF-throttled drag-move handler — drives frame capture glow effect at display refresh rate.
+  // Defined before the LOD guard to satisfy rules-of-hooks (no conditional hook calls).
+  const handleDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    if (frameDragRafRef.current) {
+      cancelAnimationFrame(frameDragRafRef.current);
+    }
+    frameDragRafRef.current = requestAnimationFrame(() => {
+      frameDragRafRef.current = 0;
+      const node = e.target as Konva.Group;
+      const curX = node.x();
+      const curY = node.y();
+      const dragBounds = { x: curX, y: curY, width: object.width, height: object.height };
+
+      const allObjects = useObjectStore.getState().objects;
+      let bestId: string | null = null;
+      let bestOverlap = 0;
+      for (const candidate of Object.values(allObjects)) {
+        if (candidate.type !== "frame" || candidate.id === object.id) continue;
+        const frac = overlapFraction(dragBounds, candidate);
+        if (frac > 0.5 && frac > bestOverlap) {
+          bestOverlap = frac;
+          bestId = candidate.id;
+        }
+      }
+      useCanvasStore.getState().setFrameDragHighlightId(bestId);
+    });
+  }, [object.id, object.width, object.height]);
 
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
@@ -67,8 +99,9 @@ export default memo(function StickyNote({
     );
   }
 
-  // Generate notepad lines
-  const lineSpacing = 22;
+  // Generate notepad lines — spacing adapts to font size so text stays on the lines.
+  const effectiveFontSize = object.fontSize ?? 14;
+  const lineSpacing = Math.max(22, effectiveFontSize * 1.57);
   const lineStartY = 30; // Start below top padding
   const lineMarginX = 8;
   const notepadLines: number[] = [];
@@ -78,6 +111,8 @@ export default memo(function StickyNote({
 
   const handleDragStart = () => {
     if (!user) return;
+    // Snapshot before move so the drag is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
     useObjectStore.getState().startLocalEdit(object.id);
@@ -85,6 +120,13 @@ export default memo(function StickyNote({
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
+    // Clear frame glow highlight immediately on drop
+    if (frameDragRafRef.current) {
+      cancelAnimationFrame(frameDragRafRef.current);
+      frameDragRafRef.current = 0;
+    }
+    useCanvasStore.getState().setFrameDragHighlightId(null);
+
     const node = e.target;
     const finalX = Math.round(node.x());
     const finalY = Math.round(node.y());
@@ -103,6 +145,16 @@ export default memo(function StickyNote({
       updateObjectLocal(object.id, { x, y });
     }
 
+    // Deframe child if dragged fully outside its parent frame; otherwise expand frame.
+    if (object.parentFrame) {
+      const result = useObjectStore.getState().deframeOrExpandChild(object.id);
+      if (result?.action === 'deframe') {
+        updateObject(boardId, result.childId, { parentFrame: '' }).catch(console.error);
+      } else if (result?.action === 'expand') {
+        updateObject(boardId, result.frameId, result.patch).catch(console.error);
+      }
+    }
+
     // Trigger frame nesting check
     window.dispatchEvent(
       new CustomEvent("object-drag-end", { detail: { objectId: object.id } })
@@ -112,7 +164,9 @@ export default memo(function StickyNote({
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (mode !== "pointer") return;
     e.cancelBubble = true;
-    if (e.evt.ctrlKey || e.evt.metaKey) {
+    // Sync active color in toolbar to match the clicked object's color
+    setLastUsedColor(object.type, object.color);
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -127,11 +181,15 @@ export default memo(function StickyNote({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // If the clicked object is part of a multi-selection, target the whole group.
+    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
       x: e.evt.clientX,
       y: e.evt.clientY,
-      targetObjectId: object.id,
+      targetObjectId: isInGroup ? null : object.id,
+      targetObjectIds: isInGroup ? [...currentSelectedIds] : [],
       nearbyFrames: [],
     });
   };
@@ -144,8 +202,10 @@ export default memo(function StickyNote({
       y={object.y}
       width={object.width}
       height={object.height}
+      rotation={object.rotation ?? 0}
       draggable={isDraggable}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onTap={handleClick}
@@ -178,19 +238,34 @@ export default memo(function StickyNote({
         />
       ))}
 
-      {/* Text content */}
+      {/* Text content — y/lineHeight aligned with notepad lines.
+          fill uses textColor when set so StickyNoteModule color changes take effect. */}
       {object.text !== undefined && object.text !== "" && (
         <Text
           text={object.text}
-          width={object.width - 20}
-          x={10}
-          y={10}
-          fontSize={14}
+          width={object.width - 24}
+          x={12}
+          y={30}
+          fontSize={object.fontSize ?? 14}
+          lineHeight={Math.max(1, 22 / (object.fontSize ?? 14))}
           fontFamily={fontFamily}
-          fill="#1a1a1a"
-          ellipsis={true}
+          fill={object.textColor ?? '#1a1a1a'}
           wrap="word"
-          height={object.height - 20}
+          height={object.height - 40}
+          listening={false}
+        />
+      )}
+
+      {/* Framed-child indicator — bold purple border when captured inside a frame */}
+      {object.parentFrame && (
+        <Rect
+          width={object.width}
+          height={object.height}
+          stroke="#7C3AED"
+          strokeWidth={3}
+          fill="transparent"
+          listening={false}
+          cornerRadius={4}
         />
       )}
 

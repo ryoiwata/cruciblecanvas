@@ -62,9 +62,108 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
 
   if (!contextMenu.visible) return null;
 
+  const isGroupTarget = contextMenu.targetObjectIds.length > 1;
   const target = contextMenu.targetObjectId
     ? objects[contextMenu.targetObjectId]
     : null;
+
+  // ---------------------------------------------------------------------------
+  // Group action handlers — applied when multiple objects are right-clicked
+  // ---------------------------------------------------------------------------
+
+  const handleGroupDelete = async () => {
+    const ids = contextMenu.targetObjectIds;
+    if (ids.length === 0) return;
+    const toDelete = new Set(ids);
+
+    // Collect orphaned connectors referencing any deleted object
+    const connectorIds = Object.values(objects)
+      .filter((o) => o.type === 'connector' && o.connectedTo?.some((cid) => toDelete.has(cid)))
+      .map((o) => o.id);
+
+    // Clear parentFrame on children of any deleted frames
+    for (const id of ids) {
+      const obj = objects[id];
+      if (obj?.type === 'frame') {
+        const children = getChildrenOfFrame(id);
+        for (const child of children) {
+          updateObjectLocal(child.id, { parentFrame: undefined });
+          updateObject(boardId, child.id, { parentFrame: '' }).catch(console.error);
+        }
+      }
+    }
+
+    batchRemove(ids);
+    if (connectorIds.length > 0) batchRemove(connectorIds);
+    clearSelection();
+    hideContextMenu();
+
+    try {
+      await deleteObjects(boardId, [...ids, ...connectorIds]);
+    } catch (err) {
+      console.error('Group delete failed:', err);
+    }
+  };
+
+  const handleGroupDuplicate = () => {
+    if (!user || contextMenu.targetObjectIds.length === 0) return;
+    // Snapshot before duplicating so duplicates can be undone in one step
+    useObjectStore.getState().snapshot();
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      if ((o.zIndex ?? 0) > maxZ) maxZ = o.zIndex ?? 0;
+    }
+
+    contextMenu.targetObjectIds.forEach((id, i) => {
+      const obj = objects[id];
+      if (!obj || obj.type === 'connector') return;
+      const newId = generateObjectId(boardId);
+      const newObj = {
+        ...obj,
+        id: newId,
+        x: obj.x + 20,
+        y: obj.y + 20,
+        zIndex: maxZ + 1 + i,
+        createdBy: user.uid,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        parentFrame: undefined,
+      };
+      upsertObject(newObj);
+      createObject(
+        boardId,
+        {
+          type: newObj.type,
+          x: newObj.x,
+          y: newObj.y,
+          width: newObj.width,
+          height: newObj.height,
+          color: newObj.color,
+          text: newObj.text,
+          zIndex: newObj.zIndex,
+          createdBy: user.uid,
+        },
+        newId
+      ).catch(console.error);
+    });
+
+    hideContextMenu();
+  };
+
+  const handleGroupDeframe = () => {
+    for (const id of contextMenu.targetObjectIds) {
+      const obj = objects[id];
+      if (!obj?.parentFrame) continue;
+      updateObjectLocal(id, { parentFrame: undefined });
+      updateObject(boardId, id, { parentFrame: '' }).catch(console.error);
+    }
+    hideContextMenu();
+  };
+
+  const groupHasFramedChildren = contextMenu.targetObjectIds.some(
+    (id) => !!objects[id]?.parentFrame
+  );
 
   const handleDelete = async () => {
     if (!contextMenu.targetObjectId) return;
@@ -134,6 +233,14 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     hideContextMenu();
   };
 
+  /** Remove a single child object from its parent frame. */
+  const handleDeframe = () => {
+    if (!contextMenu.targetObjectId) return;
+    updateObjectLocal(contextMenu.targetObjectId, { parentFrame: undefined });
+    updateObject(boardId, contextMenu.targetObjectId, { parentFrame: "" }).catch(console.error);
+    hideContextMenu();
+  };
+
   const handleAddToFrame = (frameId: string) => {
     if (!contextMenu.targetObjectId) return;
     updateObjectLocal(contextMenu.targetObjectId, { parentFrame: frameId });
@@ -147,6 +254,9 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     if (!contextMenu.targetObjectId || !user) return;
     const obj = objects[contextMenu.targetObjectId];
     if (!obj) return;
+
+    // Snapshot before duplicating so the duplicate can be undone in one step
+    useObjectStore.getState().snapshot();
 
     // Compute max zIndex so duplicate appears on top
     const allObjects = useObjectStore.getState().objects;
@@ -240,17 +350,9 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     hideContextMenu();
   };
 
-  const handleOpacityChange = (value: number) => {
-    if (!contextMenu.targetObjectId) return;
-    const opacity = Math.round(value) / 100;
-    updateObjectLocal(contextMenu.targetObjectId, { opacity });
-    updateObject(boardId, contextMenu.targetObjectId, { opacity }).catch(
-      console.error
-    );
-  };
-
   const handleCreateStickyNote = () => {
     if (!user) return;
+    useObjectStore.getState().snapshot();
     const newId = generateObjectId(boardId);
     // Place near right-click position (approximate canvas coords)
     const stageX = useCanvasStore.getState().stageX;
@@ -292,6 +394,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
 
   const handleCreateShape = () => {
     if (!user) return;
+    useObjectStore.getState().snapshot();
     const newId = generateObjectId(boardId);
     const stageX = useCanvasStore.getState().stageX;
     const stageY = useCanvasStore.getState().stageY;
@@ -363,6 +466,11 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
       items.push({ label: "Deframe All", onClick: handleDeframeAll });
     }
 
+    // "Deframe" for child objects currently inside a frame
+    if (target.type !== "frame" && target.type !== "connector" && target.parentFrame) {
+      items.push({ label: "Deframe", onClick: handleDeframe });
+    }
+
     // "Add to Frame" for non-frame, non-connector objects
     if (
       target.type !== "frame" &&
@@ -378,6 +486,42 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     }
 
     items.push({ label: "Delete", onClick: handleDelete, danger: true });
+  }
+
+  // Group context menu — shown when multiple selected objects are right-clicked
+  if (isGroupTarget) {
+    const count = contextMenu.targetObjectIds.length;
+    return (
+      <div
+        ref={menuRef}
+        className="fixed z-[200] min-w-[180px] rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+        style={{ left: contextMenu.x, top: contextMenu.y }}
+      >
+        <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100">
+          {count} objects selected
+        </div>
+        <button
+          onClick={handleGroupDuplicate}
+          className="w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+        >
+          Duplicate Group
+        </button>
+        {groupHasFramedChildren && (
+          <button
+            onClick={handleGroupDeframe}
+            className="w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+          >
+            Deframe All Selected
+          </button>
+        )}
+        <button
+          onClick={handleGroupDelete}
+          className="w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-gray-100"
+        >
+          Delete {count} objects
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -402,24 +546,6 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
             ))}
           </div>
         )}
-
-      {/* Opacity slider for non-connector objects */}
-      {target && target.type !== "connector" && (
-        <div className="flex items-center gap-2 border-b border-gray-100 px-3 py-2">
-          <span className="text-xs text-gray-500 w-12 shrink-0">Opacity</span>
-          <input
-            type="range"
-            min={10}
-            max={100}
-            value={Math.round((target.opacity ?? 1) * 100)}
-            onChange={(e) => handleOpacityChange(Number(e.target.value))}
-            className="h-1 flex-1 cursor-pointer accent-indigo-500"
-          />
-          <span className="text-xs text-gray-400 w-8 text-right tabular-nums">
-            {Math.round((target.opacity ?? 1) * 100)}%
-          </span>
-        </div>
-      )}
 
       {items.map((item, i) => (
         <button

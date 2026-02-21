@@ -10,7 +10,9 @@ export type ObjectType =
   | "circle"
   | "frame"
   | "connector"
-  | "colorLegend";
+  | "colorLegend"
+  | "line"
+  | "text";
 
 export type AnalyticalRole =
   | "critique"
@@ -23,6 +25,20 @@ export type AnalyticalRole =
 export type ConnectorStyle = "solid" | "dashed" | "dotted";
 
 export type StickyFontFamily = "sans-serif" | "handwritten" | "monospace";
+
+// ---- Properties Sidebar types ----
+
+/** Decoration applied to the start or end of a line/connector. */
+export type LineEffect = 'none' | 'arrow' | 'filled-arrow' | 'open-arrow' | 'dot';
+
+/** Routing style for lines and connectors. */
+export type LineType = 'straight' | 'elbow' | 'curved';
+
+/** Horizontal text alignment. */
+export type TextAlign = 'left' | 'center' | 'right';
+
+/** Vertical text alignment within an object's bounding box. */
+export type TextVerticalAlign = 'top' | 'middle' | 'bottom';
 
 export const FONT_FAMILY_MAP: Record<StickyFontFamily, string> = {
   "sans-serif": "sans-serif",
@@ -67,6 +83,20 @@ export interface BoardObject {
   opacity?: number; // 0-1, defaults to 1
   zIndex?: number;  // explicit layer order; higher = in front
   fontFamily?: StickyFontFamily; // font for text content
+  fontSize?: number; // font size in canvas units; used by TextObject (default 16)
+  thickness?: number; // stroke width in canvas units; 1–10; defaults to type-specific constant
+  borderType?: 'solid' | 'dashed' | 'dotted'; // border/stroke style for shapes and lines
+
+  // Extended visual properties (Properties Sidebar)
+  strokeColor?: string;              // Separate border/stroke color distinct from fill (shapes, frames)
+  textColor?: string;                // Text fill color independent of object color
+  textAlign?: TextAlign;             // Horizontal text alignment
+  textVerticalAlign?: TextVerticalAlign; // Vertical text alignment within bounding box
+  lineType?: LineType;               // Connector/line routing style
+  startEffect?: LineEffect;          // Decoration at start of line/connector
+  endEffect?: LineEffect;            // Decoration at end of line/connector
+  startEffectSize?: number;          // Start effect scale % (default 100)
+  endEffectSize?: number;            // End effect scale % (default 100)
 
   // Ownership & timestamps
   createdBy: string;
@@ -259,6 +289,15 @@ export const ZOOM_MIN = 0.05;
 export const ZOOM_MAX = 5.0;
 
 // ---------------------------------------------------------------------------
+// Frame z-index layering — frames always render below all non-frame objects.
+// ---------------------------------------------------------------------------
+
+/** Frames are always rendered below all other objects. */
+export const FRAME_ZINDEX_MAX = 1000;
+/** Non-frame objects always start above frames. */
+export const OBJECT_ZINDEX_MIN = 1001;
+
+// ---------------------------------------------------------------------------
 // Level-of-detail (LOD) thresholds
 // ---------------------------------------------------------------------------
 
@@ -305,7 +344,29 @@ export const FRAME_SIZE_LIMITS = {
 export const CONNECTOR_DEFAULTS = {
   color: "#6B7280",
   style: "solid" as ConnectorStyle,
-  strokeWidth: 2,
+  strokeWidth: 2.5,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Line defaults
+// ---------------------------------------------------------------------------
+
+export const LINE_DEFAULTS = {
+  width: 120,
+  height: 0,
+  color: "#374151",
+  thickness: 3,
+} as const;
+
+// ---------------------------------------------------------------------------
+// Text object defaults
+// ---------------------------------------------------------------------------
+
+export const TEXT_DEFAULTS = {
+  width: 250,
+  height: 50,
+  fontSize: 24,
+  color: '#000000',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -328,6 +389,48 @@ export const COLOR_LEGEND_DEFAULTS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Style Presets (Properties Sidebar — quick-apply fill + stroke combos)
+// ---------------------------------------------------------------------------
+
+export interface StylePreset {
+  id: string;
+  label: string;
+  /** Fill/background color */
+  color: string;
+  /** Border/stroke color */
+  strokeColor?: string;
+  /** Text color */
+  textColor?: string;
+  /** Swatch background for the preview chip */
+  previewBg: string;
+  /** Swatch border for the preview chip */
+  previewBorder?: string;
+}
+
+export const STYLE_PRESETS: StylePreset[] = [
+  // Dark
+  { id: 'jet-black', label: 'Jet Black', color: '#111827', strokeColor: '#000000', textColor: '#FFFFFF', previewBg: '#111827', previewBorder: '#000000' },
+  // Neutrals
+  { id: 'soft-white',      label: 'Soft White',      color: '#FFFFFF', strokeColor: '#D1D5DB', textColor: '#374151', previewBg: '#FFFFFF', previewBorder: '#D1D5DB' },
+  { id: 'pale-cloud',      label: 'Pale Cloud',      color: '#F3F4F6', strokeColor: '#CBD5E1', textColor: '#374151', previewBg: '#F3F4F6', previewBorder: '#CBD5E1' },
+  // Pinks & Reds
+  { id: 'pastel-pink',     label: 'Pastel Pink',     color: '#FFD6E8', strokeColor: '#F9A8D4', textColor: '#9D174D', previewBg: '#FFD6E8', previewBorder: '#F9A8D4' },
+  { id: 'pastel-rose',     label: 'Pastel Rose',     color: '#FFE4E6', strokeColor: '#FCA5A5', textColor: '#9F1239', previewBg: '#FFE4E6', previewBorder: '#FCA5A5' },
+  // Oranges & Yellows
+  { id: 'pastel-peach',    label: 'Pastel Peach',    color: '#FFECD2', strokeColor: '#FDBA74', textColor: '#9A3412', previewBg: '#FFECD2', previewBorder: '#FDBA74' },
+  { id: 'pastel-yellow',   label: 'Pastel Yellow',   color: '#FEF9C3', strokeColor: '#FDE047', textColor: '#713F12', previewBg: '#FEF9C3', previewBorder: '#FDE047' },
+  // Greens
+  { id: 'pastel-mint',     label: 'Pastel Mint',     color: '#D1FAE5', strokeColor: '#6EE7B7', textColor: '#065F46', previewBg: '#D1FAE5', previewBorder: '#6EE7B7' },
+  { id: 'pastel-sage',     label: 'Pastel Sage',     color: '#DCFCE7', strokeColor: '#86EFAC', textColor: '#14532D', previewBg: '#DCFCE7', previewBorder: '#86EFAC' },
+  // Blues
+  { id: 'pastel-sky',      label: 'Pastel Sky',      color: '#E0F2FE', strokeColor: '#7DD3FC', textColor: '#0C4A6E', previewBg: '#E0F2FE', previewBorder: '#7DD3FC' },
+  { id: 'pastel-blue',     label: 'Pastel Blue',     color: '#DBEAFE', strokeColor: '#93C5FD', textColor: '#1E3A8A', previewBg: '#DBEAFE', previewBorder: '#93C5FD' },
+  // Purples
+  { id: 'pastel-lavender', label: 'Pastel Lavender', color: '#EDE9FE', strokeColor: '#C4B5FD', textColor: '#4C1D95', previewBg: '#EDE9FE', previewBorder: '#C4B5FD' },
+  { id: 'pastel-lilac',    label: 'Pastel Lilac',    color: '#FAE8FF', strokeColor: '#E879F9', textColor: '#701A75', previewBg: '#FAE8FF', previewBorder: '#E879F9' },
+] as const;
+
+// ---------------------------------------------------------------------------
 // Context menu types
 // ---------------------------------------------------------------------------
 
@@ -335,6 +438,9 @@ export interface ContextMenuState {
   visible: boolean;
   x: number;
   y: number;
+  /** Single-object target; null when the menu targets a group. */
   targetObjectId: string | null;
+  /** Multi-object target ids; non-empty only when the right-clicked object is part of a multi-selection. */
+  targetObjectIds: string[];
   nearbyFrames: { id: string; title: string }[];
 }

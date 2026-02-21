@@ -10,6 +10,20 @@ import { memo } from 'react';
 import ObjectRefChip from './ObjectRefChip';
 import type { ChatMessage as ChatMessageType } from '@/lib/types';
 
+function RobotIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      <rect x="5" y="8" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.4" fill="none" />
+      <circle cx="8" cy="11.5" r="1" fill="currentColor" />
+      <circle cx="12" cy="11.5" r="1" fill="currentColor" />
+      <line x1="10" y1="8" x2="10" y2="5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <circle cx="10" cy="4" r="1.2" fill="currentColor" />
+      <line x1="3" y1="11" x2="5" y2="11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <line x1="15" y1="11" x2="17" y2="11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 interface ChatMessageProps {
   message: ChatMessageType;
   isOwnMessage: boolean;
@@ -109,8 +123,8 @@ export default memo(function ChatMessage({
       <div className="flex justify-start mb-1">
         <div className="max-w-[85%]">
           <div className="flex items-center gap-1.5 mb-0.5">
-            <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-sm">
-              ✨
+            <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+              <RobotIcon />
             </div>
             <span className="text-xs text-gray-500">AI Assistant</span>
             {message.aiStatus === 'streaming' && (

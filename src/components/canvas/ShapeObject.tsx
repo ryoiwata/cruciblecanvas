@@ -11,6 +11,7 @@ import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
 import { borderResizingIds } from "@/lib/resizeState";
+import { overlapFraction, getStrokeDash } from "@/lib/utils";
 
 interface ShapeObjectProps {
   object: BoardObject;
@@ -31,12 +32,15 @@ export default memo(function ShapeObject({
 }: ShapeObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const groupRef = useRef<Konva.Group>(null);
+  // RAF handle for frame-glow detection during drag — coalesces move events per frame
+  const frameDragRafRef = useRef(0);
 
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
+  const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
   const user = useAuthStore((s) => s.user);
@@ -46,6 +50,35 @@ export default memo(function ShapeObject({
   const handleBorderHover = useCallback((hovering: boolean) => {
     setIsHoveringBorder(hovering);
   }, []);
+
+  // RAF-throttled drag-move handler — computes best-candidate frame overlap to drive the glow effect.
+  // Avoids drag-flooding by coalescing multiple move events to one computation per animation frame.
+  // Defined before the LOD guard to satisfy rules-of-hooks (no conditional hook calls).
+  const handleDragMove = useCallback((e: Konva.KonvaEventObject<DragEvent>) => {
+    if (frameDragRafRef.current) {
+      cancelAnimationFrame(frameDragRafRef.current);
+    }
+    frameDragRafRef.current = requestAnimationFrame(() => {
+      frameDragRafRef.current = 0;
+      const node = e.target as Konva.Group;
+      const curX = node.x();
+      const curY = node.y();
+      const dragBounds = { x: curX, y: curY, width: object.width, height: object.height };
+
+      const allObjects = useObjectStore.getState().objects;
+      let bestId: string | null = null;
+      let bestOverlap = 0;
+      for (const candidate of Object.values(allObjects)) {
+        if (candidate.type !== "frame" || candidate.id === object.id) continue;
+        const frac = overlapFraction(dragBounds, candidate);
+        if (frac > 0.5 && frac > bestOverlap) {
+          bestOverlap = frac;
+          bestId = candidate.id;
+        }
+      }
+      useCanvasStore.getState().setFrameDragHighlightId(bestId);
+    });
+  }, [object.id, object.width, object.height]);
 
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
@@ -74,6 +107,8 @@ export default memo(function ShapeObject({
 
   const handleDragStart = () => {
     if (!user) return;
+    // Snapshot before move so the drag is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
     useObjectStore.getState().startLocalEdit(object.id);
@@ -81,6 +116,13 @@ export default memo(function ShapeObject({
   };
 
   const handleDragEnd = async (e: Konva.KonvaEventObject<DragEvent>) => {
+    // Clear frame glow highlight immediately on drop
+    if (frameDragRafRef.current) {
+      cancelAnimationFrame(frameDragRafRef.current);
+      frameDragRafRef.current = 0;
+    }
+    useCanvasStore.getState().setFrameDragHighlightId(null);
+
     const node = e.target;
     const finalX = Math.round(node.x());
     const finalY = Math.round(node.y());
@@ -99,6 +141,16 @@ export default memo(function ShapeObject({
       updateObjectLocal(object.id, { x, y });
     }
 
+    // Deframe child if dragged fully outside its parent frame; otherwise expand frame.
+    if (object.parentFrame) {
+      const result = useObjectStore.getState().deframeOrExpandChild(object.id);
+      if (result?.action === 'deframe') {
+        updateObject(boardId, result.childId, { parentFrame: '' }).catch(console.error);
+      } else if (result?.action === 'expand') {
+        updateObject(boardId, result.frameId, result.patch).catch(console.error);
+      }
+    }
+
     // Trigger frame nesting check
     window.dispatchEvent(
       new CustomEvent("object-drag-end", { detail: { objectId: object.id } })
@@ -108,7 +160,9 @@ export default memo(function ShapeObject({
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     if (mode !== "pointer") return;
     e.cancelBubble = true;
-    if (e.evt.ctrlKey || e.evt.metaKey) {
+    // Sync active color in toolbar to match the clicked object's color
+    setLastUsedColor(object.type, object.color);
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -118,11 +172,15 @@ export default memo(function ShapeObject({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // If the clicked object is part of a multi-selection, target the whole group.
+    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
       x: e.evt.clientX,
       y: e.evt.clientY,
-      targetObjectId: object.id,
+      targetObjectId: isInGroup ? null : object.id,
+      targetObjectIds: isInGroup ? [...currentSelectedIds] : [],
       nearbyFrames: [],
     });
   };
@@ -135,14 +193,29 @@ export default memo(function ShapeObject({
       y={object.y}
       width={object.width}
       height={object.height}
+      rotation={object.rotation ?? 0}
       draggable={isDraggable}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onTap={handleClick}
       onContextMenu={handleContextMenu}
       opacity={(isLocked ? 0.6 : object.isAIPending ? 0.5 : 1) * (object.opacity ?? 1)}
     >
+      {/* Framed-child indicator — bold purple border when captured inside a frame */}
+      {object.parentFrame && (
+        <Rect
+          width={object.width}
+          height={object.height}
+          stroke="#7C3AED"
+          strokeWidth={3}
+          fill="transparent"
+          listening={false}
+          cornerRadius={4}
+        />
+      )}
+
       {/* AI badge */}
       {object.isAIGenerated && (
         <Text
@@ -153,31 +226,42 @@ export default memo(function ShapeObject({
           listening={false}
         />
       )}
-      {object.type === "rectangle" ? (
-        <Rect
-          width={object.width}
-          height={object.height}
-          fill={object.color}
-          cornerRadius={4}
-          stroke={isSelected ? "#2196F3" : undefined}
-          strokeWidth={isSelected ? 2 : 0}
-          shadowColor={isConnectorTarget ? "#6366f1" : undefined}
-          shadowBlur={isConnectorTarget ? 15 : 0}
-          shadowEnabled={!!isConnectorTarget}
-        />
-      ) : (
-        <Circle
-          x={object.width / 2}
-          y={object.height / 2}
-          radius={object.width / 2}
-          fill={object.color}
-          stroke={isSelected ? "#2196F3" : undefined}
-          strokeWidth={isSelected ? 2 : 0}
-          shadowColor={isConnectorTarget ? "#6366f1" : undefined}
-          shadowBlur={isConnectorTarget ? 15 : 0}
-          shadowEnabled={!!isConnectorTarget}
-        />
-      )}
+      {/* Compute border appearance from stored properties.
+          Selection blue always wins; otherwise render the user-configured border.
+          Uses strokeColor field when set, falling back to dark gray default. */}
+      {(() => {
+        const hasBorder = !!(object.borderType || object.thickness);
+        const strokeColor = isSelected ? '#2196F3' : (hasBorder ? (object.strokeColor ?? '#374151') : undefined);
+        const strokeWidth = isSelected ? 2 : (hasBorder ? (object.thickness ?? 2) : 0);
+        const dash = isSelected ? undefined : getStrokeDash(object.borderType);
+        return object.type === 'rectangle' ? (
+          <Rect
+            width={object.width}
+            height={object.height}
+            fill={object.color}
+            cornerRadius={4}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            dash={dash}
+            shadowColor={isConnectorTarget ? '#6366f1' : undefined}
+            shadowBlur={isConnectorTarget ? 15 : 0}
+            shadowEnabled={!!isConnectorTarget}
+          />
+        ) : (
+          <Circle
+            x={object.width / 2}
+            y={object.height / 2}
+            radius={object.width / 2}
+            fill={object.color}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+            dash={dash}
+            shadowColor={isConnectorTarget ? '#6366f1' : undefined}
+            shadowBlur={isConnectorTarget ? 15 : 0}
+            shadowEnabled={!!isConnectorTarget}
+          />
+        );
+      })()}
 
       {isLocked && lockedByName && (
         <Text

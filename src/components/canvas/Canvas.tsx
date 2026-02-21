@@ -22,7 +22,10 @@ import {
   STICKY_NOTE_SIZE_LIMITS,
   CONNECTOR_DEFAULTS,
   COLOR_LEGEND_DEFAULTS,
+  TEXT_DEFAULTS,
   MIN_DRAG_THRESHOLD,
+  FRAME_ZINDEX_MAX,
+  OBJECT_ZINDEX_MIN,
 } from "@/lib/types";
 import DotGrid from "./DotGrid";
 import BoardObjects from "./BoardObjects";
@@ -59,6 +62,12 @@ function getColorForTool(
       return FRAME_DEFAULTS.color;
     case "colorLegend":
       return COLOR_LEGEND_DEFAULTS.color;
+    case "line":
+      return activeColor || "#374151";
+    case "text":
+      // Text color should be independent of the active shape fill color.
+      // Fall back to the type's own default (black) rather than inheriting activeColor.
+      return TEXT_DEFAULTS.color;
     default:
       return "#E3E8EF";
   }
@@ -77,20 +86,34 @@ function getDefaultsForTool(tool: ObjectType): { width: number; height: number }
       return { width: FRAME_DEFAULTS.width, height: FRAME_DEFAULTS.height };
     case "colorLegend":
       return { width: COLOR_LEGEND_DEFAULTS.width, height: COLOR_LEGEND_DEFAULTS.height };
+    // Line: default is a 120px horizontal line (width = length, height = 0)
+    case "line":
+      return { width: 120, height: 0 };
+    case "text":
+      return { width: TEXT_DEFAULTS.width, height: TEXT_DEFAULTS.height };
     default:
       return { width: 100, height: 100 };
   }
 }
 
-// --- Helper: compute max zIndex across all objects ---
-function getMaxZIndex(): number {
+// --- Helper: compute appropriate max zIndex for the given tool type ---
+// Frames are capped at FRAME_ZINDEX_MAX; non-frames start at OBJECT_ZINDEX_MIN.
+// This ensures frames always render below all non-frame objects.
+function getMaxZIndexForTool(tool: ObjectType): number {
   const objs = useObjectStore.getState().objects;
-  let max = 0;
-  for (const o of Object.values(objs)) {
-    const z = o.zIndex ?? 0;
-    if (z > max) max = z;
+  if (tool === 'frame') {
+    let max = 0;
+    for (const o of Object.values(objs)) {
+      if (o.type === 'frame') max = Math.max(max, o.zIndex ?? 0);
+    }
+    return Math.min(max + 1, FRAME_ZINDEX_MAX);
   }
-  return max;
+  // Non-frame: start at OBJECT_ZINDEX_MIN, grow upward
+  let max = OBJECT_ZINDEX_MIN - 1;
+  for (const o of Object.values(objs)) {
+    if (o.type !== 'frame') max = Math.max(max, o.zIndex ?? 0);
+  }
+  return max + 1;
 }
 
 // --- Helper: get size limits for a tool ---
@@ -222,6 +245,9 @@ interface DrawingState {
 
 export default function Canvas({ boardId }: CanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
+  // Container ref is used to measure available dimensions so the Konva Stage
+  // fills only the canvas region (not window.innerWidth, which ignores sidebars).
+  const containerRef = useRef<HTMLDivElement>(null);
   const lastCursorSend = useRef(0);
   const lastCursorPos = useRef({ x: 0, y: 0 });
   const drawingRef = useRef<DrawingState | null>(null);
@@ -234,6 +260,10 @@ export default function Canvas({ boardId }: CanvasProps) {
   } | null>(null);
   // RAF handle for border resize rendering — coalesces mouse events to display refresh rate
   const borderResizeRafRef = useRef(0);
+
+  // Direct-DOM coordinate label — updated via RAF to avoid React re-renders on every mousemove.
+  const coordsLabelRef = useRef<HTMLDivElement>(null);
+  const coordsRafRef = useRef(0);
 
   // RAF handle for viewport updates — coalesces wheel/pan events to display refresh rate
   const viewportRafRef = useRef<number | null>(null);
@@ -329,21 +359,39 @@ export default function Canvas({ boardId }: CanvasProps) {
     }
   }, [mode, creationTool, removeObject]);
 
-  // --- Window dimensions ---
+  // --- Container dimensions — measured from the flex container, not window ---
+  // This ensures the Stage fills only the canvas column (accounting for sidebars).
   useEffect(() => {
-    setDimensions({ width: window.innerWidth, height: window.innerHeight });
+    const measure = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.offsetWidth,
+          height: containerRef.current.offsetHeight,
+        });
+      }
+    };
+
+    measure();
 
     let timeoutId: ReturnType<typeof setTimeout>;
     const handleResize = () => {
       clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        setDimensions({ width: window.innerWidth, height: window.innerHeight });
-      }, 100);
+      timeoutId = setTimeout(measure, 100);
     };
 
     window.addEventListener("resize", handleResize);
+
+    // ResizeObserver watches the container element directly so sidebar open/close
+    // triggers a Stage resize without needing a window resize event.
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(measure, 50);
+    });
+    if (containerRef.current) ro.observe(containerRef.current);
+
     return () => {
       window.removeEventListener("resize", handleResize);
+      ro.disconnect();
       clearTimeout(timeoutId);
     };
   }, []);
@@ -422,6 +470,8 @@ export default function Canvas({ boardId }: CanvasProps) {
           return;
         }
 
+        // Snapshot before connector creation so it is undoable
+        useObjectStore.getState().snapshot();
         const newId = generateObjectId(boardId);
         const newConnector = {
           id: newId,
@@ -490,7 +540,7 @@ export default function Canvas({ boardId }: CanvasProps) {
         return;
       }
 
-      if (mode === "pointer" && !e.evt.ctrlKey && !e.evt.metaKey) {
+      if (mode === "pointer" && !e.evt.ctrlKey && !e.evt.metaKey && !e.evt.shiftKey) {
         clearSelection();
       }
     },
@@ -527,8 +577,8 @@ export default function Canvas({ boardId }: CanvasProps) {
       }
 
       if (mode === "pointer") {
-        if (e.evt.ctrlKey || e.evt.metaKey) {
-          // Ctrl+drag: start selection rectangle (marquee)
+        if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
+          // Ctrl/Shift+drag: start selection rectangle (marquee)
           pointerInteractionRef.current = { type: "selRect", shiftHeld: e.evt.shiftKey };
           selRectRef.current = {
             startX: canvasPoint.x,
@@ -571,6 +621,23 @@ export default function Canvas({ boardId }: CanvasProps) {
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
 
+      // Coordinate overlay — RAF-throttled direct DOM mutation for zero React re-render cost.
+      // Uses transform: translate() for GPU compositing (avoids layout thrash vs. left/top).
+      if (!coordsRafRef.current) {
+        const px = pointer.x;
+        const py = pointer.y;
+        const canvasX = Math.round((px - stage.x()) / stage.scaleX());
+        const canvasY = Math.round((py - stage.y()) / stage.scaleY());
+        coordsRafRef.current = requestAnimationFrame(() => {
+          coordsRafRef.current = 0;
+          const label = coordsLabelRef.current;
+          if (!label) return;
+          label.style.transform = `translate(${px + 16}px, ${py + 16}px)`;
+          label.textContent = `${canvasX}, ${canvasY}`;
+          label.style.display = 'block';
+        });
+      }
+
       // --- Create mode (non-connector): drag-to-create or ghost ---
       if (mode === "create" && creationTool && creationTool !== "connector") {
         const canvasPoint = getCanvasPoint(
@@ -586,24 +653,39 @@ export default function Canvas({ boardId }: CanvasProps) {
           const endX = canvasPoint.x;
           const endY = canvasPoint.y;
 
-          let w = Math.abs(endX - drawingRef.current.startX);
-          let h = Math.abs(endY - drawingRef.current.startY);
+          // Line tool: width/height encode the direction vector, so they can be negative.
+          // All other tools use absolute dimensions with top-left origin.
+          let w: number;
+          let h: number;
+          let objX: number;
+          let objY: number;
 
-          // Circle constraint: enforce square
-          if (creationTool === "circle") {
-            const maxDim = Math.max(w, h);
-            w = maxDim;
-            h = maxDim;
+          if (creationTool === "line") {
+            // Line: store direction vector — no abs(), no clamping
+            w = Math.round(endX - drawingRef.current.startX);
+            h = Math.round(endY - drawingRef.current.startY);
+            objX = drawingRef.current.startX;
+            objY = drawingRef.current.startY;
+          } else {
+            w = Math.abs(endX - drawingRef.current.startX);
+            h = Math.abs(endY - drawingRef.current.startY);
+
+            // Circle constraint: enforce square
+            if (creationTool === "circle") {
+              const maxDim = Math.max(w, h);
+              w = maxDim;
+              h = maxDim;
+            }
+
+            // Clamp to size limits
+            const limits = getSizeLimitsForTool(creationTool);
+            w = Math.max(limits.min.width, Math.min(limits.max.width, w));
+            h = Math.max(limits.min.height, Math.min(limits.max.height, h));
+
+            // Handle negative drag direction
+            objX = Math.min(drawingRef.current.startX, endX);
+            objY = Math.min(drawingRef.current.startY, endY);
           }
-
-          // Clamp to size limits
-          const limits = getSizeLimitsForTool(creationTool);
-          w = Math.max(limits.min.width, Math.min(limits.max.width, w));
-          h = Math.max(limits.min.height, Math.min(limits.max.height, h));
-
-          // Handle negative drag direction
-          const objX = Math.min(drawingRef.current.startX, endX);
-          const objY = Math.min(drawingRef.current.startY, endY);
 
           const dist = Math.max(
             Math.abs(endX - drawingRef.current.startX),
@@ -611,7 +693,8 @@ export default function Canvas({ boardId }: CanvasProps) {
           );
 
           if (!drawingRef.current.created && dist > MIN_DRAG_THRESHOLD && user) {
-            // First time past threshold — create object
+            // First time past threshold — snapshot before creating so it is undoable
+            useObjectStore.getState().snapshot();
             const color = getColorForTool(creationTool, lastUsedColors, activeColor);
             const newObject = {
               id: drawingRef.current.objectId,
@@ -622,7 +705,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               height: h,
               color,
               text: "",
-              zIndex: getMaxZIndex() + 1,
+              zIndex: getMaxZIndexForTool(creationTool),
               createdBy: user.uid,
               createdAt: Date.now(),
               updatedAt: Date.now(),
@@ -967,17 +1050,25 @@ export default function Canvas({ boardId }: CanvasProps) {
               text: obj.text ?? "",
               zIndex: obj.zIndex,
               createdBy: user.uid,
+              ...(obj.type === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
             },
             drawing.objectId
           ).catch((err) => {
             console.error("Failed to create object:", err);
           });
+
+          // Text tool: open editor after drag-to-size, exit create mode
+          if (obj.type === 'text') {
+            useCanvasStore.getState().exitToPointer();
+            useCanvasStore.getState().setEditingObject(drawing.objectId);
+          }
         }
       } else {
-        // Click (no drag) — create at default size
+        // Click (no drag) — create at default size; snapshot so creation is undoable
+        useObjectStore.getState().snapshot();
         const defaults = getDefaultsForTool(creationTool);
         const color = getColorForTool(creationTool, lastUsedColors, activeColor);
-        const maxZ = getMaxZIndex() + 1;
+        const maxZ = getMaxZIndexForTool(creationTool);
 
         const newObject = {
           id: drawing.objectId,
@@ -992,6 +1083,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           createdBy: user.uid,
           createdAt: Date.now(),
           updatedAt: Date.now(),
+          ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
         };
 
         upsertObject(newObject);
@@ -1008,11 +1100,19 @@ export default function Canvas({ boardId }: CanvasProps) {
             text: "",
             zIndex: maxZ,
             createdBy: user.uid,
+            ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
           },
           drawing.objectId
         ).catch((err) => {
           console.error("Failed to create object:", err);
         });
+
+        // Text tool: open editor immediately so user can start typing right away.
+        // Also exit create mode so Escape or clicking away ends in pointer mode.
+        if (creationTool === 'text') {
+          useCanvasStore.getState().exitToPointer();
+          useCanvasStore.getState().setEditingObject(drawing.objectId);
+        }
       }
 
       drawingRef.current = null;
@@ -1090,6 +1190,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           x: e.evt.clientX,
           y: e.evt.clientY,
           targetObjectId: null,
+          targetObjectIds: [],
           nearbyFrames: [],
         });
       }
@@ -1129,6 +1230,9 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       const obj = useObjectStore.getState().objects[objectId];
       if (!obj) return;
+
+      // Snapshot before resize so it is undoable via Ctrl+Z
+      useObjectStore.getState().snapshot();
 
       borderResizeRef.current = {
         objectId,
@@ -1222,10 +1326,12 @@ export default function Canvas({ boardId }: CanvasProps) {
 
   return (
     <div
+      ref={containerRef}
       data-testid="canvas-ready"
       style={{
-        width: "100vw",
-        height: "100vh",
+        position: "relative",
+        width: "100%",
+        height: "100%",
         overflow: "hidden",
         cursor: getCursorStyle(),
       }}
@@ -1312,6 +1418,13 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       {/* HTML overlays (above Konva) */}
       {editingObjectId && <TextEditor boardId={boardId} />}
+
+      {/* Cursor coordinate display — positioned via transform in handleMouseMove, no React state */}
+      <div
+        ref={coordsLabelRef}
+        style={{ display: 'none', position: 'absolute', top: 0, left: 0, pointerEvents: 'none', zIndex: 20 }}
+        className="rounded bg-white/80 px-1.5 py-0.5 font-mono text-[11px] text-gray-500 shadow-sm select-none"
+      />
     </div>
   );
 }

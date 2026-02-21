@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
-import { updateObject } from "@/lib/firebase/firestore";
+import { updateObject, deleteObject } from "@/lib/firebase/firestore";
 import { STICKY_NOTE_SIZE_LIMITS, FONT_FAMILY_MAP } from "@/lib/types";
 
 interface TextEditorProps {
@@ -19,6 +19,7 @@ export default function TextEditor({ boardId }: TextEditorProps) {
 
   const objects = useObjectStore((s) => s.objects);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
+  const removeObject = useObjectStore((s) => s.removeObject);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
@@ -27,6 +28,9 @@ export default function TextEditor({ boardId }: TextEditorProps) {
 
   useEffect(() => {
     if (object) {
+      // Snapshot before editing begins so the text change is undoable via Ctrl+Z.
+      // Fires once per edit session (keyed on object?.id change).
+      useObjectStore.getState().snapshot();
       setText(object.text || "");
       // Focus textarea after mount
       requestAnimationFrame(() => {
@@ -40,11 +44,20 @@ export default function TextEditor({ boardId }: TextEditorProps) {
     if (!editingObjectId || !object) return;
 
     const trimmed = text;
+
+    // Auto-delete empty text objects rather than leaving invisible elements.
+    if (object.type === 'text' && trimmed.trim() === '') {
+      removeObject(editingObjectId);
+      deleteObject(boardId, editingObjectId).catch(console.error);
+      setEditingObject(null);
+      return;
+    }
+
     updateObjectLocal(editingObjectId, { text: trimmed });
 
-    // Auto-resize height for sticky notes
-    if (object.type === "stickyNote" && textareaRef.current) {
-      const measuredHeight = textareaRef.current.scrollHeight + 20; // padding
+    // Auto-resize height for sticky notes and text objects based on content.
+    if ((object.type === "stickyNote" || object.type === "text") && textareaRef.current) {
+      const measuredHeight = textareaRef.current.scrollHeight + (object.type === "text" ? 4 : 20);
       const newHeight = Math.max(
         STICKY_NOTE_SIZE_LIMITS.min.height,
         Math.min(STICKY_NOTE_SIZE_LIMITS.max.height, measuredHeight)
@@ -73,6 +86,7 @@ export default function TextEditor({ boardId }: TextEditorProps) {
     text,
     boardId,
     updateObjectLocal,
+    removeObject,
     setEditingObject,
   ]);
 
@@ -96,16 +110,29 @@ export default function TextEditor({ boardId }: TextEditorProps) {
 
   // For frames, only edit the title bar area
   const isFrame = object.type === "frame";
+  const isText = object.type === "text";
   const editHeight = isFrame ? 40 * stageScale : screenHeight;
+
+  // Font size: text objects respect object.fontSize; others use 14px
+  const baseFontSize = isText ? (object.fontSize ?? 16) : 14;
+
+  // Background: text objects are transparent to match Konva rendering
+  const bgColor = isFrame
+    ? "rgba(255,255,255,0.95)"
+    : isText
+    ? "rgba(255,255,255,0.0)"
+    : object.color;
+
+  const textColor = isText ? object.color : "#1a1a1a";
 
   return (
     <div
       style={{
-        position: "fixed",
-        left: 0,
-        top: 0,
-        width: "100vw",
-        height: "100vh",
+        // position: absolute so coordinates are relative to the canvas container
+        // (which has position: relative). Using fixed + stageX/Y breaks when the
+        // canvas container is offset from the viewport by sidebars/headers.
+        position: "absolute",
+        inset: 0,
         zIndex: 100,
       }}
       onClick={(e) => {
@@ -118,7 +145,14 @@ export default function TextEditor({ boardId }: TextEditorProps) {
       <textarea
         ref={textareaRef}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          // Sync canvas in real-time as the user types — no Firestore write yet.
+          // Firestore is committed on blur/Escape via commit().
+          if (editingObjectId) {
+            useObjectStore.getState().updateObjectLocal(editingObjectId, { text: e.target.value });
+          }
+        }}
         onBlur={commit}
         onKeyDown={handleKeyDown}
         style={{
@@ -127,21 +161,23 @@ export default function TextEditor({ boardId }: TextEditorProps) {
           top: screenY,
           width: screenWidth,
           height: editHeight,
-          transform: `scale(1)`,
+          // Rotate the textarea to match the object's canvas rotation so the
+          // editor overlay stays aligned with the rotated Konva Group.
+          transform: `rotate(${object.rotation ?? 0}deg)`,
           transformOrigin: "top left",
-          fontSize: `${14 * stageScale}px`,
-          fontFamily: object.type === "stickyNote"
-            ? FONT_FAMILY_MAP[object.fontFamily || "sans-serif"]
+          fontSize: `${baseFontSize * stageScale}px`,
+          fontFamily: object.type === "stickyNote" || object.type === "text"
+            ? FONT_FAMILY_MAP[object.fontFamily ?? "sans-serif"]
             : "sans-serif",
           fontWeight: isFrame ? "bold" : "normal",
-          padding: `${10 * stageScale}px`,
-          border: "2px solid #6366f1",
+          padding: isText ? `0` : `${10 * stageScale}px`,
+          border: isText ? `1px dashed #6366f1` : "2px solid #6366f1",
           borderRadius: `${4 * stageScale}px`,
           outline: "none",
           resize: "none",
           overflow: "hidden",
-          background: isFrame ? "rgba(255,255,255,0.95)" : object.color,
-          color: "#1a1a1a",
+          background: bgColor,
+          color: textColor,
           lineHeight: "1.4",
           boxSizing: "border-box",
         }}

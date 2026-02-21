@@ -43,6 +43,8 @@ export default memo(function ColorLegendObject({
 
   const handleDragStart = () => {
     if (!user) return;
+    // Snapshot before move so the drag is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
     useObjectStore.getState().startLocalEdit(object.id);
@@ -91,11 +93,14 @@ export default memo(function ColorLegendObject({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
       x: e.evt.clientX,
       y: e.evt.clientY,
-      targetObjectId: object.id,
+      targetObjectId: isInGroup ? null : object.id,
+      targetObjectIds: isInGroup ? [...currentSelectedIds] : [],
       nearbyFrames: [],
     });
   };

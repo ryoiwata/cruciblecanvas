@@ -136,6 +136,18 @@ export function nearestEdgePoint(
 }
 
 /**
+ * Returns a Konva-compatible dash array for the given stroke style.
+ * Returns undefined for solid lines (no dash array = solid in Konva).
+ */
+export function getStrokeDash(
+  style: "solid" | "dashed" | "dotted" | undefined
+): number[] | undefined {
+  if (style === "dashed") return [8, 4];
+  if (style === "dotted") return [2, 4];
+  return undefined;
+}
+
+/**
  * Returns the bounding box that encloses all provided bounds.
  */
 export function getBoundingBox(items: Bounds[]): Bounds | null {

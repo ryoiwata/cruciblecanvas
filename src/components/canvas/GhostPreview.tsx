@@ -1,6 +1,6 @@
 "use client";
 
-import { Rect, Circle } from "react-konva";
+import { Rect, Circle, Line } from "react-konva";
 import type { ObjectType } from "@/lib/types";
 import {
   STICKY_NOTE_DEFAULT,
@@ -35,6 +35,22 @@ function getDefaultSize(tool: ObjectType) {
 
 export default function GhostPreview({ tool, x, y, color }: GhostPreviewProps) {
   const { width, height } = getDefaultSize(tool);
+
+  if (tool === "line") {
+    return (
+      <Line
+        x={x}
+        y={y}
+        points={[0, 0, 120, 0]}
+        stroke={color}
+        strokeWidth={2}
+        opacity={0.4}
+        dash={[4, 4]}
+        lineCap="round"
+        listening={false}
+      />
+    );
+  }
 
   if (tool === "circle") {
     const radius = width / 2;

@@ -8,8 +8,10 @@ import { useAuthStore } from "@/lib/store/authStore";
 import StickyNote from "./StickyNote";
 import ShapeObject from "./ShapeObject";
 import FrameObject from "./FrameObject";
+import LineObject from "./LineObject";
 import ConnectorObject from "./ConnectorObject";
 import ColorLegendObject from "./ColorLegendObject";
+import TextObject from "./TextObject";
 import AnchorPoints from "./AnchorPoints";
 import type { BoardObject } from "@/lib/types";
 import { LOD_SIMPLE_THRESHOLD } from "@/lib/types";
@@ -34,8 +36,16 @@ function getCreatedAtMs(obj: BoardObject): number {
   return 0;
 }
 
-/** Sort comparator: explicit zIndex first, then createdAt as tiebreaker. */
+/**
+ * Sort comparator: frames always render below non-frames regardless of stored zIndex
+ * (guards against stale Firestore data with inflated zIndex values on frames).
+ * Within each tier, explicit zIndex is used first, then createdAt as a tiebreaker.
+ */
 function zSort(a: BoardObject, b: BoardObject): number {
+  const aIsFrame = a.type === 'frame';
+  const bIsFrame = b.type === 'frame';
+  // Hard floor: any frame always sorts before any non-frame
+  if (aIsFrame !== bIsFrame) return aIsFrame ? -1 : 1;
   const za = a.zIndex ?? 0;
   const zb = b.zIndex ?? 0;
   if (za !== zb) return za - zb;
@@ -54,9 +64,8 @@ export default function BoardObjects({
   const locks = useObjectStore((s) => s.locks);
   const userId = useAuthStore((s) => s.user?.uid);
 
-  // useShallow combines 6 individual subscriptions into one, preventing redundant
-  // re-renders when unrelated store slices change between these values.
-  const { stageX, stageY, stageScale, mode, creationTool, connectorHoverTarget } =
+  // useShallow combines subscriptions into one, preventing redundant re-renders.
+  const { stageX, stageY, stageScale, mode, creationTool, connectorHoverTarget, frameDragHighlightId } =
     useCanvasStore(
       useShallow((s) => ({
         stageX: s.stageX,
@@ -65,6 +74,7 @@ export default function BoardObjects({
         mode: s.mode,
         creationTool: s.creationTool,
         connectorHoverTarget: s.connectorHoverTarget,
+        frameDragHighlightId: s.frameDragHighlightId,
       }))
     );
 
@@ -158,6 +168,7 @@ export default function BoardObjects({
             lockedByName={lockedByName}
             isConnectorTarget={isTarget}
             isSimpleLod={isSimpleLod}
+            isFrameDragTarget={frameDragHighlightId === obj.id}
           />
         );
       case "connector":
@@ -168,6 +179,16 @@ export default function BoardObjects({
             boardId={boardId}
           />
         );
+      case "line":
+        return (
+          <LineObject
+            key={obj.id}
+            object={obj}
+            boardId={boardId}
+            isLocked={isLockedByOther}
+            isSimpleLod={isSimpleLod}
+          />
+        );
       case "colorLegend":
         return (
           <ColorLegendObject
@@ -176,6 +197,17 @@ export default function BoardObjects({
             boardId={boardId}
             isLocked={isLockedByOther}
             lockedByName={lockedByName}
+          />
+        );
+      case "text":
+        return (
+          <TextObject
+            key={obj.id}
+            object={obj}
+            boardId={boardId}
+            isLocked={isLockedByOther}
+            lockedByName={lockedByName}
+            isSimpleLod={isSimpleLod}
           />
         );
       default:
@@ -194,7 +226,7 @@ export default function BoardObjects({
       {/* Anchor points for connector creation mode */}
       {isConnectorMode &&
         layeredObjects.map((obj) => {
-          if (obj.type === "connector" || obj.type === "colorLegend")
+          if (obj.type === "connector" || obj.type === "colorLegend" || obj.type === "line")
             return null;
           // Show anchors on hover or always in connector mode
           if (hoveredObjectId === obj.id || isConnectorMode) {
@@ -202,6 +234,7 @@ export default function BoardObjects({
               <AnchorPoints
                 key={`anchor-${obj.id}`}
                 object={obj}
+                stageScale={stageScale}
                 onAnchorClick={onAnchorClick}
                 onAnchorDragStart={onAnchorDragStart}
               />

@@ -35,12 +35,25 @@ export function useFrameNesting(boardId: string) {
       }
 
       const currentParent = obj.parentFrame || "";
-      const newParent = bestFrame ? bestFrame.id : "";
 
-      if (currentParent !== newParent) {
-        updateObjectLocal(objectId, { parentFrame: newParent || undefined });
+      // Only capture into a better frame — never auto-clear parentFrame.
+      // Removal is done exclusively via the "Deframe" context menu action.
+      if (bestFrame && bestFrame.id !== currentParent) {
+        // When nesting into a frame, ensure the child's zIndex is above the frame's.
+        // This guarantees click hit-testing reaches the child first (later render = on top).
+        let bumpedZIndex: number | undefined;
+        const frameZIndex = bestFrame.zIndex ?? 0;
+        if ((obj.zIndex ?? 0) <= frameZIndex) {
+          bumpedZIndex = frameZIndex + 1;
+        }
+
+        updateObjectLocal(objectId, {
+          parentFrame: bestFrame.id,
+          ...(bumpedZIndex !== undefined ? { zIndex: bumpedZIndex } : {}),
+        });
         updateObject(boardId, objectId, {
-          parentFrame: newParent || undefined,
+          parentFrame: bestFrame.id,
+          ...(bumpedZIndex !== undefined ? { zIndex: bumpedZIndex } : {}),
         }).catch(console.error);
       }
     },

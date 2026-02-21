@@ -41,6 +41,15 @@ interface CanvasState {
   // to trigger Transformer re-sync in SelectionLayer (detach during resize, re-attach after)
   borderResizeGeneration: number;
 
+  // Frame drag highlight — set to a frame's id when a dragged object overlaps it >50%
+  frameDragHighlightId: string | null;
+
+  // Recently used colors — last 5 unique colors applied; shown at top of color picker
+  recentColors: string[];
+
+  // Properties sidebar open/collapsed state — persists across selections
+  isPropertiesOpen: boolean;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -63,6 +72,9 @@ interface CanvasState {
   setActiveColor: (color: string) => void;
   setLastUsedColor: (type: string, color: string) => void;
   bumpBorderResizeGeneration: () => void;
+  setFrameDragHighlightId: (id: string | null) => void;
+  addRecentColor: (color: string) => void;
+  setIsPropertiesOpen: (open: boolean) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -70,6 +82,7 @@ const INITIAL_CONTEXT_MENU: ContextMenuState = {
   x: 0,
   y: 0,
   targetObjectId: null,
+  targetObjectIds: [],
   nearbyFrames: [],
 };
 
@@ -90,6 +103,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   activeColor: "#FEF3C7",
   lastUsedColors: {},
   borderResizeGeneration: 0,
+  frameDragHighlightId: null,
+  recentColors: [],
+  isPropertiesOpen: true,
 
   setMode: (mode) =>
     set({
@@ -177,4 +193,14 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   bumpBorderResizeGeneration: () =>
     set((s) => ({ borderResizeGeneration: s.borderResizeGeneration + 1 })),
+
+  setFrameDragHighlightId: (id) => set({ frameDragHighlightId: id }),
+
+  setIsPropertiesOpen: (open) => set({ isPropertiesOpen: open }),
+
+  addRecentColor: (color) =>
+    set((s) => {
+      const filtered = s.recentColors.filter((c) => c !== color);
+      return { recentColors: [color, ...filtered].slice(0, 5) };
+    }),
 }));

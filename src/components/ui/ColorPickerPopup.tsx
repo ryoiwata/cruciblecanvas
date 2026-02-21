@@ -32,6 +32,8 @@ export default function ColorPickerPopup({ boardId }: ColorPickerPopupProps) {
   const activeColor = useCanvasStore((s) => s.activeColor);
   const setActiveColor = useCanvasStore((s) => s.setActiveColor);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
+  const recentColors = useCanvasStore((s) => s.recentColors);
+  const addRecentColor = useCanvasStore((s) => s.addRecentColor);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
   const objects = useObjectStore((s) => s.objects);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
@@ -66,6 +68,7 @@ export default function ColorPickerPopup({ boardId }: ColorPickerPopupProps) {
   const applyColor = useCallback(
     (color: string) => {
       setActiveColor(color);
+      addRecentColor(color);
 
       // Also apply to any selected objects
       if (selectedObjectIds.length > 0) {
@@ -78,7 +81,7 @@ export default function ColorPickerPopup({ boardId }: ColorPickerPopupProps) {
         }
       }
     },
-    [selectedObjectIds, objects, updateObjectLocal, boardId, setActiveColor, setLastUsedColor]
+    [selectedObjectIds, objects, updateObjectLocal, boardId, setActiveColor, setLastUsedColor, addRecentColor]
   );
 
   const handleHexApply = () => {
@@ -125,6 +128,30 @@ export default function ColorPickerPopup({ boardId }: ColorPickerPopupProps) {
             style={getPopupStyle()}
             className="rounded-xl border border-white/20 bg-white/80 p-3 shadow-xl backdrop-blur-lg"
           >
+            {/* Recent colors row */}
+            {recentColors.length > 0 && (
+              <div className="mb-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+                  Recent
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {recentColors.map((color) => (
+                    <button
+                      key={color}
+                      onClick={() => applyColor(color)}
+                      className={`h-7 w-7 rounded-full border-2 transition-all hover:scale-110 ${
+                        activeColor === color
+                          ? "border-indigo-500 ring-2 ring-indigo-200"
+                          : "border-black/10 hover:border-gray-400"
+                      }`}
+                      style={{ backgroundColor: color }}
+                      title={color}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Color presets grid */}
             <div className="mb-3">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">

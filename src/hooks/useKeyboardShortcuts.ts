@@ -7,11 +7,13 @@
  * the canvas mode or active text editor changes — not on every object/selection update.
  */
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useChatStore } from "@/lib/store/chatStore";
+import type { CanvasMode } from "@/lib/store/canvasStore";
+import type { ObjectType } from "@/lib/types";
 import {
   deleteObject,
   deleteObjects,
@@ -26,8 +28,24 @@ interface UseKeyboardShortcutsOptions {
   boardId: string;
 }
 
+/** Briefly shows a toast message at the bottom of the screen. */
+function showToast(message: string) {
+  const el = document.createElement("div");
+  el.textContent = message;
+  el.className =
+    "fixed bottom-16 left-1/2 -translate-x-1/2 rounded-md bg-gray-800 px-3 py-1.5 text-sm text-white shadow-lg z-[300] pointer-events-none transition-opacity";
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 300);
+  }, 1700);
+}
+
 export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
   const [pendingDelete, setPendingDelete] = useState(false);
+
+  // Tracks the mode to restore when Shift is released (Shift → temporary pointer)
+  const preShiftStateRef = useRef<{ mode: CanvasMode; tool: ObjectType | null } | null>(null);
 
   // Minimal reactive subscriptions — only values used outside of the keydown handler.
   // mode is kept reactive so the useEffect dep array re-triggers on mode change.
@@ -74,6 +92,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
     }
 
     const allIds = [...idsToDelete, ...orphanConnectorIds];
+    // batchRemove auto-snapshots the full pre-deletion state for undo.
     batchRemove(allIds);
     clearSelection();
 
@@ -85,6 +104,36 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
     }
   }, [boardId]);
 
+  // Shift key → temporary pointer mode. Restores previous mode/tool on key-up.
+  // Separate effect so it doesn't share the dep array with the main keydown handler.
+  useEffect(() => {
+    const handleShiftDown = (e: KeyboardEvent) => {
+      if (e.key !== "Shift" || e.repeat) return;
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (editingObjectId) return;
+      const { mode: currentMode, creationTool: currentTool } = useCanvasStore.getState();
+      if (currentMode !== "pointer") {
+        preShiftStateRef.current = { mode: currentMode, tool: currentTool };
+        useCanvasStore.getState().setMode("pointer");
+      }
+    };
+    const handleShiftUp = (e: KeyboardEvent) => {
+      if (e.key !== "Shift") return;
+      const prev = preShiftStateRef.current;
+      if (!prev) return;
+      preShiftStateRef.current = null;
+      if (prev.tool) useCanvasStore.getState().enterCreateMode(prev.tool);
+      else useCanvasStore.getState().setMode(prev.mode);
+    };
+    window.addEventListener("keydown", handleShiftDown);
+    window.addEventListener("keyup", handleShiftUp);
+    return () => {
+      window.removeEventListener("keydown", handleShiftDown);
+      window.removeEventListener("keyup", handleShiftUp);
+    };
+  }, [editingObjectId]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Skip when editing text
@@ -95,8 +144,9 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
 
       const canvasState = useCanvasStore.getState();
 
-      // Tool switching
+      // Tool switching — number keys and letter aliases
       switch (e.key) {
+        // Number shortcuts matching toolbar order (1–6)
         case "1":
           canvasState.setMode("pointer");
           return;
@@ -110,10 +160,42 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
           canvasState.enterCreateMode("circle");
           return;
         case "5":
-          canvasState.enterCreateMode("frame");
+          canvasState.enterCreateMode("text");
           return;
         case "6":
+          canvasState.enterCreateMode("frame");
+          return;
+        // Letter shortcuts (matches toolbar badges)
+        case "l":
+        case "L":
+          canvasState.enterCreateMode("line");
+          return;
+        case "r":
+        case "R":
+          canvasState.enterCreateMode("rectangle");
+          return;
+        case "t":
+        case "T":
+          canvasState.enterCreateMode("text");
+          return;
+        case "f":
+        case "F":
+          canvasState.enterCreateMode("frame");
+          return;
+        case "c":
+        case "C":
+          // Skip C if Ctrl/Cmd is held (that's copy)
+          if (e.ctrlKey || e.metaKey) break;
           canvasState.enterCreateMode("connector");
+          return;
+        case "Control":
+          // Ctrl pressed while a creation tool is active → permanently revert to pointer.
+          // This is a one-way switch (no restore on keyup) because Ctrl is also used
+          // for multi-step shortcuts (Ctrl+A, Ctrl+D) that make sense from pointer mode.
+          if (e.repeat) return;
+          if (canvasState.mode === "create") {
+            canvasState.exitToPointer();
+          }
           return;
         case "Escape":
           canvasState.exitToPointer();
@@ -150,6 +232,7 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
           .map((id) => objects[id])
           .filter((obj): obj is BoardObject => obj !== undefined);
         useCanvasStore.getState().copyToClipboard(selected);
+        showToast(`Copied ${selected.length} object${selected.length === 1 ? "" : "s"}`);
         return;
       }
 
