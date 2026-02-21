@@ -33,6 +33,47 @@ import type { BoardObject } from '@/lib/types';
 import AlignMenu from './AlignMenu';
 import ArrangeMenu from './ArrangeMenu';
 
+// ---- Shortcut chip icons (inline, matching ShortcutLegend visual language) ---
+
+function MarqueeChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2.5 1.5" fill="none" />
+    </svg>
+  );
+}
+
+function MultiSelectChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="0.5" y="3.5" width="9" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="4.5" y="0.5" width="9" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+    </svg>
+  );
+}
+
+function SelectAllChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <circle cx="1" cy="1" r="1.2" fill="currentColor" />
+      <circle cx="13" cy="1" r="1.2" fill="currentColor" />
+      <circle cx="1" cy="13" r="1.2" fill="currentColor" />
+      <circle cx="13" cy="13" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CopyPasteChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="0.5" y="3.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="4" y="0.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="white" />
+      <rect x="4" y="0.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+    </svg>
+  );
+}
+
 interface SubHeaderToolbarProps {
   boardId: string;
 }
@@ -118,6 +159,36 @@ function Divider() {
   return <div className="mx-1 h-8 w-px bg-gray-200 self-center" />;
 }
 
+// ---- Shortcut chip — clickable hint button in the far-right legend area -----
+
+interface ShortcutChipProps {
+  icon: React.ReactNode;
+  label: string;
+  keys: string;
+  onClick: () => void;
+}
+
+/**
+ * Compact clickable hint chip that shows an icon, label, and keyboard shortcut.
+ * Clicking performs the associated action (or switches to the mode that enables it).
+ */
+function ShortcutChip({ icon, label, keys, onClick }: ShortcutChipProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${label}: ${keys}`}
+      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors shrink-0"
+    >
+      {icon}
+      <span className="text-[10px] font-medium leading-none">{label}</span>
+      <kbd className="rounded border border-gray-200 bg-gray-50 px-1 py-px font-mono text-[9px] text-gray-400 leading-none">
+        {keys}
+      </kbd>
+    </button>
+  );
+}
+
 // ---- Vertical tool button (icon above label) ---------------------------------
 
 interface ToolButtonProps {
@@ -195,6 +266,8 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const creationTool = useCanvasStore((s) => s.creationTool);
   const setMode = useCanvasStore((s) => s.setMode);
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
+  const setSelectedObjectIds = useCanvasStore((s) => s.setSelectedObjectIds);
+  const copyToClipboard = useCanvasStore((s) => s.copyToClipboard);
 
   const past = useObjectStore((s) => s.past);
   const future = useObjectStore((s) => s.future);
@@ -339,6 +412,47 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
 
       {/* Layer — uses showLabel to match vertical icon+label style */}
       <ArrangeMenu boardId={boardId} showLabel />
+
+      {/* Flexible spacer pushes shortcut legend to the far right */}
+      <div className="flex-1" />
+
+      <Divider />
+
+      {/* Shortcut legend chips — clickable, each performs its action */}
+      <ShortcutChip
+        icon={<MarqueeChipIcon />}
+        label="Marquee"
+        keys="Ctrl+Drag"
+        onClick={() => setMode('pointer')}
+      />
+      <ShortcutChip
+        icon={<MultiSelectChipIcon />}
+        label="Multi-select"
+        keys="Ctrl+Click"
+        onClick={() => setMode('pointer')}
+      />
+      <ShortcutChip
+        icon={<SelectAllChipIcon />}
+        label="Select All"
+        keys="Ctrl+A"
+        onClick={() => {
+          setMode('pointer');
+          setSelectedObjectIds(Object.keys(useObjectStore.getState().objects));
+        }}
+      />
+      <ShortcutChip
+        icon={<CopyPasteChipIcon />}
+        label="Copy"
+        keys="Ctrl+C"
+        onClick={() => {
+          const { selectedObjectIds } = useCanvasStore.getState();
+          const { objects } = useObjectStore.getState();
+          const selected = selectedObjectIds
+            .map((id) => objects[id])
+            .filter((obj): obj is BoardObject => obj !== undefined);
+          if (selected.length > 0) copyToClipboard(selected);
+        }}
+      />
     </div>
   );
 }

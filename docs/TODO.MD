@@ -118,11 +118,16 @@ Low priority TODOs
 - [ ] Remove dashes for lines?
 - [ ] Fix ordering of tool shorcut numbers, have number next to tool label
 - [ ] See if Marquee is a good word
+- [] Fix AI agent logo in chat to robot instead of sparkle
 
 
 Actual TODOs
 - [x] Fix group select when right clicking one item highlight
-- [] Fix AI agent logo in chat to robot instead of sparkle
+- [ ] Right click copy and paste option
+- [ ] Paste should paste where the cursor is if pasting by right click, else it will duplicate diagonally from where the item is
+- [ ] Group select is not working after clicking button
+- [ ] Drag is not working after clicking button.
+
 - [] Make the Toggle suggestion more darker font
 - [] Fix the numbers on the tool bar
 - [x] Text on sticky should be edited in place, instead of changing boxes
@@ -133,7 +138,6 @@ Actual TODOs
 - [ ] Defaults for shapes and frames should be a good size relative to current zoom
 - [ ] In chat, objects should be referenceable
 - [ ] While selecting, it should put the reference in the chat
-- [ ] Option to minimize keyboard shortcut legend
 - [ ] Different zoom options
 - [ ] Option to go to specific coordinates
 - [ ] Description of different AI personalities
@@ -143,6 +147,7 @@ Actual TODOs
 - [ ] Fix up AI logic
 - [ ] Should have who the creator is
 - [ ] Make boards deletable in dashboard
+- [ ] Fix redo button
 
 
 TODOs
