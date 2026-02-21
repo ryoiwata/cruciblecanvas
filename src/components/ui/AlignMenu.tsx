@@ -272,6 +272,7 @@ export default function AlignMenu({ boardId, showLabel }: AlignMenuProps) {
     <div ref={menuRef}>
       <button
         ref={triggerRef}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen(!open)}
         disabled={selCount < 2}
         title="Align & Distribute"

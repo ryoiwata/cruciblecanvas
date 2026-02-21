@@ -28,6 +28,7 @@ import {
   createObject,
   updateObject,
   deleteObject,
+  generateObjectId,
 } from '@/lib/firebase/firestore';
 import type { BoardObject } from '@/lib/types';
 import AlignMenu from './AlignMenu';
@@ -70,6 +71,17 @@ function CopyPasteChipIcon() {
       <rect x="0.5" y="3.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
       <rect x="4" y="0.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="white" />
       <rect x="4" y="0.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+    </svg>
+  );
+}
+
+function PasteChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="2" y="3" width="10" height="11" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="4.5" y="0.5" width="5" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.2" fill="white" />
+      <line x1="4.5" y1="7.5" x2="9.5" y2="7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      <line x1="4.5" y1="10" x2="9.5" y2="10" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
     </svg>
   );
 }
@@ -166,23 +178,35 @@ interface ShortcutChipProps {
   label: string;
   keys: string;
   onClick: () => void;
+  disabled?: boolean;
 }
 
 /**
  * Compact clickable hint chip that shows an icon, label, and keyboard shortcut.
  * Clicking performs the associated action (or switches to the mode that enables it).
+ *
+ * onMouseDown preventDefault prevents the browser from moving focus to this button,
+ * keeping canvas pointer events working correctly for the next interaction.
  */
-function ShortcutChip({ icon, label, keys, onClick }: ShortcutChipProps) {
+function ShortcutChip({ icon, label, keys, onClick, disabled }: ShortcutChipProps) {
   return (
     <button
       type="button"
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
+      disabled={disabled}
       title={`${label}: ${keys}`}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors shrink-0"
+      className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 transition-colors shrink-0 ${
+        disabled
+          ? 'text-gray-300 cursor-not-allowed'
+          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+      }`}
     >
       {icon}
       <span className="text-[10px] font-medium leading-none">{label}</span>
-      <kbd className="rounded border border-gray-200 bg-gray-50 px-1 py-px font-mono text-[9px] text-gray-400 leading-none">
+      <kbd className={`rounded border px-1 py-px font-mono text-[9px] leading-none ${
+        disabled ? 'border-gray-100 bg-gray-50 text-gray-300' : 'border-gray-200 bg-gray-50 text-gray-400'
+      }`}>
         {keys}
       </kbd>
     </button>
@@ -204,6 +228,7 @@ function ToolButton({ label, icon, isActive, disabled, shortcut, onClick }: Tool
   return (
     <button
       type="button"
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       disabled={disabled}
       title={shortcut ? `${label} (${shortcut})` : label}
@@ -269,12 +294,14 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const setSelectedObjectIds = useCanvasStore((s) => s.setSelectedObjectIds);
   const copyToClipboard = useCanvasStore((s) => s.copyToClipboard);
 
+  const clipboard = useCanvasStore((s) => s.clipboard);
   const past = useObjectStore((s) => s.past);
   const future = useObjectStore((s) => s.future);
   const user = useAuthStore((s) => s.user);
 
   const canUndo = past.length > 0;
   const canRedo = future.length > 0;
+  const canPaste = clipboard.length > 0;
 
   const handleUndo = useCallback(async () => {
     const result = useObjectStore.getState().undo();
@@ -286,6 +313,57 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
     const result = useObjectStore.getState().redo();
     if (!result || !user) return;
     await syncDeltaToFirestore(result.before, result.after, boardId, user.uid);
+  }, [boardId, user]);
+
+  // Cascading-diagonal paste — same behavior as Ctrl+V (no cursor position context here)
+  const handlePaste = useCallback(() => {
+    if (!user) return;
+    const { clipboard: cb } = useCanvasStore.getState();
+    if (cb.length === 0) return;
+
+    const pasteCount = useCanvasStore.getState().pasteCount + 1;
+    useCanvasStore.setState({ pasteCount });
+    const offset = pasteCount * 20;
+
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
+    const { upsertObject } = useObjectStore.getState();
+    for (let i = 0; i < cb.length; i++) {
+      const obj = cb[i];
+      const newId = generateObjectId(boardId);
+      const newObj = {
+        ...obj,
+        id: newId,
+        x: obj.x + offset,
+        y: obj.y + offset,
+        zIndex: maxZ + 1 + i,
+        createdBy: user.uid,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        parentFrame: undefined,
+      };
+      upsertObject(newObj);
+      createObject(
+        boardId,
+        {
+          type: newObj.type,
+          x: newObj.x,
+          y: newObj.y,
+          width: newObj.width,
+          height: newObj.height,
+          color: newObj.color,
+          text: newObj.text,
+          zIndex: newObj.zIndex,
+          createdBy: user.uid,
+        },
+        newId
+      ).catch(console.error);
+    }
   }, [boardId, user]);
 
   const isPointerActive = mode === 'pointer';
@@ -303,6 +381,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
       <div className="flex items-center gap-0.5">
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleUndo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
@@ -316,6 +395,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         </button>
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleRedo}
           disabled={!canRedo}
           title="Redo (Ctrl+Shift+Z)"
@@ -452,6 +532,13 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
             .filter((obj): obj is BoardObject => obj !== undefined);
           if (selected.length > 0) copyToClipboard(selected);
         }}
+      />
+      <ShortcutChip
+        icon={<PasteChipIcon />}
+        label="Paste"
+        keys="Ctrl+V"
+        disabled={!canPaste}
+        onClick={handlePaste}
       />
     </div>
   );

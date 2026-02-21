@@ -303,10 +303,17 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
   const handlePaste = () => {
     if (!user || clipboard.length === 0) return;
 
-    // Cascading offset: each paste adds +20px diagonal from previous
-    const pasteCount = useCanvasStore.getState().pasteCount + 1;
-    useCanvasStore.setState({ pasteCount });
-    const offset = pasteCount * 20;
+    // Convert right-click screen position to canvas coordinates
+    const { stageX, stageY, stageScale } = useCanvasStore.getState();
+    const cursorCanvasX = (contextMenu.x - stageX) / stageScale;
+    const cursorCanvasY = (contextMenu.y - stageY) / stageScale;
+
+    // Translate the clipboard items so their collective centroid lands at the cursor.
+    // This keeps relative positions intact when pasting multiple objects.
+    const centroidX = clipboard.reduce((sum, o) => sum + o.x + o.width / 2, 0) / clipboard.length;
+    const centroidY = clipboard.reduce((sum, o) => sum + o.y + o.height / 2, 0) / clipboard.length;
+    const dx = cursorCanvasX - centroidX;
+    const dy = cursorCanvasY - centroidY;
 
     // Compute max zIndex so pasted objects appear on top
     const allObjects = useObjectStore.getState().objects;
@@ -322,8 +329,8 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
       const newObj = {
         ...obj,
         id: newId,
-        x: obj.x + offset,
-        y: obj.y + offset,
+        x: Math.round(obj.x + dx),
+        y: Math.round(obj.y + dy),
         zIndex: maxZ + 1 + i,
         createdBy: user.uid,
         createdAt: Date.now(),

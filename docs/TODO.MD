@@ -124,9 +124,18 @@ Low priority TODOs
 Actual TODOs
 - [x] Fix group select when right clicking one item highlight
 - [ ] Right click copy and paste option
-- [ ] Paste should paste where the cursor is if pasting by right click, else it will duplicate diagonally from where the item is
-- [ ] Group select is not working after clicking button
-- [ ] Drag is not working after clicking button.
+- [ ] Paste should paste where the cursor is if pasting by right click, else it will duplicate diagonally from where the copied item is
+  - [ ] Paste is pasting to somewhere that's not where the cursor is
+  - [ ] Paste via ctrl + v or button should just paster diagonally of original item
+- [ ] Include a paste button in the short cut legend side of the main toolbar
+- [ ] fix Group select is not working after clicking button
+- [ ] Fix Drag is not working after clicking button.
+- [ ] There should be an option to copy as well as duplicate item when Right click copy option
+- [ ] Right click on item should automatically select it
+- [ ] Multi select button should allow for clicking multiple items without hitting ctrl until you click on an empty spot or change tools
+- [ ] Clicking maruee button should allow you to drag select after clkicking
+- [ ] Names of key board short cuts and short cut should be below the button like in the tools 
+- [ ] If window is too small, you should be able to scroll through the tool bar
 
 - [] Make the Toggle suggestion more darker font
 - [] Fix the numbers on the tool bar
