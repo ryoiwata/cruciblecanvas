@@ -10,12 +10,14 @@ import { usePersonaStore } from '@/lib/store/chatStore';
 import type { AiPersona } from '@/lib/types';
 
 const PERSONA_LABELS: Record<AiPersona, string> = {
+  mason: '⚙ The Mason',
   neutral: 'Neutral Critic',
   skeptical_investor: 'Skeptical Investor',
   opposing_counsel: 'Opposing Counsel',
 };
 
 const PERSONA_DESCRIPTIONS: Record<AiPersona, string> = {
+  mason: 'Silent executor — tool calls only',
   neutral: 'Balanced, constructive, Socratic',
   skeptical_investor: 'Numbers-focused, skeptical',
   opposing_counsel: 'Adversarial, evidence-focused',

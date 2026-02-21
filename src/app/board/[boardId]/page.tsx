@@ -55,6 +55,7 @@ export default function BoardPage() {
   const toggleSidebar = useChatStore((s) => s.toggleSidebar);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
   const unreadCount = useChatStore((s) => s.unreadCount);
+  const clarificationPending = useChatStore((s) => s.clarificationPending);
 
   // Keyboard shortcuts (delete, copy, paste, duplicate, tool switching)
   const { pendingDelete, setPendingDelete, performDelete, deleteCount } =
@@ -153,7 +154,7 @@ export default function BoardPage() {
           {/* Chat toggle — chat bubble icon with "Chat" label */}
           <button
             onClick={toggleSidebar}
-            title="Toggle chat (press /)"
+            title={clarificationPending ? 'Mason is waiting for your reply' : 'Toggle chat (press /)'}
             className="relative flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100"
           >
             <svg width="15" height="15" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -166,11 +167,17 @@ export default function BoardPage() {
               />
             </svg>
             <span>Chat</span>
-            {unreadCount > 0 && (
+            {/* Clarification-pending pulse — amber, higher priority than unread dot */}
+            {clarificationPending ? (
+              <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-500" />
+              </span>
+            ) : unreadCount > 0 ? (
               <span className="absolute -top-0.5 right-0 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white leading-none">
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
-            )}
+            ) : null}
           </button>
 
           <button

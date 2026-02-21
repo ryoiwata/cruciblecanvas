@@ -24,6 +24,7 @@ import {
 } from '@/lib/firebase/firestore';
 import { setAIStream, updateAIStream, removeAIStream } from '@/lib/firebase/rtdb';
 import { serializeBoardState } from '@/lib/ai/context';
+import { computeSuggestedPositions } from '@/lib/ai/spatialPlanning';
 import type { ChatMessage } from '@/lib/types';
 
 interface UseAICommandReturn {
@@ -50,6 +51,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
   const setStream = useChatStore((s) => s.setStream);
   const removeStream = useChatStore((s) => s.removeStream);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
+  const setClarificationPending = useChatStore((s) => s.setClarificationPending);
 
   const persona = usePersonaStore((s) => s.persona);
 
@@ -59,6 +61,37 @@ export function useAICommand(boardId: string): UseAICommandReturn {
 
       // Open sidebar so user can see the response streaming
       setSidebarOpen(true);
+
+      // If Mason was waiting for clarification, capture the turn history so it
+      // can see its own question and this reply in the next request.
+      // Reading from getState() avoids stale closure values.
+      const wasPendingClarification = useChatStore.getState().clarificationPending;
+      if (wasPendingClarification) {
+        setClarificationPending(false);
+      }
+
+      // Build turn history for clarification replies: last 3 turns (6 messages)
+      // interleaved as user/assistant, with the current command appended as the
+      // final user message. Only sent when replying to a clarification.
+      let clarificationMessages: Array<{ role: 'user' | 'assistant'; content: string }> | undefined;
+      if (wasPendingClarification) {
+        const rawHistory = useChatStore.getState().messages
+          .filter(
+            (m) =>
+              (m.type === 'ai_command' || m.type === 'ai_response') &&
+              m.content.trim() !== ''
+          )
+          .slice(-6)
+          .map((m) => ({
+            role: (m.type === 'ai_command' ? 'user' : 'assistant') as 'user' | 'assistant',
+            content: m.content,
+          }));
+        // Drop leading assistant turns so the array always starts with 'user'
+        while (rawHistory.length > 0 && rawHistory[0].role === 'assistant') {
+          rawHistory.shift();
+        }
+        clarificationMessages = [...rawHistory, { role: 'user' as const, content: command }];
+      }
 
       const aiCommandId = uuidv4();
 
@@ -71,6 +104,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
       };
 
       const boardState = serializeBoardState(objects, viewportBounds, selectedObjectIds);
+      const suggestedPositions = computeSuggestedPositions(objects, viewportBounds, 5);
 
       // Build optimistic ai_command message
       const commandMsgId = `optimistic-cmd-${aiCommandId}`;
@@ -168,11 +202,15 @@ export function useAICommand(boardId: string): UseAICommandReturn {
           },
           body: JSON.stringify({
             message: command,
+            // Turn history is only included when replying to a clarification so
+            // Mason can see its own question and the user's answer.
+            ...(clarificationMessages ? { messages: clarificationMessages } : {}),
             boardId,
             boardState,
             selectedObjectIds,
             persona,
             aiCommandId,
+            suggestedPositions,
           }),
           signal: abortController.signal,
         });
@@ -206,6 +244,15 @@ export function useAICommand(boardId: string): UseAICommandReturn {
               timestamp: Date.now(),
             }).catch(console.error);
           }
+        }
+
+        // Detect clarification sentinel before confirming objects.
+        // Mason outputs "Clarification needed: {question}" as its only text when
+        // it calls askClarification. The sentinel lets the client set UI state
+        // without needing to parse the tool-call stream directly.
+        const isClarification = /^clarification needed:/i.test(accumulatedContent.trim());
+        if (isClarification) {
+          setClarificationPending(true);
         }
 
         // Success: confirm pending objects and write final response to Firestore
@@ -299,6 +346,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
       setStream,
       removeStream,
       setSidebarOpen,
+      setClarificationPending,
     ]
   );
 

@@ -124,7 +124,7 @@ export interface BoardObject {
 // Board Metadata (Firestore: boards/{boardId}/metadata/config)
 // ---------------------------------------------------------------------------
 
-export type AiPersona = "neutral" | "skeptical_investor" | "opposing_counsel";
+export type AiPersona = "mason" | "neutral" | "skeptical_investor" | "opposing_counsel";
 
 export interface AnalysisRecord {
   timestamp: number;

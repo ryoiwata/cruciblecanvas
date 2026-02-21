@@ -47,6 +47,11 @@ interface ChatState {
   // Chat input ref for / shortcut focus
   chatInputRef: RefObject<HTMLInputElement> | null;
   setChatInputRef: (ref: RefObject<HTMLInputElement>) => void;
+
+  // True when Mason has called askClarification and is waiting for the user's reply.
+  // Cleared automatically when the user sends their next message.
+  clarificationPending: boolean;
+  setClarificationPending: (pending: boolean) => void;
 }
 
 interface PersistedChatState {
@@ -101,13 +106,16 @@ export const useChatStore = create<ChatState>()((set) => ({
 
   chatInputRef: null,
   setChatInputRef: (ref) => set({ chatInputRef: ref }),
+
+  clarificationPending: false,
+  setClarificationPending: (pending) => set({ clarificationPending: pending }),
 }));
 
 // Persisted slice for persona — stored in localStorage
 export const usePersonaStore = create<PersistedChatState>()(
   persist(
     (set) => ({
-      persona: 'neutral' as AiPersona,
+      persona: 'mason' as AiPersona,
       setPersona: (p) => set({ persona: p }),
     }),
     { name: 'cruciblecanvas-persona' }

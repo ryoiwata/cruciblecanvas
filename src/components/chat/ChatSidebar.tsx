@@ -33,6 +33,7 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
   const chatInputRef = useChatStore((s) => s.chatInputRef);
   // chatMode here reflects the send-target toggle in ChatInput (AI vs Group)
   const chatMode = useChatStore((s) => s.chatMode);
+  const clarificationPending = useChatStore((s) => s.clarificationPending);
 
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartX = useRef(0);
@@ -120,6 +121,13 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold text-gray-800">Chat</h2>
+              {/* Status indicator — shown when Mason is waiting for a clarification reply */}
+              {clarificationPending && (
+                <span className="flex items-center gap-1 text-xs font-medium text-amber-600">
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  Waiting for your input...
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3">
               {/* Persona selector — shown when send target is AI */}
