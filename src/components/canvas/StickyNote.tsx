@@ -167,13 +167,18 @@ export default memo(function StickyNote({
     );
   }
 
-  // Generate notepad lines — spacing adapts to font size so text stays on the lines.
+  // Generate notepad lines — spacing must exactly match Konva's pixel line height so
+  // every text row lands precisely between two consecutive guide lines.
+  // Konva lineHeight multiplier = max(1, 22/fontSize), so pixel height = max(fontSize, 22).
   const effectiveFontSize = object.fontSize ?? 14;
-  const lineSpacing = Math.max(22, effectiveFontSize * 1.57);
-  const lineStartY = 30; // Start below top padding
-  const lineMarginX = 8;
+  const lineSpacing = Math.max(effectiveFontSize, 22);
+  // Lines align horizontally with the text node (x=12, width=object.width-24).
+  const lineMarginX = 12;
   const notepadLines: number[] = [];
-  for (let y = lineStartY; y < object.height - 10; y += lineSpacing) {
+  // Start at y=30 (same as the Konva Text node y), then repeat every lineSpacing px.
+  // This draws one ruling line at the top of each text row so text "floats" between
+  // consecutive lines — identical to traditional ruled paper.
+  for (let y = 30; y < object.height - 4; y += lineSpacing) {
     notepadLines.push(y);
   }
 
@@ -302,7 +307,7 @@ export default memo(function StickyNote({
         <Line
           key={y}
           points={[lineMarginX, y, object.width - lineMarginX, y]}
-          stroke="rgba(0,0,0,0.08)"
+          stroke="rgba(0,0,0,0.20)"
           strokeWidth={1}
           listening={false}
         />

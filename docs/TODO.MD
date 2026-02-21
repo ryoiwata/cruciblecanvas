@@ -113,22 +113,26 @@ AI TODOs
 - [ ] New items should not be overlapping frames that are already there.
 - [ ] New items should be placed where there is open space in the current view that it can fit in. Or below existing items in the current view or lower of if not space in current view.
 
+Low priority TODOs
+- [ ] Remove different types of lines.
+- [ ] Remove dashes for lines?
+- [ ] Fix ordering of tool shorcut numbers, have number next to tool label
+- [ ] See if Marquee is a good word
+
+
 Actual TODOs
 - [x] Fix group select when right clicking one item highlight
 - [] Fix AI agent logo in chat to robot instead of sparkle
 - [] Make the Toggle suggestion more darker font
 - [] Fix the numbers on the tool bar
-- [] Text on sticky should be edited in place, instead of changing boxes
-- [] Sticky should grow vertically in size if text gets too large with resizing or when more is being typed
+- [x] Text on sticky should be edited in place, instead of changing boxes
+- [x] Sticky should grow vertically in size if text gets too large with resizing or when more is being typed
 - [ ] Frames should move items around so no item is overlapped inside and frame should adjust size if bigger is needed based on moved around items. Shapes should be adjusted to all fit in.
 - [ ] Default line thickness should be bigger, like 10. Default color should be black, unless if previous line was different color.
-- [ ] Remove different types of lines.
-- [ ] Remove dashes for lines?
-- [ ] Fix ordering of tool shorcut numbers, have number next to tool label
+
 - [ ] Defaults for shapes and frames should be a good size relative to current zoom
 - [ ] In chat, objects should be referenceable
 - [ ] While selecting, it should put the reference in the chat
-- [ ] See if Marquee is a good word
 - [ ] Option to minimize keyboard shortcut legend
 - [ ] Different zoom options
 - [ ] Option to go to specific coordinates
@@ -136,9 +140,9 @@ Actual TODOs
 - [ ] Text color is redundaat in properties
 - [ ] HAve a 
 - [ ] Option to create an account to save if using as guest
-- [ ] Sticky should grow in size if text gets too big
 - [ ] Fix up AI logic
 - [ ] Should have who the creator is
+- [ ] Make boards deletable in dashboard
 
 
 TODOs
