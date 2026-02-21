@@ -190,6 +190,8 @@ export default memo(function FrameObject({
   };
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // Only handle left-click; right-click fires contextmenu and should not change selection
+    if (e.evt.button !== 0) return;
     if (mode !== "pointer") return;
     e.cancelBubble = true;
     setLastUsedColor(object.type, object.color);

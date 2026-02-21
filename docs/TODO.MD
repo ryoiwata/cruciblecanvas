@@ -105,7 +105,7 @@ Real-Time Collaboration TODOs
 AI TODOs
 - Create an AI agent that's specifically for operations
 - Make it light weight with the context. Output Json that can 
-- [ ] Fix color being chosen with Mason
+- [x] Fix color being chosen with Mason
 - [ ] Make mason the default AI agent
 - [ ] Mason should put objects in where the user window is. If there's no, space then it should move down and the window should move down with it.
 - [ ] Fix issue with Mason chat not being returned.
@@ -114,7 +114,7 @@ AI TODOs
 - [ ] New items should be placed where there is open space in the current view that it can fit in. Or below existing items in the current view or lower of if not space in current view.
 
 Actual TODOs
-- [] Fix group select when right clicking one item highlight
+- [x] Fix group select when right clicking one item highlight
 - [] Fix AI agent logo in chat to robot instead of sparkle
 - [] Make the Toggle suggestion more darker font
 - [] Fix the numbers on the tool bar
@@ -125,6 +125,20 @@ Actual TODOs
 - [ ] Remove different types of lines.
 - [ ] Remove dashes for lines?
 - [ ] Fix ordering of tool shorcut numbers, have number next to tool label
+- [ ] Defaults for shapes and frames should be a good size relative to current zoom
+- [ ] In chat, objects should be referenceable
+- [ ] While selecting, it should put the reference in the chat
+- [ ] See if Marquee is a good word
+- [ ] Option to minimize keyboard shortcut legend
+- [ ] Different zoom options
+- [ ] Option to go to specific coordinates
+- [ ] Description of different AI personalities
+- [ ] Text color is redundaat in properties
+- [ ] HAve a 
+- [ ] Option to create an account to save if using as guest
+- [ ] Sticky should grow in size if text gets too big
+- [ ] Fix up AI logic
+- [ ] Should have who the creator is
 
 
 TODOs

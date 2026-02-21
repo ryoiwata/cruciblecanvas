@@ -76,6 +76,8 @@ export default memo(function ColorLegendObject({
   };
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // Only handle left-click; right-click fires contextmenu and should not change selection
+    if (e.evt.button !== 0) return;
     if (mode !== "pointer") return;
     e.cancelBubble = true;
     if (e.evt.ctrlKey || e.evt.metaKey) {
