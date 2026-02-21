@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "seed-perf": "npx tsx scripts/seed-perf-board.ts",
-    "test:perf": "npx playwright test tests/performance/ --headed"
+    "test:perf": "npx playwright test tests/performance/ --project=perf-chrome",
+    "test:perf:fps": "npx playwright test tests/performance/ --project=perf-chrome -g \"Frame Rate\"",
+    "test:perf:sync": "npx playwright test tests/performance/ --project=perf-chrome -g \"Sync Latency|Jitter\"",
+    "test:perf:concurrent": "npx playwright test tests/performance/ --project=perf-chrome -g \"Concurrent\""
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.45",
