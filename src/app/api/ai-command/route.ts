@@ -32,6 +32,7 @@ const anthropic = createAnthropic({
 import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
 import type { AIBoardContext } from '@/lib/ai/context';
+import type { SuggestedPosition } from '@/lib/ai/spatialPlanning';
 import type { AiPersona } from '@/lib/types';
 
 // Firebase publishes its token-signing keys at this JWKS endpoint.
@@ -73,6 +74,7 @@ interface AICommandRequestBody {
   selectedObjectIds: string[];
   persona: AiPersona;
   aiCommandId: string;
+  suggestedPositions?: SuggestedPosition[];
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -115,7 +117,7 @@ export async function POST(req: Request): Promise<Response> {
     });
   }
 
-  const { message, boardId, boardState, selectedObjectIds, persona, aiCommandId } = body;
+  const { message, boardId, boardState, selectedObjectIds, persona, aiCommandId, suggestedPositions } = body;
 
   if (!message || !boardId || !aiCommandId) {
     return new Response(
@@ -152,16 +154,26 @@ export async function POST(req: Request): Promise<Response> {
         x: o.x,
         y: o.y,
       })),
+      suggestedPositions: suggestedPositions ?? [],
     },
-    persona ?? 'neutral'
+    persona ?? 'mason'
   );
 
   // ---------------------------------------------------------------------------
   // 4. Stream Claude response with tool calling
   // Tools authenticate with the user's ID token (BaaS pattern: user writes
   // through Security Rules rather than bypassing them with admin credentials).
+  // Mason persona only gets operational tools — analytical tools are stripped.
   // ---------------------------------------------------------------------------
-  const tools = createAITools({ boardId, userId, aiCommandId, userToken: idToken });
+  const allTools = createAITools({ boardId, userId, aiCommandId, userToken: idToken });
+
+  // Mason persona only gets operational tools — analytical-only tools are excluded.
+  const MASON_EXCLUDED_TOOLS = new Set(['redTeamThis', 'mapDecision', 'findGaps']);
+  const tools = (persona ?? 'mason') === 'mason'
+    ? (Object.fromEntries(
+        Object.entries(allTools).filter(([name]) => !MASON_EXCLUDED_TOOLS.has(name))
+      ) as typeof allTools)
+    : allTools;
 
   try {
     const result = streamText({

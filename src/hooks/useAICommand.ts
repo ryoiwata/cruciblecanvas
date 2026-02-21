@@ -24,6 +24,7 @@ import {
 } from '@/lib/firebase/firestore';
 import { setAIStream, updateAIStream, removeAIStream } from '@/lib/firebase/rtdb';
 import { serializeBoardState } from '@/lib/ai/context';
+import { computeSuggestedPositions } from '@/lib/ai/spatialPlanning';
 import type { ChatMessage } from '@/lib/types';
 
 interface UseAICommandReturn {
@@ -71,6 +72,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
       };
 
       const boardState = serializeBoardState(objects, viewportBounds, selectedObjectIds);
+      const suggestedPositions = computeSuggestedPositions(objects, viewportBounds, 5);
 
       // Build optimistic ai_command message
       const commandMsgId = `optimistic-cmd-${aiCommandId}`;
@@ -173,6 +175,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
             selectedObjectIds,
             persona,
             aiCommandId,
+            suggestedPositions,
           }),
           signal: abortController.signal,
         });

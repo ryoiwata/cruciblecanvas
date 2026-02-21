@@ -107,7 +107,7 @@ export const useChatStore = create<ChatState>()((set) => ({
 export const usePersonaStore = create<PersistedChatState>()(
   persist(
     (set) => ({
-      persona: 'neutral' as AiPersona,
+      persona: 'mason' as AiPersona,
       setPersona: (p) => set({ persona: p }),
     }),
     { name: 'cruciblecanvas-persona' }
