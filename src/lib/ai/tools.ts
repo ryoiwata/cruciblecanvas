@@ -431,5 +431,27 @@ export function createAITools(ctx: ToolContext) {
         };
       },
     }),
+
+    // -------------------------------------------------------------------------
+    // Clarification tool (Mason-only)
+    // -------------------------------------------------------------------------
+
+    askClarification: tool({
+      description:
+        'Ask the user a clarifying question when the command is ambiguous. ' +
+        'Call this ONLY when you cannot safely infer intent. ' +
+        'This is a terminal action — do not create or modify any objects in the same turn after calling this.',
+      inputSchema: zodSchema(
+        z.object({
+          question: z.string().describe('The specific clarifying question to ask the user'),
+        })
+      ),
+      execute: async ({ question }: { question: string }) => {
+        // Return the question so the AI echoes it in its text output using the
+        // required sentinel format. The client detects the sentinel to set
+        // clarificationPending state and halt the rollback timer.
+        return { clarificationSent: true, question };
+      },
+    }),
   };
 }

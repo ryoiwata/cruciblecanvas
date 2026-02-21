@@ -105,41 +105,55 @@ Real-Time Collaboration TODOs
 AI TODOs
 - Create an AI agent that's specifically for operations
 - Make it light weight with the context. Output Json that can 
+- [ ] Fix color being chosen with Mason
+- [ ] Make mason the default AI agent
+- [ ] Mason should put objects in where the user window is. If there's no, space then it should move down and the window should move down with it.
+- [ ] Fix issue with Mason chat not being returned.
+- [ ] If Mason asks for clarification, it should be able to be responded to.
+- [ ] New items should not be overlapping frames that are already there.
+- [ ] New items should be placed where there is open space in the current view that it can fit in. Or below existing items in the current view or lower of if not space in current view.
 
-REAL TODOs
+Actual TODOs
+- [] Fix group select when right clicking one item highlight
+- [] Fix AI agent logo in chat to robot instead of sparkle
+- [] Make the Toggle suggestion more darker font
+- [] Fix the numbers on the tool bar
+- [] Text on sticky should be edited in place, instead of changing boxes
+- [] Sticky should grow vertically in size if text gets too large with resizing or when more is being typed
+- [ ] Frames should move items around so no item is overlapped inside and frame should adjust size if bigger is needed based on moved around items. Shapes should be adjusted to all fit in.
+- [ ] Default line thickness should be bigger, like 10. Default color should be black, unless if previous line was different color.
+- [ ] Remove different types of lines.
+- [ ] Remove dashes for lines?
+- [ ] Fix ordering of tool shorcut numbers, have number next to tool label
+
+
+TODOs
 - [FIX] Fix drag item within frame
 - [x] Remove layers from legend
 - [x] Remove duplicate from legend
 - [x] Remove copy and delete text preview
 - [x] Remove shape outline changer as an option for any item
-- [] Fix group select when right clicking one item highlight
-- [] Fix AI agent logo in chat to robot instead of sparkle
 - [x] Change the chat icon on the top from robot to a chat bubble with the word Chat next to it 
 - [x] Move main tool bar to top
-- [ ] Font should be edited when clicking on sticky note for that whole sticky
-- [ ] When selecting the text on sticky, it should stay the same, not go into its own box and change size. Text on sticky should be selected as is.
+- [x] Font should be edited when clicking on sticky note for that whole sticky
 - [x] Frames should adjust size when big item is put in.  
-- [ ] Frames should move items around so no item is overlapped inside and frame should adjust size if bigger is needed based on moved around items. Shapes should be adjusted to all fit in.
 - [x] Make sure that items in frame can move within the frame no matter what
 - [x] If item in frame is taken out, then it actually is deframed
 - [x] Items in frames should be allowed to freely move within the frame
 - [x] Change presets to something more meaningful
-- [ ] Default line thickness should be bigger, like 10
 - [ ] Line types need to be fixed
   - [ ] ie straight, curvy, etc.
 - [x] Properties should only reflect the item type being selected or was previously selected ie shape types shouldn't have any text options
 - [x] Text edit should change text in real time
-- [ ] Group select then right click should still highlight the entier group
 - [x] Text should be on the lines within the sticky
 - [x] Standalone text should default to black and be bigger by default (unless previously selected standalone text was a different color or a certain size)
 - [ ] Standalone text should be bigger by default (unless previously selected standalone text was a different certain size)
 - [x] There should be a size dimension toggle for height and width of shapes
-- [ ] Sticky should have a height and width option
+- [x] Sticky should have a height and width option
 - [x] Cursor should have coordinates
 - [x] Make undo and redo button work
 - [ ] Make it more clear that free form text is being selected 
 - [ ] Free form text behavior selection behavior should be fixed
-- [ ] - Fix ordering of tool shorcut numbers, have number next to tool label
 - [x] Fix sticky text editing
 - [x] Make presets more pastel colors
 - [ ] Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
@@ -157,7 +171,7 @@ REAL TODOs
 - [ ] Limit the presets to 6, add option so see more with 18 pastelle colors
 - [ ] Color text box in Fill box for shape should be ssmaller, same size as Hex code, but little bigger. should not be cut off. 
 - [ ] Make canvas be able to have titles with space in them
-- [ ] Selection reference
+- [ ] Selection reference in chat and AI
 
 
 
