@@ -16,7 +16,6 @@ import { useChatMessages } from "@/hooks/useChatMessages";
 import { useAIStream } from "@/hooks/useAIStream";
 import { useAICommand } from "@/hooks/useAICommand";
 import SubHeaderToolbar from "@/components/ui/SubHeaderToolbar";
-import ShortcutLegend from "@/components/ui/ShortcutLegend";
 import PropertiesSidebar from "@/components/properties/PropertiesSidebar";
 import ContextMenu from "@/components/ui/ContextMenu";
 import DeleteDialog from "@/components/ui/DeleteDialog";
@@ -222,8 +221,6 @@ export default function BoardPage() {
             <div className="pointer-events-auto">
               <SelectionCounter />
             </div>
-            {/* Shortcut legend — always visible */}
-            <ShortcutLegend />
           </div>
 
           {/* Floating message preview when sidebar is closed */}

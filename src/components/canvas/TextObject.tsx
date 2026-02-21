@@ -52,9 +52,12 @@ export default memo(function TextObject({
   // ---- Event handlers — defined before LOD guard to satisfy rules-of-hooks ----
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // Only handle left-click; right-click fires contextmenu and should not change selection
+    if (e.evt.button !== 0) return;
     if (mode !== 'pointer') return;
     e.cancelBubble = true;
-    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
+    // Multi-select mode: clicking always toggles (no Ctrl needed)
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey || useCanvasStore.getState().isMultiSelectMode) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -73,7 +76,13 @@ export default memo(function TextObject({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
-    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    // Auto-select on right-click if not already in current selection
+    let currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    if (!currentSelectedIds.includes(object.id)) {
+      useCanvasStore.getState().selectObject(object.id);
+      currentSelectedIds = [object.id];
+    }
+    // If the clicked object is part of a multi-selection, target the whole group.
     const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,

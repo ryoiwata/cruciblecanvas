@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback, memo } from "react";
+import { useRef, useState, useCallback, memo, useEffect } from "react";
 import { Group, Rect, Text, Line } from "react-konva";
 import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
@@ -10,9 +10,52 @@ import { useAuthStore } from "@/lib/store/authStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import type { BoardObject } from "@/lib/types";
-import { FONT_FAMILY_MAP } from "@/lib/types";
+import { FONT_FAMILY_MAP, STICKY_NOTE_SIZE_LIMITS } from "@/lib/types";
 import { borderResizingIds } from "@/lib/resizeState";
 import { overlapFraction } from "@/lib/utils";
+
+/**
+ * Measures the canvas-coordinate height needed to display `text` inside a
+ * sticky note of `canvasWidth`, given the font settings. Uses a hidden DOM
+ * element so the result accounts for actual browser text wrapping.
+ *
+ * Returns the total canvas height (including the 30px top text offset and
+ * 10px bottom margin that StickyNote applies to position its Konva Text node).
+ */
+function measureStickyTextHeight(
+  text: string,
+  canvasWidth: number,
+  fontSize: number,
+  fontFamily: string,
+): number {
+  if (typeof document === 'undefined' || !text) return 0;
+  // Match Konva text width: x=12, width=object.width-24
+  const textAreaWidth = canvasWidth - 24;
+  const lineHeightPx = Math.max(fontSize, 22);
+
+  const div = document.createElement('div');
+  div.style.cssText = [
+    'position:absolute',
+    'visibility:hidden',
+    'pointer-events:none',
+    `width:${textAreaWidth}px`,
+    `font-size:${fontSize}px`,
+    `font-family:${fontFamily}`,
+    `line-height:${lineHeightPx}px`,
+    'white-space:pre-wrap',
+    'word-break:break-word',
+    'padding:0',
+    'border:none',
+    'overflow:hidden',
+  ].join(';');
+  div.textContent = text;
+  document.body.appendChild(div);
+  const contentHeight = div.scrollHeight;
+  document.body.removeChild(div);
+
+  // 30px text top offset + content + 10px bottom margin
+  return 30 + contentHeight + 10;
+}
 
 interface StickyNoteProps {
   object: BoardObject;
@@ -40,6 +83,7 @@ export default memo(function StickyNote({
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  const editingObjectId = useCanvasStore((s) => s.editingObjectId);
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
@@ -52,6 +96,27 @@ export default memo(function StickyNote({
   const handleBorderHover = useCallback((hovering: boolean) => {
     setIsHoveringBorder(hovering);
   }, []);
+
+  // Auto-resize height when font size or font family changes from the properties panel.
+  // Only expands (never shrinks) so a manually-set larger height is preserved.
+  // Skips while the TextEditor is open — live growth is handled there.
+  useEffect(() => {
+    const { editingObjectId } = useCanvasStore.getState();
+    if (editingObjectId === object.id) return;
+    if (!object.text) return;
+
+    const fontFamilyStr = FONT_FAMILY_MAP[object.fontFamily || 'sans-serif'];
+    const fontSize = object.fontSize ?? 14;
+    const neededHeight = measureStickyTextHeight(object.text, object.width, fontSize, fontFamilyStr);
+    const clamped = Math.max(
+      STICKY_NOTE_SIZE_LIMITS.min.height,
+      Math.min(STICKY_NOTE_SIZE_LIMITS.max.height, Math.ceil(neededHeight))
+    );
+    if (clamped > object.height) {
+      updateObjectLocal(object.id, { height: clamped });
+      updateObject(boardId, object.id, { height: clamped }).catch(console.error);
+    }
+  }, [object.fontSize, object.fontFamily]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // RAF-throttled drag-move handler — drives frame capture glow effect at display refresh rate.
   // Defined before the LOD guard to satisfy rules-of-hooks (no conditional hook calls).
@@ -84,6 +149,9 @@ export default memo(function StickyNote({
   const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
   const fontFamily = FONT_FAMILY_MAP[object.fontFamily || "sans-serif"];
+  // True when this sticky is being actively edited — used to hide the Konva text
+  // node so the transparent DOM textarea doesn't show double text.
+  const isCurrentlyEditing = editingObjectId === object.id;
 
   // LOD: simplified render for extreme zoom-out — no text, lines, shadows
   if (isSimpleLod) {
@@ -99,13 +167,18 @@ export default memo(function StickyNote({
     );
   }
 
-  // Generate notepad lines — spacing adapts to font size so text stays on the lines.
+  // Generate notepad lines — spacing must exactly match Konva's pixel line height so
+  // every text row lands precisely between two consecutive guide lines.
+  // Konva lineHeight multiplier = max(1, 22/fontSize), so pixel height = max(fontSize, 22).
   const effectiveFontSize = object.fontSize ?? 14;
-  const lineSpacing = Math.max(22, effectiveFontSize * 1.57);
-  const lineStartY = 30; // Start below top padding
-  const lineMarginX = 8;
+  const lineSpacing = Math.max(effectiveFontSize, 22);
+  // Lines align horizontally with the text node (x=12, width=object.width-24).
+  const lineMarginX = 12;
   const notepadLines: number[] = [];
-  for (let y = lineStartY; y < object.height - 10; y += lineSpacing) {
+  // Start at y=30 (same as the Konva Text node y), then repeat every lineSpacing px.
+  // This draws one ruling line at the top of each text row so text "floats" between
+  // consecutive lines — identical to traditional ruled paper.
+  for (let y = 30; y < object.height - 4; y += lineSpacing) {
     notepadLines.push(y);
   }
 
@@ -162,11 +235,14 @@ export default memo(function StickyNote({
   };
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // Only handle left-click; right-click fires contextmenu and should not change selection
+    if (e.evt.button !== 0) return;
     if (mode !== "pointer") return;
     e.cancelBubble = true;
     // Sync active color in toolbar to match the clicked object's color
     setLastUsedColor(object.type, object.color);
-    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
+    // Multi-select mode: clicking always toggles (no Ctrl needed)
+    if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey || useCanvasStore.getState().isMultiSelectMode) {
       toggleSelection(object.id);
     } else {
       selectObject(object.id);
@@ -181,8 +257,13 @@ export default memo(function StickyNote({
   const handleContextMenu = (e: Konva.KonvaEventObject<PointerEvent>) => {
     e.evt.preventDefault();
     e.cancelBubble = true;
+    // Auto-select on right-click if not already in current selection
+    let currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
+    if (!currentSelectedIds.includes(object.id)) {
+      useCanvasStore.getState().selectObject(object.id);
+      currentSelectedIds = [object.id];
+    }
     // If the clicked object is part of a multi-selection, target the whole group.
-    const currentSelectedIds = useCanvasStore.getState().selectedObjectIds;
     const isInGroup = currentSelectedIds.includes(object.id) && currentSelectedIds.length > 1;
     showContextMenu({
       visible: true,
@@ -232,15 +313,16 @@ export default memo(function StickyNote({
         <Line
           key={y}
           points={[lineMarginX, y, object.width - lineMarginX, y]}
-          stroke="rgba(0,0,0,0.08)"
+          stroke="rgba(0,0,0,0.20)"
           strokeWidth={1}
           listening={false}
         />
       ))}
 
-      {/* Text content — y/lineHeight aligned with notepad lines.
-          fill uses textColor when set so StickyNoteModule color changes take effect. */}
-      {object.text !== undefined && object.text !== "" && (
+      {/* Text content — hidden while the DOM textarea is active so the transparent
+          overlay doesn't cause double-text rendering. The textarea takes over
+          text display during editing, then this node re-appears on commit. */}
+      {object.text !== undefined && object.text !== "" && !isCurrentlyEditing && (
         <Text
           text={object.text}
           width={object.width - 24}

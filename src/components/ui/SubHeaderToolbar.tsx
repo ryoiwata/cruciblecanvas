@@ -28,10 +28,63 @@ import {
   createObject,
   updateObject,
   deleteObject,
+  generateObjectId,
 } from '@/lib/firebase/firestore';
 import type { BoardObject } from '@/lib/types';
 import AlignMenu from './AlignMenu';
 import ArrangeMenu from './ArrangeMenu';
+
+// ---- Shortcut chip icons (inline, matching ShortcutLegend visual language) ---
+
+function MarqueeChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" strokeDasharray="2.5 1.5" fill="none" />
+    </svg>
+  );
+}
+
+function MultiSelectChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="0.5" y="3.5" width="9" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="4.5" y="0.5" width="9" height="9" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+    </svg>
+  );
+}
+
+function SelectAllChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="1" y="1" width="12" height="12" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <circle cx="1" cy="1" r="1.2" fill="currentColor" />
+      <circle cx="13" cy="1" r="1.2" fill="currentColor" />
+      <circle cx="1" cy="13" r="1.2" fill="currentColor" />
+      <circle cx="13" cy="13" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function CopyPasteChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="0.5" y="3.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="4" y="0.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="white" />
+      <rect x="4" y="0.5" width="8" height="10" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+    </svg>
+  );
+}
+
+function PasteChipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true" className="shrink-0">
+      <rect x="2" y="3" width="10" height="11" rx="1" stroke="currentColor" strokeWidth="1.2" fill="none" />
+      <rect x="4.5" y="0.5" width="5" height="4" rx="0.5" stroke="currentColor" strokeWidth="1.2" fill="white" />
+      <line x1="4.5" y1="7.5" x2="9.5" y2="7.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      <line x1="4.5" y1="10" x2="9.5" y2="10" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 interface SubHeaderToolbarProps {
   boardId: string;
@@ -118,6 +171,53 @@ function Divider() {
   return <div className="mx-1 h-8 w-px bg-gray-200 self-center" />;
 }
 
+// ---- Shortcut chip — clickable hint button in the far-right legend area -----
+
+interface ShortcutChipProps {
+  icon: React.ReactNode;
+  label: string;
+  keys: string;
+  onClick: () => void;
+  disabled?: boolean;
+  isActive?: boolean;
+}
+
+/**
+ * Clickable shortcut chip rendered in the same vertical icon+label+key style as
+ * ToolButton. Clicking activates the associated canvas sub-mode.
+ *
+ * onMouseDown preventDefault prevents browser focus shift, keeping canvas
+ * pointer events working correctly for the next interaction.
+ */
+function ShortcutChip({ icon, label, keys, onClick, disabled, isActive }: ShortcutChipProps) {
+  return (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      disabled={disabled}
+      title={`${label}: ${keys}`}
+      className={`flex flex-col items-center justify-center h-14 w-14 gap-0.5 rounded-md transition-colors shrink-0 ${
+        disabled
+          ? 'cursor-not-allowed text-gray-300'
+          : isActive
+          ? 'bg-indigo-50 text-indigo-600'
+          : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+      }`}
+    >
+      {icon}
+      <span className="text-[10px] font-medium leading-none">{label}</span>
+      <kbd className={`rounded border px-1 py-px font-mono text-[9px] leading-none mt-0.5 ${
+        disabled ? 'border-gray-100 bg-gray-50 text-gray-300'
+        : isActive ? 'border-indigo-200 bg-indigo-50 text-indigo-400'
+        : 'border-gray-200 bg-gray-100 text-gray-400'
+      }`}>
+        {keys}
+      </kbd>
+    </button>
+  );
+}
+
 // ---- Vertical tool button (icon above label) ---------------------------------
 
 interface ToolButtonProps {
@@ -133,6 +233,7 @@ function ToolButton({ label, icon, isActive, disabled, shortcut, onClick }: Tool
   return (
     <button
       type="button"
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       disabled={disabled}
       title={shortcut ? `${label} (${shortcut})` : label}
@@ -195,13 +296,21 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const creationTool = useCanvasStore((s) => s.creationTool);
   const setMode = useCanvasStore((s) => s.setMode);
   const enterCreateMode = useCanvasStore((s) => s.enterCreateMode);
+  const setSelectedObjectIds = useCanvasStore((s) => s.setSelectedObjectIds);
+  const copyToClipboard = useCanvasStore((s) => s.copyToClipboard);
+  const isMarqueeMode = useCanvasStore((s) => s.isMarqueeMode);
+  const isMultiSelectMode = useCanvasStore((s) => s.isMultiSelectMode);
+  const setMarqueeMode = useCanvasStore((s) => s.setMarqueeMode);
+  const setMultiSelectMode = useCanvasStore((s) => s.setMultiSelectMode);
 
+  const clipboard = useCanvasStore((s) => s.clipboard);
   const past = useObjectStore((s) => s.past);
   const future = useObjectStore((s) => s.future);
   const user = useAuthStore((s) => s.user);
 
   const canUndo = past.length > 0;
   const canRedo = future.length > 0;
+  const canPaste = clipboard.length > 0;
 
   const handleUndo = useCallback(async () => {
     const result = useObjectStore.getState().undo();
@@ -215,6 +324,57 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
     await syncDeltaToFirestore(result.before, result.after, boardId, user.uid);
   }, [boardId, user]);
 
+  // Cascading-diagonal paste — same behavior as Ctrl+V (no cursor position context here)
+  const handlePaste = useCallback(() => {
+    if (!user) return;
+    const { clipboard: cb } = useCanvasStore.getState();
+    if (cb.length === 0) return;
+
+    const pasteCount = useCanvasStore.getState().pasteCount + 1;
+    useCanvasStore.setState({ pasteCount });
+    const offset = pasteCount * 20;
+
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
+    const { upsertObject } = useObjectStore.getState();
+    for (let i = 0; i < cb.length; i++) {
+      const obj = cb[i];
+      const newId = generateObjectId(boardId);
+      const newObj = {
+        ...obj,
+        id: newId,
+        x: obj.x + offset,
+        y: obj.y + offset,
+        zIndex: maxZ + 1 + i,
+        createdBy: user.uid,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        parentFrame: undefined,
+      };
+      upsertObject(newObj);
+      createObject(
+        boardId,
+        {
+          type: newObj.type,
+          x: newObj.x,
+          y: newObj.y,
+          width: newObj.width,
+          height: newObj.height,
+          color: newObj.color,
+          text: newObj.text,
+          zIndex: newObj.zIndex,
+          createdBy: user.uid,
+        },
+        newId
+      ).catch(console.error);
+    }
+  }, [boardId, user]);
+
   const isPointerActive = mode === 'pointer';
   const isLineActive = mode === 'create' && creationTool === 'line';
   const isConnectorActive = mode === 'create' && creationTool === 'connector';
@@ -225,11 +385,12 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const isFrameActive = mode === 'create' && creationTool === 'frame';
 
   return (
-    <div className="flex h-14 w-full shrink-0 items-center border-b border-gray-200 bg-white px-3 z-30">
+    <div className="flex h-14 w-full shrink-0 items-center border-b border-gray-200 bg-white px-3 z-30 overflow-x-auto">
       {/* Undo / Redo */}
       <div className="flex items-center gap-0.5">
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleUndo}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
@@ -243,6 +404,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         </button>
         <button
           type="button"
+          onMouseDown={(e) => e.preventDefault()}
           onClick={handleRedo}
           disabled={!canRedo}
           title="Redo (Ctrl+Shift+Z)"
@@ -339,6 +501,63 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
 
       {/* Layer — uses showLabel to match vertical icon+label style */}
       <ArrangeMenu boardId={boardId} showLabel />
+
+      {/* Flexible spacer pushes shortcut legend to the far right */}
+      <div className="flex-1" />
+
+      <Divider />
+
+      {/* Shortcut legend chips — clickable, each activates a persistent pointer sub-mode */}
+      <ShortcutChip
+        icon={<MarqueeChipIcon />}
+        label="Marquee"
+        keys="Ctrl+Drag"
+        isActive={isMarqueeMode}
+        onClick={() => {
+          // Switch to pointer first, then toggle marquee sub-mode
+          if (mode !== 'pointer') setMode('pointer');
+          setMarqueeMode(!isMarqueeMode);
+        }}
+      />
+      <ShortcutChip
+        icon={<MultiSelectChipIcon />}
+        label="Multi-sel"
+        keys="Ctrl+Click"
+        isActive={isMultiSelectMode}
+        onClick={() => {
+          if (mode !== 'pointer') setMode('pointer');
+          setMultiSelectMode(!isMultiSelectMode);
+        }}
+      />
+      <ShortcutChip
+        icon={<SelectAllChipIcon />}
+        label="Select All"
+        keys="Ctrl+A"
+        onClick={() => {
+          setMode('pointer');
+          setSelectedObjectIds(Object.keys(useObjectStore.getState().objects));
+        }}
+      />
+      <ShortcutChip
+        icon={<CopyPasteChipIcon />}
+        label="Copy"
+        keys="Ctrl+C"
+        onClick={() => {
+          const { selectedObjectIds } = useCanvasStore.getState();
+          const { objects } = useObjectStore.getState();
+          const selected = selectedObjectIds
+            .map((id) => objects[id])
+            .filter((obj): obj is BoardObject => obj !== undefined);
+          if (selected.length > 0) copyToClipboard(selected);
+        }}
+      />
+      <ShortcutChip
+        icon={<PasteChipIcon />}
+        label="Paste"
+        keys="Ctrl+V"
+        disabled={!canPaste}
+        onClick={handlePaste}
+      />
     </div>
   );
 }

@@ -541,6 +541,10 @@ export default function Canvas({ boardId }: CanvasProps) {
       }
 
       if (mode === "pointer" && !e.evt.ctrlKey && !e.evt.metaKey && !e.evt.shiftKey) {
+        // Exit persistent sub-modes when clicking empty canvas
+        const { isMarqueeMode, isMultiSelectMode, setMarqueeMode, setMultiSelectMode } = useCanvasStore.getState();
+        if (isMarqueeMode) setMarqueeMode(false);
+        if (isMultiSelectMode) setMultiSelectMode(false);
         clearSelection();
       }
     },
@@ -577,8 +581,9 @@ export default function Canvas({ boardId }: CanvasProps) {
       }
 
       if (mode === "pointer") {
-        if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey) {
-          // Ctrl/Shift+drag: start selection rectangle (marquee)
+        const { isMarqueeMode } = useCanvasStore.getState();
+        if (e.evt.ctrlKey || e.evt.metaKey || e.evt.shiftKey || isMarqueeMode) {
+          // Ctrl/Shift+drag OR marquee-mode active: start selection rectangle
           pointerInteractionRef.current = { type: "selRect", shiftHeld: e.evt.shiftKey };
           selRectRef.current = {
             startX: canvasPoint.x,

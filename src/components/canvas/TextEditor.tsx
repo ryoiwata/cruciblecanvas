@@ -1,5 +1,15 @@
 "use client";
 
+/**
+ * TextEditor — floating textarea overlay that renders over a Konva object
+ * when the user enters text-edit mode. For sticky notes it renders in-place
+ * with padding/font settings that precisely match the Konva Text node, so the
+ * text never appears to "jump" when entering or leaving edit mode.
+ *
+ * Sticky notes grow vertically in real-time as the user types more lines, and
+ * shrink back to the minimum needed height on commit.
+ */
+
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
@@ -27,18 +37,50 @@ export default function TextEditor({ boardId }: TextEditorProps) {
   const object = editingObjectId ? objects[editingObjectId] : null;
 
   useEffect(() => {
-    if (object) {
-      // Snapshot before editing begins so the text change is undoable via Ctrl+Z.
-      // Fires once per edit session (keyed on object?.id change).
-      useObjectStore.getState().snapshot();
+    if (!object) return;
+
+    // Snapshot before editing begins so the text change is undoable via Ctrl+Z.
+    useObjectStore.getState().snapshot();
+
+    // Consume pendingEditChar if set (set by useKeyboardShortcuts for "type to edit").
+    const { pendingEditChar, setPendingEditChar } = useCanvasStore.getState();
+    const initialChar = pendingEditChar;
+    if (initialChar !== null) {
+      setPendingEditChar(null);
+      setText(initialChar);
+      useObjectStore.getState().updateObjectLocal(object.id, { text: initialChar });
+    } else {
       setText(object.text || "");
-      // Focus textarea after mount
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-        textareaRef.current?.select();
-      });
     }
-  }, [object?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+
+      // For sticky notes: auto-expand immediately if current content already
+      // overflows the existing object height (e.g. after a font-size increase).
+      if (object.type === "stickyNote") {
+        ta.style.height = "1px";
+        const scrollH = ta.scrollHeight;
+        const minScreenH = STICKY_NOTE_SIZE_LIMITS.min.height * stageScale;
+        const maxScreenH = STICKY_NOTE_SIZE_LIMITS.max.height * stageScale;
+        const newScreenH = Math.max(minScreenH, Math.min(maxScreenH, scrollH));
+        ta.style.height = `${newScreenH}px`;
+        const newCanvasH = Math.ceil(newScreenH / stageScale);
+        if (newCanvasH !== object.height) {
+          useObjectStore.getState().updateObjectLocal(object.id, { height: newCanvasH });
+        }
+      }
+
+      ta.focus();
+      if (initialChar !== null) {
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      } else {
+        ta.select();
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [object?.id]);
 
   const commit = useCallback(() => {
     if (!editingObjectId || !object) return;
@@ -46,37 +88,50 @@ export default function TextEditor({ boardId }: TextEditorProps) {
     const trimmed = text;
 
     // Auto-delete empty text objects rather than leaving invisible elements.
-    if (object.type === 'text' && trimmed.trim() === '') {
+    if (object.type === "text" && trimmed.trim() === "") {
       removeObject(editingObjectId);
       deleteObject(boardId, editingObjectId).catch(console.error);
       setEditingObject(null);
       return;
     }
 
-    updateObjectLocal(editingObjectId, { text: trimmed });
-
-    // Auto-resize height for sticky notes and text objects based on content.
-    if ((object.type === "stickyNote" || object.type === "text") && textareaRef.current) {
-      const measuredHeight = textareaRef.current.scrollHeight + (object.type === "text" ? 4 : 20);
+    if (object.type === "stickyNote" && textareaRef.current) {
+      // Compute the final required height (may be smaller if user deleted text).
+      const ta = textareaRef.current;
+      ta.style.height = "1px";
+      const scrollH = ta.scrollHeight;
+      const currentScale = useCanvasStore.getState().stageScale;
+      const newHeight = Math.max(
+        STICKY_NOTE_SIZE_LIMITS.min.height,
+        Math.min(
+          STICKY_NOTE_SIZE_LIMITS.max.height,
+          Math.ceil(scrollH / currentScale)
+        )
+      );
+      updateObjectLocal(editingObjectId, { text: trimmed, height: newHeight });
+      updateObject(boardId, editingObjectId, {
+        text: trimmed,
+        height: newHeight,
+      }).catch(console.error);
+    } else if (object.type === "text" && textareaRef.current) {
+      const measuredHeight = textareaRef.current.scrollHeight + 4;
       const newHeight = Math.max(
         STICKY_NOTE_SIZE_LIMITS.min.height,
         Math.min(STICKY_NOTE_SIZE_LIMITS.max.height, measuredHeight)
       );
       if (newHeight !== object.height) {
-        updateObjectLocal(editingObjectId, { height: newHeight });
+        updateObjectLocal(editingObjectId, { text: trimmed, height: newHeight });
         updateObject(boardId, editingObjectId, {
           text: trimmed,
           height: newHeight,
         }).catch(console.error);
       } else {
-        updateObject(boardId, editingObjectId, { text: trimmed }).catch(
-          console.error
-        );
+        updateObjectLocal(editingObjectId, { text: trimmed });
+        updateObject(boardId, editingObjectId, { text: trimmed }).catch(console.error);
       }
     } else {
-      updateObject(boardId, editingObjectId, { text: trimmed }).catch(
-        console.error
-      );
+      updateObjectLocal(editingObjectId, { text: trimmed });
+      updateObject(boardId, editingObjectId, { text: trimmed }).catch(console.error);
     }
 
     setEditingObject(null);
@@ -102,35 +157,86 @@ export default function TextEditor({ boardId }: TextEditorProps) {
 
   if (!object || !editingObjectId) return null;
 
+  // ---- Layout ----------------------------------------------------------------
+
   // Calculate screen-space position from canvas-space
   const screenX = object.x * stageScale + stageX;
   const screenY = object.y * stageScale + stageY;
   const screenWidth = object.width * stageScale;
   const screenHeight = object.height * stageScale;
 
-  // For frames, only edit the title bar area
+  const isStickyNote = object.type === "stickyNote";
   const isFrame = object.type === "frame";
   const isText = object.type === "text";
+
+  // For frames, only edit the title bar area
   const editHeight = isFrame ? 40 * stageScale : screenHeight;
 
-  // Font size: text objects respect object.fontSize; others use 14px
-  const baseFontSize = isText ? (object.fontSize ?? 16) : 14;
+  // Font size: sticky notes and text objects respect object.fontSize
+  const effectiveFontSize = isStickyNote
+    ? (object.fontSize ?? 14)
+    : isText
+    ? (object.fontSize ?? 16)
+    : 14;
 
-  // Background: text objects are transparent to match Konva rendering
+  // CSS line-height for sticky notes matches Konva: lineHeight multiplier is
+  // max(1, 22/fontSize), so pixel line height = max(fontSize, 22).
+  const cssLineHeight = isStickyNote
+    ? `${Math.max(effectiveFontSize, 22) * stageScale}px`
+    : "1.4";
+
+  // Padding: for sticky notes match Konva text position (x=12, y=30).
+  // Other objects use 10px all sides; text objects have no padding.
+  const paddingTop = isStickyNote
+    ? 30 * stageScale
+    : isText
+    ? 0
+    : 10 * stageScale;
+  const paddingHoriz = isStickyNote
+    ? 12 * stageScale
+    : isText
+    ? 0
+    : 10 * stageScale;
+  const paddingBottom = isStickyNote
+    ? 10 * stageScale
+    : isText
+    ? 0
+    : 10 * stageScale;
+
+  // Background:
+  //  - Sticky notes: transparent — the Konva background rect shows through, giving a
+  //    true in-place feel. The Konva <Text> node is hidden while editing so there
+  //    is no double-text underneath.
+  //  - Frame title bar: near-white so editing area is readable.
+  //  - Text objects: fully transparent to match the Konva Text node appearance.
   const bgColor = isFrame
     ? "rgba(255,255,255,0.95)"
-    : isText
-    ? "rgba(255,255,255,0.0)"
-    : object.color;
+    : "transparent";
 
-  const textColor = isText ? object.color : "#1a1a1a";
+  // Text color: sticky notes use the object's textColor field; text objects use
+  // the object color (same as Konva); frames use dark for readability.
+  const textColor = isStickyNote
+    ? (object.textColor ?? "#1a1a1a")
+    : isText
+    ? object.color
+    : "#1a1a1a";
+
+  // Border:
+  //  - Sticky notes: none — removes the purple flash when entering edit mode.
+  //    Also ensures the content width exactly matches the Konva Text node width
+  //    (box-sizing: border-box subtracts border from content width, so border: none
+  //    gives content width = screenWidth − 24*scale, matching Konva's x=12, width−24).
+  //  - Text objects: a subtle dashed outline so the editing region is visible.
+  //  - Frames/others: solid accent border.
+  const borderStyle = isStickyNote
+    ? "none"
+    : isText
+    ? "1px dashed #6366f1"
+    : "2px solid #6366f1";
 
   return (
     <div
       style={{
-        // position: absolute so coordinates are relative to the canvas container
-        // (which has position: relative). Using fixed + stageX/Y breaks when the
-        // canvas container is offset from the viewport by sidebars/headers.
         position: "absolute",
         inset: 0,
         zIndex: 100,
@@ -146,11 +252,28 @@ export default function TextEditor({ boardId }: TextEditorProps) {
         ref={textareaRef}
         value={text}
         onChange={(e) => {
-          setText(e.target.value);
-          // Sync canvas in real-time as the user types — no Firestore write yet.
-          // Firestore is committed on blur/Escape via commit().
+          const newText = e.target.value;
+          setText(newText);
+          // Sync canvas in real-time as the user types — Firestore is written on blur/Escape.
           if (editingObjectId) {
-            useObjectStore.getState().updateObjectLocal(editingObjectId, { text: e.target.value });
+            useObjectStore.getState().updateObjectLocal(editingObjectId, { text: newText });
+          }
+
+          // Sticky notes grow vertically in real-time as content overflows.
+          // We only expand here; shrinking happens on commit so the note doesn't
+          // jump as the user deletes characters mid-edit.
+          if (isStickyNote && textareaRef.current) {
+            const ta = textareaRef.current;
+            ta.style.height = "1px";
+            const scrollH = ta.scrollHeight;
+            const minScreenH = STICKY_NOTE_SIZE_LIMITS.min.height * stageScale;
+            const maxScreenH = STICKY_NOTE_SIZE_LIMITS.max.height * stageScale;
+            const newScreenH = Math.max(minScreenH, Math.min(maxScreenH, scrollH));
+            ta.style.height = `${newScreenH}px`;
+            const newCanvasH = Math.ceil(newScreenH / stageScale);
+            if (newCanvasH > (useObjectStore.getState().objects[editingObjectId]?.height ?? 0)) {
+              useObjectStore.getState().updateObjectLocal(editingObjectId, { height: newCanvasH });
+            }
           }
         }}
         onBlur={commit}
@@ -161,24 +284,29 @@ export default function TextEditor({ boardId }: TextEditorProps) {
           top: screenY,
           width: screenWidth,
           height: editHeight,
-          // Rotate the textarea to match the object's canvas rotation so the
-          // editor overlay stays aligned with the rotated Konva Group.
+          // Rotate the textarea to match the object's canvas rotation.
           transform: `rotate(${object.rotation ?? 0}deg)`,
           transformOrigin: "top left",
-          fontSize: `${baseFontSize * stageScale}px`,
-          fontFamily: object.type === "stickyNote" || object.type === "text"
-            ? FONT_FAMILY_MAP[object.fontFamily ?? "sans-serif"]
-            : "sans-serif",
+          fontSize: `${effectiveFontSize * stageScale}px`,
+          fontFamily:
+            isStickyNote || isText
+              ? FONT_FAMILY_MAP[object.fontFamily ?? "sans-serif"]
+              : "sans-serif",
           fontWeight: isFrame ? "bold" : "normal",
-          padding: isText ? `0` : `${10 * stageScale}px`,
-          border: isText ? `1px dashed #6366f1` : "2px solid #6366f1",
-          borderRadius: `${4 * stageScale}px`,
+          paddingTop: `${paddingTop}px`,
+          paddingLeft: `${paddingHoriz}px`,
+          paddingRight: `${paddingHoriz}px`,
+          paddingBottom: `${paddingBottom}px`,
+          border: borderStyle,
+          borderRadius: isStickyNote ? 0 : `${4 * stageScale}px`,
           outline: "none",
           resize: "none",
           overflow: "hidden",
           background: bgColor,
           color: textColor,
-          lineHeight: "1.4",
+          // Cursor color matches the sticky's text color so it's legible on any background.
+          caretColor: textColor,
+          lineHeight: cssLineHeight,
           boxSizing: "border-box",
         }}
       />

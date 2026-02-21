@@ -50,6 +50,17 @@ interface CanvasState {
   // Properties sidebar open/collapsed state — persists across selections
   isPropertiesOpen: boolean;
 
+  // Pending initial character for "type to edit" on sticky notes:
+  // set by useKeyboardShortcuts when a printable key enters edit mode,
+  // consumed by TextEditor on mount so the key appears in the textarea.
+  pendingEditChar: string | null;
+
+  // Pointer sub-modes — both are pointer-mode only; reset on tool/mode change.
+  // isMarqueeMode: empty-canvas drags always start a selection rect (no Ctrl needed).
+  // isMultiSelectMode: clicking objects toggles them into selection without Ctrl.
+  isMarqueeMode: boolean;
+  isMultiSelectMode: boolean;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -75,6 +86,9 @@ interface CanvasState {
   setFrameDragHighlightId: (id: string | null) => void;
   addRecentColor: (color: string) => void;
   setIsPropertiesOpen: (open: boolean) => void;
+  setPendingEditChar: (char: string | null) => void;
+  setMarqueeMode: (enabled: boolean) => void;
+  setMultiSelectMode: (enabled: boolean) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -106,6 +120,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   frameDragHighlightId: null,
   recentColors: [],
   isPropertiesOpen: true,
+  pendingEditChar: null,
+  isMarqueeMode: false,
+  isMultiSelectMode: false,
 
   setMode: (mode) =>
     set({
@@ -121,6 +138,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       connectorStart: null,
       connectorDragging: false,
       connectorHoverTarget: null,
+      isMarqueeMode: false,
+      isMultiSelectMode: false,
     }),
 
   exitToPointer: () =>
@@ -131,6 +150,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       connectorStart: null,
       connectorDragging: false,
       connectorHoverTarget: null,
+      isMarqueeMode: false,
+      isMultiSelectMode: false,
     }),
 
   selectObject: (id) => {
@@ -203,4 +224,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       const filtered = s.recentColors.filter((c) => c !== color);
       return { recentColors: [color, ...filtered].slice(0, 5) };
     }),
+
+  setPendingEditChar: (char) => set({ pendingEditChar: char }),
+
+  // Sub-mode setters — mutually exclusive; activating one deactivates the other.
+  setMarqueeMode: (enabled) =>
+    set({ isMarqueeMode: enabled, isMultiSelectMode: enabled ? false : get().isMultiSelectMode }),
+  setMultiSelectMode: (enabled) =>
+    set({ isMultiSelectMode: enabled, isMarqueeMode: enabled ? false : get().isMarqueeMode }),
 }));

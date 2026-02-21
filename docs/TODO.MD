@@ -105,7 +105,7 @@ Real-Time Collaboration TODOs
 AI TODOs
 - Create an AI agent that's specifically for operations
 - Make it light weight with the context. Output Json that can 
-- [ ] Fix color being chosen with Mason
+- [x] Fix color being chosen with Mason
 - [ ] Make mason the default AI agent
 - [ ] Mason should put objects in where the user window is. If there's no, space then it should move down and the window should move down with it.
 - [ ] Fix issue with Mason chat not being returned.
@@ -113,18 +113,55 @@ AI TODOs
 - [ ] New items should not be overlapping frames that are already there.
 - [ ] New items should be placed where there is open space in the current view that it can fit in. Or below existing items in the current view or lower of if not space in current view.
 
-Actual TODOs
-- [] Fix group select when right clicking one item highlight
-- [] Fix AI agent logo in chat to robot instead of sparkle
-- [] Make the Toggle suggestion more darker font
-- [] Fix the numbers on the tool bar
-- [] Text on sticky should be edited in place, instead of changing boxes
-- [] Sticky should grow vertically in size if text gets too large with resizing or when more is being typed
-- [ ] Frames should move items around so no item is overlapped inside and frame should adjust size if bigger is needed based on moved around items. Shapes should be adjusted to all fit in.
-- [ ] Default line thickness should be bigger, like 10. Default color should be black, unless if previous line was different color.
+Low priority TODOs
 - [ ] Remove different types of lines.
 - [ ] Remove dashes for lines?
 - [ ] Fix ordering of tool shorcut numbers, have number next to tool label
+- [ ] See if Marquee is a good word
+- [] Fix AI agent logo in chat to robot instead of sparkle
+
+
+Actual TODOs
+- [x] Fix group select when right clicking one item highlight
+- Button Marquee needs to actually select items
+- When window is smaller, the distance between buttons should still be similar. Remove distance in gap between main tools and keyboard shortcuts
+- Right click paster needs to copy where the cursor is, not where the right clikc window is
+- Make right click window smaller
+
+- [ ] Right click copy and paste option
+- [ ] Paste should paste where the cursor is if pasting by right click, else it will duplicate diagonally from where the copied item is
+  - [ ] Paste is pasting to somewhere that's not where the cursor is
+  - [ ] Paste via ctrl + v or button should just paster diagonally of original item
+- [ ] Include a paste button in the short cut legend side of the main toolbar
+- [ ] fix Group select is not working after clicking button
+- [ ] Fix Drag is not working after clicking button.
+- [ ] There should be an option to copy as well as duplicate item when Right click copy option
+- [ ] Right click on item should automatically select it
+- [ ] Multi select button should allow for clicking multiple items without hitting ctrl until you click on an empty spot or change tools
+- [ ] Clicking maruee button should allow you to drag select after clkicking
+- [ ] Names of key board short cuts and short cut should be below the button like in the tools 
+- [ ] If window is too small, you should be able to scroll through the tool bar
+
+- [] Make the Toggle suggestion more darker font
+- [] Fix the numbers on the tool bar
+- [x] Text on sticky should be edited in place, instead of changing boxes
+- [x] Sticky should grow vertically in size if text gets too large with resizing or when more is being typed
+- [ ] Frames should move items around so no item is overlapped inside and frame should adjust size if bigger is needed based on moved around items. Shapes should be adjusted to all fit in.
+- [ ] Default line thickness should be bigger, like 10. Default color should be black, unless if previous line was different color.
+
+- [ ] Defaults for shapes and frames should be a good size relative to current zoom
+- [ ] In chat, objects should be referenceable
+- [ ] While selecting, it should put the reference in the chat
+- [ ] Different zoom options
+- [ ] Option to go to specific coordinates
+- [ ] Description of different AI personalities
+- [ ] Text color is redundaat in properties
+- [ ] HAve a 
+- [ ] Option to create an account to save if using as guest
+- [ ] Fix up AI logic
+- [ ] Should have who the creator is
+- [ ] Make boards deletable in dashboard
+- [ ] Fix redo button
 
 
 TODOs

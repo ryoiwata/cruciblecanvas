@@ -172,6 +172,7 @@ export default function ArrangeMenu({ boardId, showLabel }: ArrangeMenuProps) {
     <div ref={menuRef}>
       <button
         ref={triggerRef}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => setOpen(!open)}
         disabled={!hasSelection}
         title="Layer order"
