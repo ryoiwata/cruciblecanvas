@@ -14,16 +14,14 @@
  *   - When an object is selected the panel switches to the relevant type module.
  *
  * Module routing:
- *   stickyNote  → StickyNoteModule + TextModule
- *   rectangle   → ShapeModule + TextModule
- *   circle      → ShapeModule + TextModule
- *   frame       → FrameModule
- *   text        → TextModule
- *   line        → LineModule
- *   connector   → LineModule
+ *   rectangle / circle  → DimensionModule + ShapeModule
+ *   stickyNote          → StickyNoteModule + TextModule
+ *   frame               → DimensionModule + FrameModule
+ *   text                → DimensionModule + TextModule
+ *   line / connector    → LineModule
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, Fragment } from 'react';
 import { useCanvasStore } from '@/lib/store/canvasStore';
 import { useObjectStore } from '@/lib/store/objectStore';
 import { updateObject } from '@/lib/firebase/firestore';
@@ -36,30 +34,36 @@ import TextModule from './modules/TextModule';
 import LineModule from './modules/LineModule';
 import FrameModule from './modules/FrameModule';
 import StickyNoteModule from './modules/StickyNoteModule';
+import DimensionModule from './modules/DimensionModule';
 
 interface PropertiesSidebarProps {
   boardId: string;
 }
 
-/** Determines which modules are shown for a given object type. */
-type ModuleSet = 'shape' | 'stickyNote' | 'line' | 'frame' | 'text' | 'none';
+/** Individual module keys rendered by the sidebar. */
+type ModuleKey = 'dimension' | 'shape' | 'stickyNote' | 'line' | 'frame' | 'text';
 
-function getModuleSet(type: BoardObject['type']): ModuleSet {
+/**
+ * Returns the ordered list of modules to render for a given object type.
+ * Shapes intentionally omit TextModule — text styling is only exposed for
+ * objects where text is the primary content (sticky notes, standalone text).
+ */
+function getModuleSet(type: BoardObject['type']): ModuleKey[] {
   switch (type) {
     case 'rectangle':
     case 'circle':
-      return 'shape';
+      return ['dimension', 'shape'];
     case 'stickyNote':
-      return 'stickyNote';
+      return ['stickyNote', 'text'];
     case 'line':
     case 'connector':
-      return 'line';
+      return ['line'];
     case 'frame':
-      return 'frame';
+      return ['dimension', 'frame'];
     case 'text':
-      return 'text';
+      return ['dimension', 'text'];
     default:
-      return 'none';
+      return [];
   }
 }
 
@@ -176,6 +180,11 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
   // per 300 ms per object. The map key is objectId.
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
+  // One snapshot per burst of property changes so they are collectively undoable.
+  // Reset after 1 s of inactivity so the next distinct edit session gets its own checkpoint.
+  const hasSnapshottedRef = useRef(false);
+  const snapshotResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const activeObject = selectedObjectIds.length > 0 ? objects[selectedObjectIds[0]] : null;
 
   // Frozen object pattern: keep the last non-null object so the panel retains
@@ -186,6 +195,17 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
 
   const handleChange = useCallback(
     (patch: Partial<BoardObject>) => {
+      // Snapshot once at the start of each distinct property-edit burst so the
+      // full set of changes (e.g. a slider drag) is collectively undoable.
+      if (!hasSnapshottedRef.current) {
+        useObjectStore.getState().snapshot();
+        hasSnapshottedRef.current = true;
+        if (snapshotResetTimerRef.current) clearTimeout(snapshotResetTimerRef.current);
+        snapshotResetTimerRef.current = setTimeout(() => {
+          hasSnapshottedRef.current = false;
+        }, 1000);
+      }
+
       // Track recently used fill/stroke colors for the quick-pick row in ColorRow.
       if (patch.color) addRecentColor(patch.color);
       if (patch.strokeColor) addRecentColor(patch.strokeColor);
@@ -257,31 +277,31 @@ export default function PropertiesSidebar({ boardId }: PropertiesSidebarProps) {
 
               <div className="border-t border-gray-200" />
 
-              {/* Type-specific modules */}
+              {/* Type-specific modules — rendered in the order returned by getModuleSet */}
               <section>
-                {getModuleSet(displayObject.type) === 'shape' && (
-                  <>
-                    <ShapeModule object={displayObject} onChange={handleChange} />
-                    <div className="my-3 border-t border-gray-100" />
-                    <TextModule object={displayObject} onChange={handleChange} />
-                  </>
-                )}
-                {getModuleSet(displayObject.type) === 'stickyNote' && (
-                  <>
-                    <StickyNoteModule object={displayObject} onChange={handleChange} />
-                    <div className="my-3 border-t border-gray-100" />
-                    <TextModule object={displayObject} onChange={handleChange} />
-                  </>
-                )}
-                {getModuleSet(displayObject.type) === 'line' && (
-                  <LineModule object={displayObject} onChange={handleChange} />
-                )}
-                {getModuleSet(displayObject.type) === 'frame' && (
-                  <FrameModule object={displayObject} onChange={handleChange} />
-                )}
-                {getModuleSet(displayObject.type) === 'text' && (
-                  <TextModule object={displayObject} onChange={handleChange} />
-                )}
+                {getModuleSet(displayObject.type).map((moduleKey, i, arr) => (
+                  <Fragment key={moduleKey}>
+                    {moduleKey === 'dimension' && (
+                      <DimensionModule object={displayObject} onChange={handleChange} />
+                    )}
+                    {moduleKey === 'shape' && (
+                      <ShapeModule object={displayObject} onChange={handleChange} />
+                    )}
+                    {moduleKey === 'stickyNote' && (
+                      <StickyNoteModule object={displayObject} onChange={handleChange} />
+                    )}
+                    {moduleKey === 'text' && (
+                      <TextModule object={displayObject} onChange={handleChange} />
+                    )}
+                    {moduleKey === 'line' && (
+                      <LineModule object={displayObject} onChange={handleChange} />
+                    )}
+                    {moduleKey === 'frame' && (
+                      <FrameModule object={displayObject} onChange={handleChange} />
+                    )}
+                    {i < arr.length - 1 && <div className="my-3 border-t border-gray-100" />}
+                  </Fragment>
+                ))}
               </section>
 
               {/* Multi-select indicator */}

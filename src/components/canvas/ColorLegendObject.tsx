@@ -43,6 +43,8 @@ export default memo(function ColorLegendObject({
 
   const handleDragStart = () => {
     if (!user) return;
+    // Snapshot before move so the drag is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
     useObjectStore.getState().startLocalEdit(object.id);

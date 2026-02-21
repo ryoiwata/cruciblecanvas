@@ -96,34 +96,74 @@ Others
   - Group select should still highlight everything even when right clicking
   - Preview of resize, rotate, or drag on mouse
 
+Maybe TODOs
+
+
+
 REAL TODOs
 - [FIX] Fix drag item within frame
 - [x] Remove layers from legend
 - [x] Remove duplicate from legend
 - [x] Remove copy and delete text preview
-- Fix group select when right clicking one item highlight
-- Fix AI agent logo in chat to robot
+- [ ] Remove shape outline changer as an option for any item
+- [] Fix group select when right clicking one item highlight
+- [] Fix AI agent logo in chat to robot instead of sparkle
+- [] Change the chat icon on the top from robot to a chat bubble with the word Chat next to it 
 - [x] Move main tool bar to top
+- [ ] Font should be edited when clicking on sticky note for that whole sticky
+- [ ] Frames should adjust size and not overlap items inside. Frame should be big enough to accomodate all items put in. Shapes should be adjusted to all fit in.
+- [ ] Make sure that items in frame can move within the frame no matter what
+- [ ] If item in frame is taken out, then it actually is deframed
+- [x] Items in frames should be allowed to freely move within the frame
+- [x] Change presets to something more meaningful
+- [ ] Default line size should be bigger
+- [ ] Line types need to be fixed
+  - [ ] ie straight, curvy, etc.
+- [x] Properties should only reflect the item type being selected or was previously selected ie shape types shouldn't have any text options
+- [x] Text edit should change text in real time
+- [ ] Group select then right click should still highlight the entier group
+- [x] Text should be on the lines within the sticky
+- [x] Standalone text should default to black and be bigger by default (unless previously selected standalone text was a different color or a certain size)
+- [ ] Standalone text should be bigger by default (unless previously selected standalone text was a different certain size)
+- [x] There should be a size dimension toggle for height and width of shapes
+- [ ] Sticky should have a height and width option
+- [x] Cursor should have coordinates
+- [x] Make undo and redo button work
+- [ ] Make it more clear that free form text is being selected 
+- [ ] - Fix ordering of tool shorcut numbers, have number next to tool label
+- [x] Fix sticky text editing
+- [x] Make presets more pastel colors
+- [ ] Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
+- [ ] Properties fill and stroke input boxes should not  cut off
+- [ ] Sticky note h and v align are not working
+- [ ] Redudant text color option for sticky note
+- [ ] Lines should adjust for sticky notes with increase text size
+- [ ] Free form text shows double when adding text
+- [ ] Free form text has double box when selected
+- [ ] Text disappears when rotated
+- [ ] Separate rectangle and circle item on item list. Not put them in shape category
+- [ ] Line dash type and shape outline need to be fixed so that it actually changes to dashed
+- [ ] Properties tab should be closed via the side, not the top
+- [ ] Make black one of the preset colors in the front(Use a white font for the text inside it)
+
+
 
 Biorender edits
-- Keep properties out, unless minimized or item is selected
-- Keep text box within sticky when typing
+- [x] Keep properties out, unless minimized or item is selected
+- [ ] Keep text box within sticky when typing
 - [x] Keep Chat under the tool bar
-- [] Make undo and redo button work
 - [] Change top AI button with Chat icon and word chat
 - [x] Don't make text box stick out when editing text. Make it stay on the item that contains the text in line.
-- Fix shape tool drop down to make it show options
+- [x] Fix shape tool drop down to make it show options
 - Keep previous properties window open when clicking out of selecting an item.
-- Remove recent colors from top part of properties tab
-- Fix text tool to have free form text
-- Fix ordering of tool shorcut numbers, have number next to tool label
+- [x] Remove recent colors from top part of properties tab
+- [x] Fix text tool to have free form text
 - - When changing properties in sticky text, it should apply those changes
-- - Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
-- Include more colors in recent 
-- Make presets more pastel colors
-- Group select click should refernce all items
-- Text color needs to be changed for stand alone text tool
-- Fix text editing tool12
+- - 
+- [x] Include more colors in recent 
+
+
+- 
 
 ### Real-Time Collaboration
 

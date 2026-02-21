@@ -28,6 +28,9 @@ export default function TextEditor({ boardId }: TextEditorProps) {
 
   useEffect(() => {
     if (object) {
+      // Snapshot before editing begins so the text change is undoable via Ctrl+Z.
+      // Fires once per edit session (keyed on object?.id change).
+      useObjectStore.getState().snapshot();
       setText(object.text || "");
       // Focus textarea after mount
       requestAnimationFrame(() => {
@@ -142,7 +145,14 @@ export default function TextEditor({ boardId }: TextEditorProps) {
       <textarea
         ref={textareaRef}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          setText(e.target.value);
+          // Sync canvas in real-time as the user types — no Firestore write yet.
+          // Firestore is committed on blur/Escape via commit().
+          if (editingObjectId) {
+            useObjectStore.getState().updateObjectLocal(editingObjectId, { text: e.target.value });
+          }
+        }}
         onBlur={commit}
         onKeyDown={handleKeyDown}
         style={{

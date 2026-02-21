@@ -86,6 +86,8 @@ export default memo(function TextObject({
   };
 
   const handleDragStart = useCallback(() => {
+    // Snapshot before move so the drag is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     preDragPos.current = { x: object.x, y: object.y };
     if (user) acquireLock(boardId, object.id, user.uid, user.displayName || 'User');
   }, [object.x, object.y, boardId, object.id, user]);
@@ -98,8 +100,16 @@ export default memo(function TextObject({
       updateObjectLocal(object.id, { x: newX, y: newY });
       updateObject(boardId, object.id, { x: newX, y: newY }).catch(console.error);
       if (user) releaseLock(boardId, object.id);
+
+      // Auto-expand parent frame if text was dragged beyond its boundary
+      if (object.parentFrame) {
+        const expansion = useObjectStore.getState().expandFrameToContainChild(object.id);
+        if (expansion) {
+          updateObject(boardId, expansion.frameId, expansion.patch).catch(console.error);
+        }
+      }
     },
-    [boardId, object.id, updateObjectLocal, user]
+    [boardId, object.id, object.parentFrame, updateObjectLocal, user]
   );
 
   // ---- LOD guard (after all hooks) ----------------------------------------

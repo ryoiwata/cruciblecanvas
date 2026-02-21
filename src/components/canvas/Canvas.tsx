@@ -65,7 +65,9 @@ function getColorForTool(
     case "line":
       return activeColor || "#374151";
     case "text":
-      return activeColor || TEXT_DEFAULTS.color;
+      // Text color should be independent of the active shape fill color.
+      // Fall back to the type's own default (black) rather than inheriting activeColor.
+      return TEXT_DEFAULTS.color;
     default:
       return "#E3E8EF";
   }
@@ -258,6 +260,10 @@ export default function Canvas({ boardId }: CanvasProps) {
   } | null>(null);
   // RAF handle for border resize rendering — coalesces mouse events to display refresh rate
   const borderResizeRafRef = useRef(0);
+
+  // Direct-DOM coordinate label — updated via RAF to avoid React re-renders on every mousemove.
+  const coordsLabelRef = useRef<HTMLDivElement>(null);
+  const coordsRafRef = useRef(0);
 
   // RAF handle for viewport updates — coalesces wheel/pan events to display refresh rate
   const viewportRafRef = useRef<number | null>(null);
@@ -464,6 +470,8 @@ export default function Canvas({ boardId }: CanvasProps) {
           return;
         }
 
+        // Snapshot before connector creation so it is undoable
+        useObjectStore.getState().snapshot();
         const newId = generateObjectId(boardId);
         const newConnector = {
           id: newId,
@@ -613,6 +621,23 @@ export default function Canvas({ boardId }: CanvasProps) {
       const pointer = stage.getPointerPosition();
       if (!pointer) return;
 
+      // Coordinate overlay — RAF-throttled direct DOM mutation for zero React re-render cost.
+      // Uses transform: translate() for GPU compositing (avoids layout thrash vs. left/top).
+      if (!coordsRafRef.current) {
+        const px = pointer.x;
+        const py = pointer.y;
+        const canvasX = Math.round((px - stage.x()) / stage.scaleX());
+        const canvasY = Math.round((py - stage.y()) / stage.scaleY());
+        coordsRafRef.current = requestAnimationFrame(() => {
+          coordsRafRef.current = 0;
+          const label = coordsLabelRef.current;
+          if (!label) return;
+          label.style.transform = `translate(${px + 16}px, ${py + 16}px)`;
+          label.textContent = `${canvasX}, ${canvasY}`;
+          label.style.display = 'block';
+        });
+      }
+
       // --- Create mode (non-connector): drag-to-create or ghost ---
       if (mode === "create" && creationTool && creationTool !== "connector") {
         const canvasPoint = getCanvasPoint(
@@ -668,7 +693,8 @@ export default function Canvas({ boardId }: CanvasProps) {
           );
 
           if (!drawingRef.current.created && dist > MIN_DRAG_THRESHOLD && user) {
-            // First time past threshold — create object
+            // First time past threshold — snapshot before creating so it is undoable
+            useObjectStore.getState().snapshot();
             const color = getColorForTool(creationTool, lastUsedColors, activeColor);
             const newObject = {
               id: drawingRef.current.objectId,
@@ -1024,7 +1050,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               text: obj.text ?? "",
               zIndex: obj.zIndex,
               createdBy: user.uid,
-              ...(obj.type === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize } : {}),
+              ...(obj.type === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
             },
             drawing.objectId
           ).catch((err) => {
@@ -1038,7 +1064,8 @@ export default function Canvas({ boardId }: CanvasProps) {
           }
         }
       } else {
-        // Click (no drag) — create at default size
+        // Click (no drag) — create at default size; snapshot so creation is undoable
+        useObjectStore.getState().snapshot();
         const defaults = getDefaultsForTool(creationTool);
         const color = getColorForTool(creationTool, lastUsedColors, activeColor);
         const maxZ = getMaxZIndexForTool(creationTool);
@@ -1056,6 +1083,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           createdBy: user.uid,
           createdAt: Date.now(),
           updatedAt: Date.now(),
+          ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
         };
 
         upsertObject(newObject);
@@ -1072,7 +1100,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             text: "",
             zIndex: maxZ,
             createdBy: user.uid,
-            ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize } : {}),
+            ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
           },
           drawing.objectId
         ).catch((err) => {
@@ -1202,6 +1230,9 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       const obj = useObjectStore.getState().objects[objectId];
       if (!obj) return;
+
+      // Snapshot before resize so it is undoable via Ctrl+Z
+      useObjectStore.getState().snapshot();
 
       borderResizeRef.current = {
         objectId,
@@ -1387,6 +1418,13 @@ export default function Canvas({ boardId }: CanvasProps) {
 
       {/* HTML overlays (above Konva) */}
       {editingObjectId && <TextEditor boardId={boardId} />}
+
+      {/* Cursor coordinate display — positioned via transform in handleMouseMove, no React state */}
+      <div
+        ref={coordsLabelRef}
+        style={{ display: 'none', position: 'absolute', top: 0, left: 0, pointerEvents: 'none', zIndex: 20 }}
+        className="rounded bg-white/80 px-1.5 py-0.5 font-mono text-[11px] text-gray-500 shadow-sm select-none"
+      />
     </div>
   );
 }

@@ -107,6 +107,8 @@ export default memo(function ShapeObject({
 
   const handleDragStart = () => {
     if (!user) return;
+    // Snapshot before move so the drag is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
     useObjectStore.getState().startLocalEdit(object.id);
@@ -137,6 +139,14 @@ export default memo(function ShapeObject({
       node.x(x);
       node.y(y);
       updateObjectLocal(object.id, { x, y });
+    }
+
+    // Auto-expand parent frame if child was dragged beyond its boundary
+    if (object.parentFrame) {
+      const expansion = useObjectStore.getState().expandFrameToContainChild(object.id);
+      if (expansion) {
+        updateObject(boardId, expansion.frameId, expansion.patch).catch(console.error);
+      }
     }
 
     // Trigger frame nesting check
@@ -190,27 +200,6 @@ export default memo(function ShapeObject({
       onTap={handleClick}
       onContextMenu={handleContextMenu}
       opacity={(isLocked ? 0.6 : object.isAIPending ? 0.5 : 1) * (object.opacity ?? 1)}
-      dragBoundFunc={
-        object.parentFrame
-          ? (pos) => {
-              // dragBoundFunc receives absolute screen-pixel coordinates.
-              // Convert parent frame's canvas bounds to screen coords for comparison.
-              const frame = useObjectStore.getState().objects[object.parentFrame!];
-              if (!frame) return pos;
-              const { stageX, stageY, stageScale } = useCanvasStore.getState();
-              return {
-                x: Math.max(
-                  frame.x * stageScale + stageX,
-                  Math.min(pos.x, (frame.x + frame.width - object.width) * stageScale + stageX)
-                ),
-                y: Math.max(
-                  frame.y * stageScale + stageY,
-                  Math.min(pos.y, (frame.y + frame.height - object.height) * stageScale + stageY)
-                ),
-              };
-            }
-          : undefined
-      }
     >
       {/* Framed-child indicator — bold purple border when captured inside a frame */}
       {object.parentFrame && (

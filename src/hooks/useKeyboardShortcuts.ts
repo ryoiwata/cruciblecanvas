@@ -144,8 +144,9 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
 
       const canvasState = useCanvasStore.getState();
 
-      // Tool switching (mirrors Toolbar shortcut numbers)
+      // Tool switching — number keys and letter aliases
       switch (e.key) {
+        // Number shortcuts (legacy)
         case "1":
           canvasState.setMode("pointer");
           return;
@@ -169,6 +170,29 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
           return;
         case "8":
           canvasState.enterCreateMode("text");
+          return;
+        // Letter shortcuts (matches toolbar badges)
+        case "l":
+        case "L":
+          canvasState.enterCreateMode("line");
+          return;
+        case "r":
+        case "R":
+          canvasState.enterCreateMode("rectangle");
+          return;
+        case "t":
+        case "T":
+          canvasState.enterCreateMode("text");
+          return;
+        case "f":
+        case "F":
+          canvasState.enterCreateMode("frame");
+          return;
+        case "c":
+        case "C":
+          // Skip C if Ctrl/Cmd is held (that's copy)
+          if (e.ctrlKey || e.metaKey) break;
+          canvasState.enterCreateMode("connector");
           return;
         case "Control":
           // Ctrl pressed while a creation tool is active → permanently revert to pointer.

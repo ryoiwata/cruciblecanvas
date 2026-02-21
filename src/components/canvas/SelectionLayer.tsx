@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { Transformer } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
-import { useObjectStore } from "@/lib/store/objectStore";
+import { useObjectStore, rebuildSpatialIndex } from "@/lib/store/objectStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import { useAuthStore } from "@/lib/store/authStore";
@@ -171,6 +171,8 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
   }, []);
 
   const handleTransformStart = useCallback(() => {
+    // Snapshot before transform so resize/rotate is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     const transformer = transformerRef.current;
     if (!transformer) return;
     activeAnchorRef.current = transformer.getActiveAnchor() || null;
@@ -271,6 +273,10 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       // before the React re-render cycle. Prevents the ghost frame where
       // scale=1 but children have stale sizes.
       transformer.getLayer()?.batchDraw();
+
+      // Rebuild spatial index after transform — ensures viewport culling uses
+      // correct bounding boxes for all resized/rotated objects.
+      rebuildSpatialIndex(useObjectStore.getState().objects);
     },
     [updateObjectLocal]
   );
@@ -293,6 +299,26 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       onTransformStart={handleTransformStart}
       onTransformEnd={handleTransformEnd}
       boundBoxFunc={(oldBox, newBox) => {
+        // Frame children guard — prevent shrinking a frame smaller than its children.
+        // Uses newBox.x/y (the proposed origin) for accuracy when resizing from top/left handles.
+        if (singleType === 'frame' && selectedObjects[0]) {
+          const frame = selectedObjects[0];
+          const children = Object.values(useObjectStore.getState().objects)
+            .filter((o) => o.parentFrame === frame.id);
+          if (children.length > 0) {
+            const FRAME_CHILD_PADDING = 24;
+            const minW = Math.max(
+              50,
+              ...children.map((c) => (c.x - newBox.x) + c.width + FRAME_CHILD_PADDING)
+            );
+            const minH = Math.max(
+              50,
+              ...children.map((c) => (c.y - newBox.y) + c.height + FRAME_CHILD_PADDING)
+            );
+            if (newBox.width < minW || newBox.height < minH) return oldBox;
+          }
+        }
+
         const limits = getLimitsForType(singleType || "");
         const clamped = { ...newBox };
         const { xFixed, yFixed } = getFixedEdges(activeAnchorRef.current);

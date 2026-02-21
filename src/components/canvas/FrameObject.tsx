@@ -96,6 +96,8 @@ export default memo(function FrameObject({
 
   const handleDragStart = () => {
     if (!user) return;
+    // Snapshot before move so the drag (and all child moves) is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
 

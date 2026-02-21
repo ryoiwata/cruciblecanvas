@@ -123,6 +123,16 @@ interface ObjectState {
   // Frame helpers (Phase 3)
   getChildrenOfFrame: (frameId: string) => BoardObject[];
   getFramesContaining: (objectId: string) => BoardObject[];
+
+  /**
+   * Checks if `childId`'s bounding box extends beyond its parent frame and, if
+   * so, expands the frame to contain it (plus a 24px padding buffer).
+   *
+   * Returns the frame id and the patch that was applied so the caller can
+   * persist the change to Firestore.  Returns null when no expansion is needed
+   * or when the object has no parentFrame.
+   */
+  expandFrameToContainChild: (childId: string) => { frameId: string; patch: Partial<BoardObject> } | null;
 }
 
 export const useObjectStore = create<ObjectState>((set, get) => ({
@@ -283,5 +293,42 @@ export const useObjectStore = create<ObjectState>((set, get) => ({
       if (o.type !== "frame" || o.id === objectId) return false;
       return overlapFraction(target, o) > 0;
     });
+  },
+
+  expandFrameToContainChild: (childId) => {
+    const { objects } = get();
+    const child = objects[childId];
+    if (!child?.parentFrame) return null;
+    const frame = objects[child.parentFrame];
+    if (!frame || frame.type !== "frame") return null;
+
+    const PADDING = 24;
+    const childRight = child.x + child.width;
+    const childBottom = child.y + child.height;
+
+    const newX = Math.min(frame.x, child.x - PADDING);
+    const newY = Math.min(frame.y, child.y - PADDING);
+    const newRight = Math.max(frame.x + frame.width, childRight + PADDING);
+    const newBottom = Math.max(frame.y + frame.height, childBottom + PADDING);
+
+    // No expansion needed — child already fits within the frame (with padding)
+    if (
+      newX >= frame.x &&
+      newY >= frame.y &&
+      newRight <= frame.x + frame.width &&
+      newBottom <= frame.y + frame.height
+    ) {
+      return null;
+    }
+
+    const patch: Partial<BoardObject> = {
+      x: newX,
+      y: newY,
+      width: newRight - newX,
+      height: newBottom - newY,
+    };
+
+    get().updateObjectLocal(frame.id, patch);
+    return { frameId: frame.id, patch };
   },
 }));

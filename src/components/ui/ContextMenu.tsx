@@ -107,6 +107,8 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
 
   const handleGroupDuplicate = () => {
     if (!user || contextMenu.targetObjectIds.length === 0) return;
+    // Snapshot before duplicating so duplicates can be undone in one step
+    useObjectStore.getState().snapshot();
     const allObjects = useObjectStore.getState().objects;
     let maxZ = 0;
     for (const o of Object.values(allObjects)) {
@@ -253,6 +255,9 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     const obj = objects[contextMenu.targetObjectId];
     if (!obj) return;
 
+    // Snapshot before duplicating so the duplicate can be undone in one step
+    useObjectStore.getState().snapshot();
+
     // Compute max zIndex so duplicate appears on top
     const allObjects = useObjectStore.getState().objects;
     let maxZ = 0;
@@ -347,6 +352,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
 
   const handleCreateStickyNote = () => {
     if (!user) return;
+    useObjectStore.getState().snapshot();
     const newId = generateObjectId(boardId);
     // Place near right-click position (approximate canvas coords)
     const stageX = useCanvasStore.getState().stageX;
@@ -388,6 +394,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
 
   const handleCreateShape = () => {
     if (!user) return;
+    useObjectStore.getState().snapshot();
     const newId = generateObjectId(boardId);
     const stageX = useCanvasStore.getState().stageX;
     const stageY = useCanvasStore.getState().stageY;

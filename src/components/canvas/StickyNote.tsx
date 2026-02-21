@@ -110,6 +110,8 @@ export default memo(function StickyNote({
 
   const handleDragStart = () => {
     if (!user) return;
+    // Snapshot before move so the drag is undoable via Ctrl+Z
+    useObjectStore.getState().snapshot();
     preDragPos.current = { x: object.x, y: object.y };
     groupRef.current?.moveToTop();
     useObjectStore.getState().startLocalEdit(object.id);
@@ -140,6 +142,14 @@ export default memo(function StickyNote({
       node.x(x);
       node.y(y);
       updateObjectLocal(object.id, { x, y });
+    }
+
+    // Auto-expand parent frame if child was dragged beyond its boundary
+    if (object.parentFrame) {
+      const expansion = useObjectStore.getState().expandFrameToContainChild(object.id);
+      if (expansion) {
+        updateObject(boardId, expansion.frameId, expansion.patch).catch(console.error);
+      }
     }
 
     // Trigger frame nesting check
@@ -199,27 +209,6 @@ export default memo(function StickyNote({
       onDblClick={handleDblClick}
       onContextMenu={handleContextMenu}
       opacity={(isLocked ? 0.6 : object.isAIPending ? 0.5 : 1) * (object.opacity ?? 1)}
-      dragBoundFunc={
-        object.parentFrame
-          ? (pos) => {
-              // dragBoundFunc receives absolute screen-pixel coordinates.
-              // Convert parent frame's canvas bounds to screen coords for comparison.
-              const frame = useObjectStore.getState().objects[object.parentFrame!];
-              if (!frame) return pos;
-              const { stageX, stageY, stageScale } = useCanvasStore.getState();
-              return {
-                x: Math.max(
-                  frame.x * stageScale + stageX,
-                  Math.min(pos.x, (frame.x + frame.width - object.width) * stageScale + stageX)
-                ),
-                y: Math.max(
-                  frame.y * stageScale + stageY,
-                  Math.min(pos.y, (frame.y + frame.height - object.height) * stageScale + stageY)
-                ),
-              };
-            }
-          : undefined
-      }
     >
       {/* Background */}
       <Rect
@@ -246,19 +235,21 @@ export default memo(function StickyNote({
         />
       ))}
 
-      {/* Text content */}
+      {/* Text content — y/lineHeight aligned with notepad lines.
+          fill uses textColor when set so StickyNoteModule color changes take effect. */}
       {object.text !== undefined && object.text !== "" && (
         <Text
           text={object.text}
-          width={object.width - 20}
-          x={10}
-          y={10}
-          fontSize={14}
+          width={object.width - 24}
+          x={12}
+          y={30}
+          fontSize={object.fontSize ?? 14}
+          lineHeight={Math.max(1, 22 / (object.fontSize ?? 14))}
           fontFamily={fontFamily}
-          fill="#1a1a1a"
-          ellipsis={true}
+          fill={object.textColor ?? '#1a1a1a'}
           wrap="word"
-          height={object.height - 20}
+          height={object.height - 40}
+          listening={false}
         />
       )}
 

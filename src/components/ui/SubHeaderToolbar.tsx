@@ -154,6 +154,11 @@ function ToolButton({ label, icon, isActive, disabled, shortcut, onClick }: Tool
     >
       {icon}
       <span className="text-[10px] font-medium leading-none">{label}</span>
+      {shortcut && (
+        <span className="text-[9px] leading-none font-mono text-gray-400 bg-gray-100 rounded px-0.5 mt-0.5">
+          {shortcut}
+        </span>
+      )}
     </button>
   );
 }
@@ -378,6 +383,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Line"
         icon={<LineToolIcon />}
         isActive={isLineActive}
+        shortcut="L"
         onClick={() => enterCreateMode('line')}
       />
 
@@ -404,7 +410,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Text"
         icon={<span className="font-bold text-sm leading-none" aria-hidden="true">T</span>}
         isActive={isTextActive}
-        shortcut="8"
+        shortcut="T"
         onClick={() => enterCreateMode('text')}
       />
 
@@ -422,6 +428,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Frame"
         icon={<FrameIcon />}
         isActive={isFrameActive}
+        shortcut="F"
         onClick={() => enterCreateMode('frame')}
       />
 
