@@ -2,10 +2,10 @@
 
 /**
  * LineModule — property controls for line and connector objects.
- * Handles stroke color, width, dash style, line type, and end effects.
+ * Handles stroke color, width, and end effects (arrowheads).
  */
 
-import type { BoardObject, LineEffect, LineType } from '@/lib/types';
+import type { BoardObject, LineEffect } from '@/lib/types';
 import ColorRow from '../controls/ColorRow';
 import SliderRow from '../controls/SliderRow';
 import DropdownRow from '../controls/DropdownRow';
@@ -15,24 +15,12 @@ interface LineModuleProps {
   onChange: (patch: Partial<BoardObject>) => void;
 }
 
-const LINE_TYPE_OPTIONS: { value: LineType; label: string }[] = [
-  { value: 'straight', label: '→ Straight' },
-  { value: 'elbow',    label: '⌐ Elbow' },
-  { value: 'curved',   label: '~ Curved' },
-];
-
 const EFFECT_OPTIONS: { value: LineEffect; label: string }[] = [
   { value: 'none',         label: '⊘ None' },
   { value: 'arrow',        label: '→ Arrow' },
   { value: 'filled-arrow', label: '▶ Filled Arrow' },
   { value: 'open-arrow',   label: '⇒ Open Arrow' },
   { value: 'dot',          label: '● Dot' },
-];
-
-const DASH_STYLE_OPTIONS = [
-  { value: 'solid',  label: 'Solid' },
-  { value: 'dashed', label: 'Dashed' },
-  { value: 'dotted', label: 'Dotted' },
 ];
 
 export default function LineModule({ object, onChange }: LineModuleProps) {
@@ -51,18 +39,6 @@ export default function LineModule({ object, onChange }: LineModuleProps) {
         max={20}
         step={0.5}
         onChange={(v) => onChange({ thickness: v })}
-      />
-      <DropdownRow
-        label="Dash"
-        value={object.borderType ?? 'solid'}
-        options={DASH_STYLE_OPTIONS}
-        onChange={(v) => onChange({ borderType: v as BoardObject['borderType'] })}
-      />
-      <DropdownRow
-        label="Type"
-        value={object.lineType ?? 'straight'}
-        options={LINE_TYPE_OPTIONS}
-        onChange={(v) => onChange({ lineType: v as LineType })}
       />
 
       {/* End effects — only shown for connectors where arrow tips make sense */}

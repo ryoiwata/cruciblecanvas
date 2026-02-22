@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuthStore } from "@/lib/store/authStore";
@@ -343,6 +343,42 @@ export default function BoardPage() {
     [sendAICommand]
   );
 
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Calculates the bounding box of all board objects and adjusts the viewport
+   * so the entire workspace fits within the visible canvas area.
+   */
+  const handleZoomToFit = useCallback(() => {
+    const allObjects = Object.values(useObjectStore.getState().objects);
+    if (allObjects.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const obj of allObjects) {
+      minX = Math.min(minX, obj.x);
+      minY = Math.min(minY, obj.y);
+      maxX = Math.max(maxX, obj.x + (obj.width ?? 0));
+      maxY = Math.max(maxY, obj.y + (obj.height ?? 0));
+    }
+
+    const boxW = maxX - minX;
+    const boxH = maxY - minY;
+    if (boxW === 0 || boxH === 0) return;
+
+    const container = canvasContainerRef.current;
+    const vpW = container ? container.clientWidth : window.innerWidth;
+    const vpH = container ? container.clientHeight : window.innerHeight;
+
+    // 90% fill — leaves a comfortable margin around the content
+    const scale = Math.min((vpW / boxW) * 0.9, (vpH / boxH) * 0.9, 3);
+
+    // Center the bounding box within the viewport
+    const stageX = (vpW - boxW * scale) / 2 - minX * scale;
+    const stageY = (vpH - boxH * scale) / 2 - minY * scale;
+
+    useCanvasStore.getState().setViewport(stageX, stageY, scale);
+  }, []);
+
   // Loading states — skipped in perf bypass mode to render canvas immediately
   if (!IS_PERF_BYPASS && isLoading) {
     return (
@@ -447,7 +483,7 @@ export default function BoardPage() {
         <PropertiesSidebar boardId={boardId} />
 
         {/* CENTER: Canvas */}
-        <div className="flex-1 relative min-w-0 overflow-hidden">
+        <div ref={canvasContainerRef} className="flex-1 relative min-w-0 overflow-hidden">
           <Canvas boardId={boardId} />
           <ContextMenu boardId={boardId} />
 
@@ -463,6 +499,18 @@ export default function BoardPage() {
               <SelectionCounter />
             </div>
           </div>
+
+          {/* Zoom to Fit — bottom-right corner */}
+          <button
+            onClick={handleZoomToFit}
+            title="Zoom to fit all objects"
+            className="absolute bottom-4 right-4 z-40 flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Fit
+          </button>
 
           {/* Floating message preview when sidebar is closed */}
           <MessagePreview onOpenSidebar={() => setSidebarOpen(true)} />

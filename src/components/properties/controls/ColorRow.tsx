@@ -99,7 +99,7 @@ export default function ColorRow({ label, value, onChange }: ColorRowProps) {
             if (e.key === 'Enter') commitHex((e.target as HTMLInputElement).value);
           }}
           placeholder="#000000"
-          className="flex-1 rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+          className="w-24 rounded border border-gray-300 bg-white px-2 py-1 font-mono text-xs text-gray-700 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
         />
       </div>
 

@@ -3,7 +3,7 @@
 /**
  * StickyNoteModule — property controls for sticky note objects.
  * Handles background fill color and font family.
- * Text-specific controls (size, alignment) are provided by the separate TextModule.
+ * Text-specific controls (size, color, alignment) are provided by the separate TextModule.
  */
 
 import type { BoardObject, StickyFontFamily } from '@/lib/types';
@@ -29,11 +29,6 @@ export default function StickyNoteModule({ object, onChange }: StickyNoteModuleP
         label="Color"
         value={object.color ?? '#FEF3C7'}
         onChange={(hex) => onChange({ color: hex })}
-      />
-      <ColorRow
-        label="Text color"
-        value={object.textColor ?? '#111827'}
-        onChange={(hex) => onChange({ textColor: hex })}
       />
       <DropdownRow
         label="Font"

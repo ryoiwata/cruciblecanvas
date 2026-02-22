@@ -116,8 +116,19 @@ AI TODOs
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 Low priority TODOs
-- [ ] Remove different types of lines.
-- [ ] Remove dashes for lines?
+- [ ] Remove different types of lines from properties
+- [ ] Remove dash lines from properties
+- Include directed connedctors for flow charts
+- Add arrows as an option for shapes
+- [] Make the Toggle suggestion more darker font in the chart
+Add option to delete boards.
+Clicking on presets should change shape colors too. make 
+There should be 18 presets with representative colors across the raainbow and are visible with see more, with black/white,red, yellow, green, blue as the 6 that always are shown
+Presets should chang eline color too
+Make an option for directed connectors vs non directed connectors
+Add ann arror shape
+Make it so that text can be placed over shapes
+
 - [ ] Fix ordering of tool shorcut numbers, have number next to tool label
 - [x] See if Marquee is a good word
 - [] Fix AI agent logo in chat to robot instead of sparkle

@@ -32,7 +32,6 @@ import {
 } from '@/lib/firebase/firestore';
 import type { BoardObject } from '@/lib/types';
 import AlignMenu from './AlignMenu';
-import ArrangeMenu from './ArrangeMenu';
 
 // ---- Shortcut chip icons (inline, matching ShortcutLegend visual language) ---
 
@@ -498,9 +497,6 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
 
       {/* Align — uses showLabel to match vertical icon+label style */}
       <AlignMenu boardId={boardId} showLabel />
-
-      {/* Layer — uses showLabel to match vertical icon+label style */}
-      <ArrangeMenu boardId={boardId} showLabel />
 
       {/* Flexible spacer pushes shortcut legend to the far right */}
       <div className="flex-1" />
