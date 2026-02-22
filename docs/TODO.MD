@@ -135,7 +135,8 @@ TODO Queue:
 
 - Rotates copied items should be rotated
 - Make default for shapes yellow pastel
-- Textbox
+- Textbox should visually be visible all the time
+
 
 
 Actual TODOs

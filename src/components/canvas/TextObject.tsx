@@ -42,8 +42,6 @@ export default memo(function TextObject({
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  // Narrow boolean — only re-renders when this object's own selection state changes.
-  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const editingObjectId = useCanvasStore((s) => s.editingObjectId);
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
@@ -184,15 +182,14 @@ export default memo(function TextObject({
     >
       {/* Transparent hit area covering the full bounding box.
           Height is kept in sync with the actual rendered text height via the
-          useEffect above, so the entire text region is draggable. */}
+          useEffect above, so the entire text region is draggable.
+          No selection stroke here — the Transformer in SelectionLayer renders
+          its own borderStroke="#2196F3" when selected, so a second Rect stroke
+          would produce a visible double-border on text objects. */}
       <Rect
         width={object.width}
         height={object.height}
         fill="transparent"
-        // Selection indicator — replaces the generic Transformer border box.
-        // Matches the style used by StickyNote for visual consistency.
-        stroke={isSelected ? '#2196F3' : undefined}
-        strokeWidth={isSelected ? 2 : 0}
       />
 
       {/* Text content — hidden while the HTML textarea overlay is active to prevent double-text.
