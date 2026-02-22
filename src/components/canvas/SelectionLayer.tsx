@@ -339,6 +339,10 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       anchorStroke="#2196F3"
       anchorSize={8}
       anchorCornerRadius={2}
+      // Snap rotation to cardinal angles when the handle is within 5° of them.
+      // Konva handles the visual snap animation and snaps the committed angle automatically.
+      rotationSnaps={[0, 90, 180, 270]}
+      rotationSnapTolerance={5}
       onTransformStart={handleTransformStart}
       onTransformEnd={handleTransformEnd}
       boundBoxFunc={(oldBox, newBox) => {

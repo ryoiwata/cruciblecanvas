@@ -5,6 +5,7 @@ import { Path, Rect, Text, Group } from "react-konva";
 import type Konva from "konva";
 import { onCursorChildEvents } from "@/lib/firebase/rtdb";
 import { useAuthStore } from "@/lib/store/authStore";
+import { useCanvasStore } from "@/lib/store/canvasStore";
 import type { CursorData } from "@/lib/types";
 
 interface CursorLayerProps {
@@ -32,9 +33,11 @@ const NAME_TAG_CORNER_RADIUS = 4;
 
 interface RemoteCursorProps {
   data: CursorData;
+  /** Current stage zoom level — cursor visuals are scaled inversely to stay screen-pixel-sized. */
+  stageScale: number;
 }
 
-const RemoteCursor = memo(function RemoteCursor({ data }: RemoteCursorProps) {
+const RemoteCursor = memo(function RemoteCursor({ data, stageScale }: RemoteCursorProps) {
   const groupRef = useRef<Konva.Group>(null);
   // Current interpolated position — mutated imperatively, not via React state
   const posRef = useRef({ x: data.x, y: data.y });
@@ -85,9 +88,14 @@ const RemoteCursor = memo(function RemoteCursor({ data }: RemoteCursorProps) {
     data.name.length * (NAME_TAG_FONT_SIZE * 0.6) + NAME_TAG_PADDING_X * 2;
   const nameHeight = NAME_TAG_FONT_SIZE + NAME_TAG_PADDING_Y * 2;
 
+  // Clamp the effective stage scale so the cursor stays within a legible size range
+  // regardless of extreme zoom-out (5% → 0.05) or zoom-in (500% → 5.0).
+  // Division by the clamped scale keeps the cursor at a constant ~20px screen height.
+  const cursorScale = 1 / Math.max(0.25, Math.min(4.0, stageScale));
+
   // Initial position set from props; subsequent positions driven by the RAF lerp above
   return (
-    <Group ref={groupRef} x={data.x} y={data.y}>
+    <Group ref={groupRef} x={data.x} y={data.y} scaleX={cursorScale} scaleY={cursorScale}>
       {/* Pointer arrow icon */}
       <Path
         data={CURSOR_ARROW_PATH}
@@ -135,6 +143,8 @@ const CursorLayer = memo(function CursorLayer({ boardId }: CursorLayerProps) {
   const [cursors, setCursors] = useState<Record<string, CursorData>>({});
   const [, setTick] = useState(0); // forces re-render for stale cleanup
   const userId = useAuthStore((s) => s.user?.uid);
+  // Subscribe so cursors update their visual scale whenever the user zooms
+  const stageScale = useCanvasStore((s) => s.stageScale);
   const cursorsRef = useRef(cursors);
   cursorsRef.current = cursors;
 
@@ -215,7 +225,7 @@ const CursorLayer = memo(function CursorLayer({ boardId }: CursorLayerProps) {
   return (
     <>
       {visibleCursors.map(([id, cursor]) => (
-        <RemoteCursor key={id} data={cursor} />
+        <RemoteCursor key={id} data={cursor} stageScale={stageScale} />
       ))}
     </>
   );

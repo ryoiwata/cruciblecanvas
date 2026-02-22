@@ -15,6 +15,8 @@ import {
   STICKY_NOTE_COLORS,
   STICKY_NOTE_DEFAULT,
   SHAPE_DEFAULTS,
+  TEXT_DEFAULTS,
+  LINE_DEFAULTS,
 } from "@/lib/types";
 
 interface ContextMenuProps {
@@ -131,21 +133,10 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
         parentFrame: undefined,
       };
       upsertObject(newObj);
-      createObject(
-        boardId,
-        {
-          type: newObj.type,
-          x: newObj.x,
-          y: newObj.y,
-          width: newObj.width,
-          height: newObj.height,
-          color: newObj.color,
-          text: newObj.text,
-          zIndex: newObj.zIndex,
-          createdBy: user.uid,
-        },
-        newId
-      ).catch(console.error);
+      // Destructure to strip id/createdAt/updatedAt — all other fields (rotation,
+      // fontFamily, fontSize, textColor, strokeColor, opacity, etc.) are preserved.
+      const { id: _gid, createdAt: _gca, updatedAt: _gua, ...groupObjData } = newObj;
+      createObject(boardId, groupObjData, newId).catch(console.error);
     });
 
     hideContextMenu();
@@ -287,23 +278,10 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
       parentFrame: undefined,
     };
     upsertObject(newObj);
-    createObject(
-      boardId,
-      {
-        type: newObj.type,
-        x: newObj.x,
-        y: newObj.y,
-        width: newObj.width,
-        height: newObj.height,
-        color: newObj.color,
-        text: newObj.text,
-        zIndex: newObj.zIndex,
-        createdBy: user.uid,
-        connectedTo: newObj.type === "connector" ? newObj.connectedTo : undefined,
-        legendEntries: newObj.legendEntries,
-      },
-      newId
-    ).catch(console.error);
+    // Destructure to strip id/createdAt/updatedAt — all other fields (rotation,
+    // fontFamily, fontSize, textColor, strokeColor, opacity, etc.) are preserved.
+    const { id: _id, createdAt: _ca, updatedAt: _ua, ...objectData } = newObj;
+    createObject(boardId, objectData, newId).catch(console.error);
 
     hideContextMenu();
   };
@@ -368,21 +346,10 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
         parentFrame: undefined,
       };
       upsertObject(newObj);
-      createObject(
-        boardId,
-        {
-          type: newObj.type,
-          x: newObj.x,
-          y: newObj.y,
-          width: newObj.width,
-          height: newObj.height,
-          color: newObj.color,
-          text: newObj.text,
-          zIndex: newObj.zIndex,
-          createdBy: user.uid,
-        },
-        newId
-      ).catch(console.error);
+      // Destructure to strip id/createdAt/updatedAt — all other fields (rotation,
+      // fontFamily, fontSize, textColor, strokeColor, opacity, etc.) are preserved.
+      const { id: _id, createdAt: _ca, updatedAt: _ua, ...objectData } = newObj;
+      createObject(boardId, objectData, newId).catch(console.error);
     }
 
     hideContextMenu();
@@ -468,6 +435,101 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     hideContextMenu();
   };
 
+  const handleCreateText = () => {
+    if (!user) return;
+    useObjectStore.getState().snapshot();
+    const newId = generateObjectId(boardId);
+    // Snap right-click world position to 20px grid
+    const { x: rawX, y: rawY } = clientToCanvas(contextMenu.x, contextMenu.y);
+    const x = Math.round(rawX / 20) * 20;
+    const y = Math.round(rawY / 20) * 20;
+
+    // Scale defaults inversely with zoom so the text appears at a consistent screen size.
+    const { stageScale } = useCanvasStore.getState();
+    const s = Math.max(0.25, Math.min(4.0, stageScale));
+    const scaledWidth = Math.round(TEXT_DEFAULTS.width / s);
+    const scaledHeight = Math.round(TEXT_DEFAULTS.height / s);
+    const scaledFontSize = Math.max(8, Math.min(72, Math.round(TEXT_DEFAULTS.fontSize / s)));
+
+    // Compute max zIndex so new object appears on top
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
+    const newObj = {
+      id: newId,
+      type: 'text' as const,
+      x,
+      y,
+      width: scaledWidth,
+      height: scaledHeight,
+      color: TEXT_DEFAULTS.color,
+      textColor: TEXT_DEFAULTS.color,
+      text: '',
+      fontSize: scaledFontSize,
+      zIndex: maxZ + 1,
+      createdBy: user.uid,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    upsertObject(newObj);
+    createObject(
+      boardId,
+      { type: newObj.type, x, y, width: scaledWidth, height: scaledHeight, color: newObj.color, textColor: newObj.textColor, text: '', fontSize: scaledFontSize, zIndex: maxZ + 1, createdBy: user.uid },
+      newId
+    ).catch(console.error);
+    // Open the editor immediately so the user can type right away
+    setEditingObject(newId);
+    hideContextMenu();
+  };
+
+  const handleCreateLine = () => {
+    if (!user) return;
+    useObjectStore.getState().snapshot();
+    const newId = generateObjectId(boardId);
+    // Snap right-click world position to 20px grid
+    const { x: rawX, y: rawY } = clientToCanvas(contextMenu.x, contextMenu.y);
+    const x = Math.round(rawX / 20) * 20;
+    const y = Math.round(rawY / 20) * 20;
+
+    // Scale line length inversely with zoom so it spans a consistent screen width
+    const { stageScale } = useCanvasStore.getState();
+    const s = Math.max(0.25, Math.min(4.0, stageScale));
+    const scaledWidth = Math.round(LINE_DEFAULTS.width / s);
+
+    // Compute max zIndex so new object appears on top
+    const allObjects = useObjectStore.getState().objects;
+    let maxZ = 0;
+    for (const o of Object.values(allObjects)) {
+      const z = o.zIndex ?? 0;
+      if (z > maxZ) maxZ = z;
+    }
+
+    const newObj = {
+      id: newId,
+      type: 'line' as const,
+      x,
+      y,
+      width: scaledWidth,
+      height: 0,
+      color: LINE_DEFAULTS.color,
+      zIndex: maxZ + 1,
+      createdBy: user.uid,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    upsertObject(newObj);
+    createObject(
+      boardId,
+      { type: newObj.type, x, y, width: scaledWidth, height: 0, color: LINE_DEFAULTS.color, zIndex: maxZ + 1, createdBy: user.uid },
+      newId
+    ).catch(console.error);
+    hideContextMenu();
+  };
+
   // Build menu items based on target
   const items: { label: string; onClick: () => void; danger?: boolean }[] = [];
 
@@ -478,6 +540,8 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     }
     items.push({ label: "Create Sticky Note", onClick: handleCreateStickyNote });
     items.push({ label: "Create Rectangle", onClick: handleCreateShape });
+    items.push({ label: "Create Text", onClick: handleCreateText });
+    items.push({ label: "Create Line", onClick: handleCreateLine });
   } else {
     // Object context menu
     if (

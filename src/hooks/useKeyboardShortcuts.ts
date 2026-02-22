@@ -269,21 +269,10 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
             parentFrame: undefined,
           };
           upsertObject(newObj);
-          createObject(
-            boardId,
-            {
-              type: newObj.type,
-              x: newObj.x,
-              y: newObj.y,
-              width: newObj.width,
-              height: newObj.height,
-              color: newObj.color,
-              text: newObj.text,
-              zIndex: newObj.zIndex,
-              createdBy: user.uid,
-            },
-            newId
-          ).catch(console.error);
+          // Destructure to strip id/createdAt/updatedAt — all other fields (rotation,
+          // fontFamily, fontSize, textColor, strokeColor, opacity, etc.) are preserved.
+          const { id: _id, createdAt: _ca, updatedAt: _ua, ...objectData } = newObj;
+          createObject(boardId, objectData, newId).catch(console.error);
         }
         return;
       }

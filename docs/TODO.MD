@@ -133,9 +133,19 @@ Low priority TODOs
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~`
 TODO Queue:
 
-- Rotates copied items should be rotated
 - Make default for shapes yellow pastel
 - Textbox should visually be visible all the time
+
+- [x] Rotates copied items should be rotated
+- [x] Rotatting object should click to flat, 90 degree if close to it
+  Maybe make it more agresive?
+- TODO Other user Cursor size should change depending on zoom level
+Add create text an option for right click, as well create line
+- [x] Copying text should copy the size and rotation and font
+- Fix right click default shapes so that you can drag click or there's a default if you just click
+Add a fiind a gap tool
+Sticky should not change size to shrink to text, but expand if it needs to get bigger with more text
+Select border should be thicker with zoom out
 
 
 
