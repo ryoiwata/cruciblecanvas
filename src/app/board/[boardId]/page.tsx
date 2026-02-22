@@ -6,7 +6,8 @@ import dynamic from "next/dynamic";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useChatStore } from "@/lib/store/chatStore";
-import { signOutUser } from "@/lib/firebase/auth";
+import { signInAsGuest, signOutUser } from "@/lib/firebase/auth";
+import { auth } from "@/lib/firebase/config";
 import { useFirestoreSync } from "@/hooks/useFirestoreSync";
 import { recordBoardVisit } from "@/lib/firebase/firestore";
 import { useLockSync } from "@/hooks/useLockSync";
@@ -40,6 +41,31 @@ const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
 
 // Skip auth guard and loading checks when running perf benchmarks (dev only).
 const IS_PERF_BYPASS = process.env.NEXT_PUBLIC_PERF_BYPASS === "true";
+
+// Module-level guard: ensures the bypass auto-sign-in useEffect and the
+// __perfSignInAsGuest window helper never call signInAsGuest() concurrently.
+// Concurrent calls cause writeUserProfile (setDoc) to hang indefinitely because
+// both callers race on the same Firestore document write. By sharing a single
+// in-flight promise, the second caller simply awaits the first.
+let _perfBypassSignInGuard: Promise<void> | null = null;
+
+function getPerfBypassSignIn(): Promise<void> {
+  // If a sign-in is already in progress, return the same promise so both
+  // callers resolve together instead of issuing parallel Firestore writes.
+  if (_perfBypassSignInGuard) return _perfBypassSignInGuard;
+  // If Firebase already has a current user (restored from IndexedDB or from a
+  // previous sign-in in this context), there is nothing to do.
+  if (auth.currentUser) return Promise.resolve();
+  _perfBypassSignInGuard = signInAsGuest()
+    .then(() => {
+      _perfBypassSignInGuard = null;
+    })
+    .catch((err: Error) => {
+      _perfBypassSignInGuard = null;
+      console.warn("[PerfBypass] Anonymous sign-in failed:", err.message);
+    });
+  return _perfBypassSignInGuard;
+}
 
 export default function BoardPage() {
   const params = useParams<{ boardId: string }>();
@@ -78,6 +104,32 @@ export default function BoardPage() {
       router.replace(`/auth?redirect=/board/${boardId}`);
     }
   }, [user, isLoading, router, boardId]);
+
+  // In perf bypass mode the auth guard is skipped, but Firestore security rules
+  // still require a valid auth token for board reads. Signing in anonymously
+  // satisfies the rules (public boards allow any authenticated user) and lets
+  // useFirestoreSync stream objects without a manual login step.
+  // Uses getPerfBypassSignIn() so this useEffect and __perfSignInAsGuest share
+  // the same in-flight promise and never issue concurrent Firestore writes.
+  useEffect(() => {
+    if (!IS_PERF_BYPASS || user) return;
+    getPerfBypassSignIn();
+  }, [user]);
+
+  // Expose getPerfBypassSignIn on window so the Playwright bypassAuth() helper
+  // can trigger anonymous sign-in directly via page.evaluate. Uses the same
+  // module-level guard as the bypass useEffect above, so calling this while a
+  // sign-in is already in progress awaits the existing promise rather than
+  // issuing a second concurrent signInAsGuest() call.
+  // Scoped strictly to bypass mode — never active in production builds.
+  useEffect(() => {
+    if (!IS_PERF_BYPASS) return;
+    const w = window as Window & { __perfSignInAsGuest?: () => Promise<void> };
+    w.__perfSignInAsGuest = getPerfBypassSignIn;
+    return () => {
+      delete w.__perfSignInAsGuest;
+    };
+  }, []);
 
   // Record board visit for dashboard (all authenticated users)
   useEffect(() => {

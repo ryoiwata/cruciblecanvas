@@ -163,7 +163,7 @@ Actual TODOs
 - [ ] Properties fill and stroke input boxes should not  cut off
 - [ ] Redudant text color option for sticky note
 - [ ] Make canvas be able to have titles with space in them
-
+- [ ] Sticky note h and v align are not working
 
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -217,10 +217,10 @@ TODOs
 
 - [x] Fix sticky text editing
 - [x] Make presets more pastel colors
-- [ ] Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
+- [x] Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
 
-- [ ] Sticky note h and v align are not working
-- [ ] Lines should adjust for sticky notes with increase text size
+
+- [x] Lines should adjust for sticky notes with increase text size
 - [x] Free form text shows double when adding text
 - [ ] Free form text has double box when selected
 - [ ] Text disappears when rotated
@@ -240,11 +240,10 @@ Biorender edits
 - [] Change top AI button with Chat icon and word chat
 - [x] Don't make text box stick out when editing text. Make it stay on the item that contains the text in line.
 - [x] Fix shape tool drop down to make it show options
-- Keep previous properties window open when clicking out of selecting an item.
+- [x] Keep previous properties window open when clicking out of selecting an item.
 - [x] Remove recent colors from top part of properties tab
 - [x] Fix text tool to have free form text
-- - When changing properties in sticky text, it should apply those changes
-- - 
+- [] When changing properties in sticky text, it should apply those changes
 - [x] Include more colors in recent 
 
 
