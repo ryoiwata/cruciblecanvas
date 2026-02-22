@@ -2,16 +2,27 @@
 
 /**
  * TextEditor — floating textarea overlay that renders over a Konva object
- * when the user enters text-edit mode. For sticky notes it renders in-place
- * with padding/font settings that precisely match the Konva Text node, so the
- * text never appears to "jump" when entering or leaving edit mode.
+ * when the user enters text-edit mode.
  *
- * Sticky notes grow vertically in real-time as the user types more lines, and
- * shrink back to the minimum needed height on commit.
+ * Sticky notes: grow vertically in real-time, shrink on commit, clamped to
+ * STICKY_NOTE_SIZE_LIMITS. Font/padding matches the Konva text node exactly
+ * so the text never appears to jump when entering or leaving edit mode.
  *
- * Freeform text objects also grow/shrink in real-time. The overlay div is made
- * pointer-events: none for text type so the canvas remains interactive while
- * editing (commit happens via onBlur when focus leaves the textarea).
+ * Freeform text objects (BioRender-style auto-expansion):
+ *   1. A hidden "mirror" div with identical text styling is measured to obtain
+ *      the natural (unwrapped) content width via scrollWidth.
+ *   2. The textarea expands horizontally until it reaches a viewport-relative
+ *      max (min of 800 canvas-px or the space to the right edge of the container).
+ *   3. Once the max width is reached, the box wraps and grows vertically.
+ *   4. If vertical growth would overflow the container, the textarea is capped
+ *      by a CSS max-height and content scrolls internally.
+ *   5. Both width and height are persisted to Firestore on commit so the Konva
+ *      Text node renders at the exact same dimensions as the editor.
+ *   6. CSS transitions (60ms ease-out) make the growth feel smooth, but they
+ *      are enabled only after the first measurement so the initial snap to
+ *      content size is instantaneous.
+ *
+ * Frames: only the 40px title bar is editable; dimensions are fixed.
  */
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -19,6 +30,11 @@ import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { updateObject, deleteObject } from "@/lib/firebase/firestore";
 import { STICKY_NOTE_SIZE_LIMITS, FONT_FAMILY_MAP } from "@/lib/types";
+
+// Maximum canvas-unit width for a freeform text editor (before it starts
+// wrapping). Chosen so that very long single-line strings don't run off a
+// typical 1440px viewport at zoom=1.
+const TEXT_MAX_CANVAS_WIDTH = 800;
 
 interface TextEditorProps {
   boardId: string;
@@ -36,9 +52,92 @@ export default function TextEditor({ boardId }: TextEditorProps) {
   const removeObject = useObjectStore((s) => s.removeObject);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Mirror div for content measurement — invisible, same text styling as textarea.
+  const mirrorRef = useRef<HTMLDivElement>(null);
+  // Outer wrapper div — used to read the container's clientWidth for max-width calc.
+  const outerDivRef = useRef<HTMLDivElement>(null);
+  // RAF handle — cancelling the previous before scheduling a new one coalesces
+  // rapid keystrokes into a single measurement per frame.
+  const measureRafRef = useRef<number>(0);
+  // Stable ref to the current object id — lets measureAndSync have empty deps
+  // while still reading the latest id without closing over a stale value.
+  const objectIdRef = useRef<string | null>(null);
+
   const [text, setText] = useState("");
 
   const object = editingObjectId ? objects[editingObjectId] : null;
+
+  // Keep objectIdRef in sync whenever the editing session changes.
+  useEffect(() => {
+    objectIdRef.current = object?.id ?? null;
+  }, [object?.id]);
+
+  // ---- Mirror measurement (text objects only) --------------------------------
+  //
+  // measureAndSync reads the mirror div's scrollWidth/scrollHeight to find the
+  // natural content dimensions, clamps them to viewport bounds, then applies
+  // the result directly to the textarea's inline style (no React state → no
+  // extra re-renders). The canvas object is also updated in the store so that
+  // the selection bounding box tracks the live dimensions during editing.
+  //
+  // Two-phase approach:
+  //   Phase 1 — set mirror to white-space:pre, width:auto → read scrollWidth
+  //             to get the single-line content width (no wrapping).
+  //   Phase 2 — clamp width to [minW, maxW], apply to mirror, switch to
+  //             white-space:pre-wrap → read scrollHeight for the wrapped height.
+  //
+  // Empty deps array: all dynamic values are read from refs / getState() so the
+  // function never needs to be recreated, preventing RAF closure staleness issues.
+  const measureAndSync = useCallback(() => {
+    const mirror = mirrorRef.current;
+    const ta = textareaRef.current;
+    const outer = outerDivRef.current;
+    const objId = objectIdRef.current;
+    if (!mirror || !ta || !objId) return;
+
+    const { stageScale: scale, stageX: sx } = useCanvasStore.getState();
+    const obj = useObjectStore.getState().objects[objId];
+    if (!obj || obj.type !== "text") return;
+
+    // Available container width from the object's left edge to the right boundary.
+    const containerW = outer?.clientWidth ?? 800;
+    const objScreenX = Math.max(0, obj.x * scale + sx);
+    const maxW = Math.min(
+      TEXT_MAX_CANVAS_WIDTH * scale,
+      Math.max(60 * scale, containerW - objScreenX - 16),
+    );
+    // Minimum width: enough for one character at the current font size.
+    const minW = Math.max(32, (obj.fontSize ?? 24) * scale);
+
+    // Phase 1: measure natural single-line content width (no word-wrap).
+    mirror.style.whiteSpace = "pre";
+    mirror.style.width = "auto";
+    // +4px accounts for sub-pixel rendering and textarea caret clearance so
+    // the last character is never clipped by a tight bounding box.
+    const naturalW = mirror.scrollWidth + 4;
+
+    // Phase 2: clamp width and measure wrapped height.
+    const finalW = Math.min(Math.max(naturalW, minW), maxW);
+    mirror.style.whiteSpace = "pre-wrap";
+    mirror.style.width = `${finalW}px`;
+    const finalH = mirror.scrollHeight;
+
+    // Apply directly to the textarea DOM node — bypasses React reconciliation
+    // for immediate visual feedback at 60 fps without re-renders.
+    ta.style.width = `${finalW}px`;
+    ta.style.height = `${finalH}px`;
+
+    // Sync the canvas object so the Transformer / selection rect reflects the
+    // live editing dimensions without waiting for the commit.
+    const canvasW = Math.ceil(finalW / scale);
+    const canvasH = Math.ceil(finalH / scale);
+    const cur = useObjectStore.getState().objects[objId];
+    if (cur && (cur.width !== canvasW || cur.height !== canvasH)) {
+      useObjectStore.getState().updateObjectLocal(objId, { width: canvasW, height: canvasH });
+    }
+  }, []); // intentionally empty — reads all dynamic values imperatively
+
+  // ---- Edit session initialisation ------------------------------------------
 
   useEffect(() => {
     if (!object) return;
@@ -61,28 +160,33 @@ export default function TextEditor({ boardId }: TextEditorProps) {
       const ta = textareaRef.current;
       if (!ta) return;
 
-      // Auto-expand immediately if current content already overflows the stored height.
-      // Applies to both sticky notes and freeform text objects.
       if (object.type === "stickyNote") {
+        // Sticky notes: vertical-only auto-expand, clamped to size limits.
         ta.style.height = "1px";
         const scrollH = ta.scrollHeight;
-        const minScreenH = STICKY_NOTE_SIZE_LIMITS.min.height * stageScale;
-        const maxScreenH = STICKY_NOTE_SIZE_LIMITS.max.height * stageScale;
+        const currentScale = useCanvasStore.getState().stageScale;
+        const minScreenH = STICKY_NOTE_SIZE_LIMITS.min.height * currentScale;
+        const maxScreenH = STICKY_NOTE_SIZE_LIMITS.max.height * currentScale;
         const newScreenH = Math.max(minScreenH, Math.min(maxScreenH, scrollH));
         ta.style.height = `${newScreenH}px`;
-        const newCanvasH = Math.ceil(newScreenH / stageScale);
+        const newCanvasH = Math.ceil(newScreenH / currentScale);
         if (newCanvasH !== object.height) {
           useObjectStore.getState().updateObjectLocal(object.id, { height: newCanvasH });
         }
       } else if (object.type === "text") {
-        // Freeform text: grow to fit existing content with no min/max clamp.
-        ta.style.height = "1px";
-        const scrollH = ta.scrollHeight;
-        ta.style.height = `${scrollH}px`;
-        const newCanvasH = Math.ceil(scrollH / stageScale);
-        if (newCanvasH !== object.height) {
-          useObjectStore.getState().updateObjectLocal(object.id, { height: newCanvasH });
-        }
+        // Freeform text: bidirectional expansion via mirror measurement.
+        // Apply size instantly (no transition) so edit-start is snappy.
+        ta.style.transition = "none";
+        measureAndSync();
+        // Enable smooth transitions for all subsequent keystrokes.
+        // Wrapping in a RAF ensures the first instant resize has painted
+        // before we start animating subsequent changes.
+        requestAnimationFrame(() => {
+          if (textareaRef.current) {
+            textareaRef.current.style.transition =
+              "width 60ms ease-out, height 60ms ease-out";
+          }
+        });
       }
 
       ta.focus();
@@ -94,6 +198,15 @@ export default function TextEditor({ boardId }: TextEditorProps) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [object?.id]);
+
+  // Cleanup pending RAF when the component unmounts or editing ends.
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(measureRafRef.current);
+    };
+  }, []);
+
+  // ---- Commit ----------------------------------------------------------------
 
   const commit = useCallback(() => {
     if (!editingObjectId || !object) return;
@@ -109,7 +222,7 @@ export default function TextEditor({ boardId }: TextEditorProps) {
     }
 
     if (object.type === "stickyNote" && textareaRef.current) {
-      // Compute the final required height (may be smaller if user deleted text).
+      // Sticky note: re-measure final scrollHeight (may be smaller if user deleted text).
       const ta = textareaRef.current;
       ta.style.height = "1px";
       const scrollH = ta.scrollHeight;
@@ -118,8 +231,8 @@ export default function TextEditor({ boardId }: TextEditorProps) {
         STICKY_NOTE_SIZE_LIMITS.min.height,
         Math.min(
           STICKY_NOTE_SIZE_LIMITS.max.height,
-          Math.ceil(scrollH / currentScale)
-        )
+          Math.ceil(scrollH / currentScale),
+        ),
       );
       updateObjectLocal(editingObjectId, { text: trimmed, height: newHeight });
       updateObject(boardId, editingObjectId, {
@@ -127,13 +240,22 @@ export default function TextEditor({ boardId }: TextEditorProps) {
         height: newHeight,
       }).catch(console.error);
     } else if (object.type === "text" && textareaRef.current) {
-      // Freeform text: measure the final scrollHeight and convert to canvas units.
-      // The textarea auto-grew during typing, so scrollHeight == clientHeight here.
+      // Freeform text: read the dimensions that measureAndSync last applied to
+      // the textarea's inline style — these already account for the mirror
+      // measurement and the viewport max-width constraint.
+      const ta = textareaRef.current;
       const currentScale = useCanvasStore.getState().stageScale;
-      const newHeight = Math.max(10, Math.ceil(textareaRef.current.scrollHeight / currentScale));
-      updateObjectLocal(editingObjectId, { text: trimmed, height: newHeight });
+      const rawW = parseFloat(ta.style.width);
+      const rawH = parseFloat(ta.style.height);
+      // Fallback to scrollHeight / object dimensions if styles were not yet set.
+      const finalW = rawW > 0 ? rawW : object.width * currentScale;
+      const finalH = rawH > 0 ? rawH : ta.scrollHeight;
+      const newWidth = Math.max(10, Math.ceil(finalW / currentScale));
+      const newHeight = Math.max(10, Math.ceil(finalH / currentScale));
+      updateObjectLocal(editingObjectId, { text: trimmed, width: newWidth, height: newHeight });
       updateObject(boardId, editingObjectId, {
         text: trimmed,
+        width: newWidth,
         height: newHeight,
       }).catch(console.error);
     } else {
@@ -159,7 +281,7 @@ export default function TextEditor({ boardId }: TextEditorProps) {
         commit();
       }
     },
-    [commit]
+    [commit],
   );
 
   if (!object || !editingObjectId) return null;
@@ -183,89 +305,77 @@ export default function TextEditor({ boardId }: TextEditorProps) {
   const clampedScreenX = isText ? Math.max(0, screenX) : screenX;
   const clampedScreenY = isText ? Math.max(0, screenY) : screenY;
 
-  // Max height available from the clamped top to the container's bottom edge,
-  // with an 8px margin. This prevents the auto-growing textarea from expanding
-  // off-screen; when content exceeds this cap, it scrolls internally instead.
+  // Max height available from the clamped top to the container's bottom edge.
+  // measureAndSync grows the textarea freely up to this CSS cap; if content
+  // exceeds it, overflowY:auto provides an internal scrollbar.
   const textMaxHeight = isText
     ? `calc(100% - ${clampedScreenY}px - 8px)`
     : undefined;
 
-  // For frames, only edit the title bar area
+  // For frames, only edit the title bar area.
   const editHeight = isFrame ? 40 * stageScale : screenHeight;
 
-  // Font size: sticky notes and text objects respect object.fontSize
   const effectiveFontSize = isStickyNote
     ? (object.fontSize ?? 14)
     : isText
-    ? (object.fontSize ?? 16)
+    ? (object.fontSize ?? 24)
     : 14;
 
   // CSS line-height must match Konva's text node:
-  //   - Sticky notes: Konva lineHeight = max(1, 22/fontSize), so pixel height = max(fontSize, 22)
-  //   - Text objects: Konva default lineHeight = 1, so each line = exactly 1 × fontSize
-  //   - Others: standard 1.4 approximation
+  //   - Sticky notes: Konva lineHeight = max(1, 22/fontSize) → pixel = max(fontSize, 22)
+  //   - Text objects: Konva default lineHeight = 1 → each line = exactly fontSize px
+  //   - Others: 1.4 approximation
   const cssLineHeight = isStickyNote
     ? `${Math.max(effectiveFontSize, 22) * stageScale}px`
     : isText
     ? "1"
     : "1.4";
 
-  // Padding: for sticky notes match Konva text position (x=12, y=30).
+  // Padding: sticky notes match Konva text position (x=12, y=30).
   // Text objects have no padding so the overlay aligns exactly with the Konva Text node.
-  const paddingTop = isStickyNote
-    ? 30 * stageScale
-    : isText
-    ? 0
-    : 10 * stageScale;
-  const paddingHoriz = isStickyNote
-    ? 12 * stageScale
-    : isText
-    ? 0
-    : 10 * stageScale;
-  const paddingBottom = isStickyNote
-    ? 10 * stageScale
-    : isText
-    ? 0
-    : 10 * stageScale;
+  const paddingTop = isStickyNote ? 30 * stageScale : isText ? 0 : 10 * stageScale;
+  const paddingHoriz = isStickyNote ? 12 * stageScale : isText ? 0 : 10 * stageScale;
+  const paddingBottom = isStickyNote ? 10 * stageScale : isText ? 0 : 10 * stageScale;
 
-  // Background: transparent for sticky notes (Konva background rect shows through)
-  // and text objects; near-white for frames.
+  // Background: transparent for sticky notes (Konva rect shows through) and
+  // text objects; near-white for frames.
   const bgColor = isFrame ? "rgba(255,255,255,0.95)" : "transparent";
 
   // Text color must exactly match the Konva Text node's fill so the swap from
   // Konva Text → textarea on edit-start has no perceptible colour change.
-  //   - Text objects: Konva uses `textColor ?? color`
-  //   - Sticky notes: Konva uses `textColor ?? '#1a1a1a'`
-  //   - Frames/others: dark for readability
   const textColor = isStickyNote
     ? (object.textColor ?? "#1a1a1a")
     : isText
     ? (object.textColor ?? object.color)
     : "#1a1a1a";
 
-  // Border:
-  //   - Sticky notes: none — the background Konva rect defines the editing area.
-  //   - Text objects: none — the Konva selection Rect (blue stroke) already shows the
-  //     text box boundary; a second border would be redundant and visually noisy.
-  //   - Frames/others: solid accent border.
-  const borderStyle = isStickyNote || isText
-    ? "none"
-    : "2px solid #6366f1";
+  const borderStyle = isStickyNote || isText ? "none" : "2px solid #6366f1";
 
-  // The text-align on the textarea must match the Konva Text node's `align` prop
-  // so horizontal alignment is consistent before/during/after editing.
+  // text-align matches the Konva Text node's `align` prop for visual parity.
   const cssTextAlign = isText ? (object.textAlign ?? "left") : undefined;
+
+  // Shared text-style properties used on both the mirror div and the textarea
+  // so that scrollWidth/scrollHeight measurements are accurate.
+  const sharedTextStyle = isText
+    ? ({
+        fontFamily: FONT_FAMILY_MAP[object.fontFamily ?? "sans-serif"],
+        fontSize: `${effectiveFontSize * stageScale}px`,
+        lineHeight: cssLineHeight,
+        fontWeight: "normal" as const,
+        textAlign: cssTextAlign,
+        boxSizing: "border-box" as const,
+      } as const)
+    : {};
 
   return (
     <div
+      ref={outerDivRef}
       style={{
         position: "absolute",
         inset: 0,
         zIndex: 100,
-        // For freeform text: let pointer events pass through to the canvas so the
-        // user can scroll/pan without needing to commit first. The textarea's
-        // onBlur handles commit when focus leaves. The div's onClick is only used
-        // for sticky notes / frames where a click-outside-to-commit is desired.
+        // For freeform text: pointer events pass through to the canvas so the
+        // user can scroll/pan without committing first. onBlur handles commit.
         pointerEvents: isText ? "none" : "auto",
       }}
       onClick={(e) => {
@@ -275,45 +385,68 @@ export default function TextEditor({ boardId }: TextEditorProps) {
         }
       }}
     >
+      {/* Hidden mirror div — used only for freeform text objects.
+          Placed at an off-screen position so it's invisible but still
+          participates in layout (required for accurate scrollWidth/scrollHeight).
+          Its content tracks the textarea's text state via React render so
+          measurements are always based on the current text. */}
+      {isText && (
+        <div
+          ref={mirrorRef}
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: "-9999px",
+            left: "-9999px",
+            // whiteSpace and width are overwritten inside measureAndSync.
+            whiteSpace: "pre",
+            wordBreak: "break-word",
+            overflow: "hidden",
+            pointerEvents: "none",
+            ...sharedTextStyle,
+          }}
+        >
+          {/* Zero-width space ensures the mirror has non-zero height even when
+              text is empty, and preserves trailing newlines in measurements. */}
+          {text + "\u200B"}
+        </div>
+      )}
+
       <textarea
         ref={textareaRef}
         value={text}
         onChange={(e) => {
           const newText = e.target.value;
           setText(newText);
-          // Sync canvas in real-time as the user types — Firestore is written on blur/Escape.
+          // Persist text to local store in real-time; Firestore write happens on commit.
           if (editingObjectId) {
             useObjectStore.getState().updateObjectLocal(editingObjectId, { text: newText });
           }
 
-          // Sticky notes: grow vertically in real-time when content overflows.
-          // Only expands here; shrinking happens on commit.
           if (isStickyNote && textareaRef.current) {
+            // Sticky notes: vertical-only growth (shrink deferred to commit).
             const ta = textareaRef.current;
             ta.style.height = "1px";
             const scrollH = ta.scrollHeight;
-            const minScreenH = STICKY_NOTE_SIZE_LIMITS.min.height * stageScale;
-            const maxScreenH = STICKY_NOTE_SIZE_LIMITS.max.height * stageScale;
+            const currentScale = useCanvasStore.getState().stageScale;
+            const minScreenH = STICKY_NOTE_SIZE_LIMITS.min.height * currentScale;
+            const maxScreenH = STICKY_NOTE_SIZE_LIMITS.max.height * currentScale;
             const newScreenH = Math.max(minScreenH, Math.min(maxScreenH, scrollH));
             ta.style.height = `${newScreenH}px`;
-            const newCanvasH = Math.ceil(newScreenH / stageScale);
+            const newCanvasH = Math.ceil(newScreenH / currentScale);
             if (newCanvasH > (useObjectStore.getState().objects[editingObjectId]?.height ?? 0)) {
               useObjectStore.getState().updateObjectLocal(editingObjectId, { height: newCanvasH });
             }
           }
 
-          // Freeform text: grow AND shrink in real-time so the blue selection border
-          // always matches the actual content height. No min/max clamp needed.
-          if (isText && textareaRef.current) {
-            const ta = textareaRef.current;
-            ta.style.height = "1px";
-            const scrollH = ta.scrollHeight;
-            ta.style.height = `${scrollH}px`;
-            const newCanvasH = Math.ceil(scrollH / stageScale);
-            const currentH = useObjectStore.getState().objects[editingObjectId]?.height ?? 0;
-            if (newCanvasH !== currentH) {
-              useObjectStore.getState().updateObjectLocal(editingObjectId, { height: newCanvasH });
-            }
+          if (isText) {
+            // Freeform text: coalesce measurements to one per animation frame.
+            // The mirror's React-rendered content ({text + '\u200B'}) will be
+            // updated by the re-render triggered by setText above, which happens
+            // synchronously before the next paint, so the RAF fires with accurate
+            // mirror content.
+            cancelAnimationFrame(measureRafRef.current);
+            measureRafRef.current = requestAnimationFrame(measureAndSync);
           }
         }}
         onBlur={commit}
@@ -322,19 +455,27 @@ export default function TextEditor({ boardId }: TextEditorProps) {
           position: "absolute",
           left: isText ? clampedScreenX : screenX,
           top: isText ? clampedScreenY : screenY,
-          width: screenWidth,
-          height: editHeight,
-          // Cap freeform text textarea so it never expands beyond the visible
-          // canvas container; content exceeding the cap scrolls internally.
+          // Initial dimensions from the stored object. For text objects,
+          // measureAndSync overwrites these via ta.style within the first RAF
+          // after edit-start. Using the stored width prevents a visible collapse
+          // to 0 before the first measurement fires.
+          width: isText ? screenWidth : screenWidth,
+          height: isText ? screenHeight : editHeight,
+          // CSS cap: prevents the textarea from expanding below the container
+          // bottom edge. When natural height exceeds this cap, overflowY:auto
+          // provides an internal scrollbar (the "scroll fallback").
           maxHeight: textMaxHeight,
           // Rotate the textarea to match the object's canvas rotation.
           transform: `rotate(${object.rotation ?? 0}deg)`,
           transformOrigin: "top left",
-          fontSize: `${effectiveFontSize * stageScale}px`,
+          // Transitions are enabled via ta.style.transition after the first
+          // measurement so the initial snap to content size is instant.
+          ...sharedTextStyle,
           fontFamily:
             isStickyNote || isText
               ? FONT_FAMILY_MAP[object.fontFamily ?? "sans-serif"]
               : "sans-serif",
+          fontSize: `${effectiveFontSize * stageScale}px`,
           fontWeight: isFrame ? "bold" : "normal",
           textAlign: cssTextAlign,
           paddingTop: `${paddingTop}px`,
@@ -345,18 +486,17 @@ export default function TextEditor({ boardId }: TextEditorProps) {
           borderRadius: isStickyNote ? 0 : `${4 * stageScale}px`,
           outline: "none",
           resize: "none",
-          // Freeform text: overflow-y:auto enables internal scrolling when
-          // content exceeds the max-height cap. Other types stay clipped.
+          // Freeform text: overflow-y:auto enables internal scrolling when the
+          // textarea height hits the CSS max-height cap at the container edge.
           overflowX: "hidden",
           overflowY: isText ? "auto" : "hidden",
           background: bgColor,
           color: textColor,
-          // Cursor color matches the text color so it's legible on any background.
           caretColor: textColor,
           lineHeight: cssLineHeight,
           boxSizing: "border-box",
-          // Freeform text: pointer events must be explicitly enabled on the textarea
-          // even though the parent div has pointer-events: none.
+          // Freeform text: pointer events must be explicitly enabled on the
+          // textarea even though the parent div has pointer-events:none.
           pointerEvents: "auto",
         }}
       />
