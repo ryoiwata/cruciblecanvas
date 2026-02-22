@@ -154,17 +154,47 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       // with direct Konva manipulation during border resize
       if (borderResizingIds.has(id)) continue;
       const node = stage.findOne(`#${id}`);
-      if (node) nodes.push(node);
+      // Guard: skip nodes already destroyed (e.g., deleted by AI command or remote sync
+      // before this effect fired). A destroyed node has no parent and its canvas element
+      // is torn down — passing it to Transformer causes _proxyDrag to crash with
+      // "can't access property dragStatus, elem is undefined".
+      if (node && !node.destroyed) nodes.push(node);
     }
 
     transformer.nodes(nodes);
     transformer.getLayer()?.batchDraw();
+
+    // Guard: when a node is destroyed mid-drag (Firestore remote delete or AI command
+    // removes a selected object while the user is actively transforming), Konva's
+    // Transformer._proxyDrag still holds a reference to it and will crash on the next
+    // mousemove trying to access the now-null canvas element.
+    // Listening for 'remove' on each attached node lets us prune the transformer's
+    // list immediately, before the next drag event fires.
+    // Note: Konva sets node.parent = null *before* firing 'remove', so getParent()
+    // reliably identifies which nodes are no longer valid at handler time.
+    const pruneDestroyedNodes = () => {
+      const tr = transformerRef.current;
+      if (!tr) return;
+      const alive = (tr.nodes() as Konva.Node[]).filter((n) => n.getParent() != null);
+      if (alive.length < tr.nodes().length) {
+        tr.nodes(alive);
+        tr.getLayer()?.batchDraw();
+      }
+    };
+
+    for (const node of nodes) {
+      node.on('remove.trGuard', pruneDestroyedNodes);
+    }
 
     // Cleanup: if selection changes mid-transform, reset any accumulated scale
     // on outgoing nodes to prevent stale scale on next interaction
     return () => {
       const cleanupObjects = useObjectStore.getState().objects;
       for (const node of nodes) {
+        // Skip nodes already destroyed — their properties are torn down and
+        // calling scaleX() / width() on them is a no-op at best, crash at worst.
+        if (node.destroyed) continue;
+        node.off('remove.trGuard');
         if (node.scaleX() !== 1 || node.scaleY() !== 1) {
           const id = node.id();
           const obj = cleanupObjects[id];
