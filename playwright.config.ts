@@ -86,6 +86,27 @@ export default defineConfig({
       testMatch: '**/e2e/**/*.spec.ts',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      // Demo benchmark: headed Chrome with GPU flags; primary window is visible
+      // for recording.  Background contexts are launched headless inside the spec
+      // itself, so this project config only governs the page fixture (primary window).
+      // Run via: npm run demo:test
+      name: 'demo-chrome',
+      testMatch: '**/demo-benchmark.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'tests/.auth/state.json',
+        launchOptions: {
+          args: [
+            '--enable-gpu-rasterization',
+            '--enable-zero-copy',
+            '--ignore-gpu-blocklist',
+          ],
+          headless: false,
+        },
+        viewport: { width: 1440, height: 900 },
+      },
+    },
   ],
 
   // Start the dev server automatically with the bypass flag set.

@@ -6,12 +6,13 @@ import dynamic from "next/dynamic";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useCanvasStore } from "@/lib/store/canvasStore";
-import type { BoardObject } from "@/lib/types";
+import type { BoardObject, CursorData } from "@/lib/types";
 import { useChatStore } from "@/lib/store/chatStore";
 import { signInAsGuest, signOutUser } from "@/lib/firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { useFirestoreSync } from "@/hooks/useFirestoreSync";
-import { recordBoardVisit } from "@/lib/firebase/firestore";
+import { recordBoardVisit, createObject, updateObject, generateObjectId } from "@/lib/firebase/firestore";
+import { setCursor, onCursorChildEvents } from "@/lib/firebase/rtdb";
 import { useLockSync } from "@/hooks/useLockSync";
 import { useMultiplayer } from "@/hooks/useMultiplayer";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -133,21 +134,68 @@ export default function BoardPage() {
     };
   }, []);
 
-  // Expose Playwright helpers for the visual capacity test.
+  // Expose Playwright helpers for performance and sync tests.
   // All helpers are active only in bypass mode — never in production.
   useEffect(() => {
     if (!IS_PERF_BYPASS) return;
+
     const w = window as Window & {
+      // ── Capacity test helpers ──────────────────────────────────────────────
       // Injects objects directly into the Zustand store, bypassing Firestore.
       __perfSeedObjects?: (objects: Record<string, unknown>[]) => number;
       // Reads the live object count from the Zustand store (not from Konva,
-      // which only contains spatially-visible Groups due to culling).
+      // which only holds spatially-visible Groups due to R-tree culling).
       __perfGetObjectCount?: () => number;
       // Updates the canvas viewport (x, y, scale) via canvasStore so the
       // Konva stage and the R-tree culling logic stay in sync.
       __perfSetViewport?: (x: number, y: number, scale: number) => void;
+
+      // ── Two-browser sync test helpers ─────────────────────────────────────
+      // Generate a Firestore document ID without writing (for pre-coordination).
+      __perfGenerateObjectId?: (boardId: string) => string;
+      // Write a new object to Firestore and return Date.now() at write time.
+      __perfCreateObject?: (
+        boardId: string,
+        id: string,
+        data: Record<string, unknown>,
+      ) => Promise<number>;
+      // Update an existing Firestore object and return Date.now() at write time.
+      __perfUpdateObject?: (
+        boardId: string,
+        id: string,
+        updates: Record<string, unknown>,
+      ) => Promise<number>;
+      // Poll the Zustand store until objectId appears. Returns Date.now() when
+      // found, or -1 after timeoutMs.
+      __perfWaitForObjectId?: (id: string, timeoutMs: number) => Promise<number>;
+      // Poll until objects[id][field] === expected. Returns Date.now() or -1.
+      __perfWaitForObjectField?: (
+        id: string,
+        field: string,
+        expected: unknown,
+        timeoutMs: number,
+      ) => Promise<number>;
+      // Return the current user's Firebase UID (null when not yet signed in).
+      __perfGetUserId?: () => string | null;
+      // Write a cursor to RTDB and return Date.now() as the write timestamp.
+      __perfWriteCursor?: (
+        boardId: string,
+        uid: string,
+        x: number,
+        y: number,
+        name: string,
+      ) => number;
+      // Subscribe to RTDB cursor events and resolve with Date.now() when a
+      // cursor from targetUid arrives with timestamp ≥ minTimestamp.
+      __perfWaitForCursor?: (
+        boardId: string,
+        targetUid: string,
+        minTimestamp: number,
+        timeoutMs: number,
+      ) => Promise<number>;
     };
 
+    // ── Capacity helpers ─────────────────────────────────────────────────────
     w.__perfSeedObjects = (objects) => {
       useObjectStore.getState().batchUpsert(objects as unknown as BoardObject[]);
       return objects.length;
@@ -159,10 +207,101 @@ export default function BoardPage() {
     w.__perfSetViewport = (x, y, scale) =>
       useCanvasStore.getState().setViewport(x, y, scale);
 
+    // ── Two-browser sync helpers ─────────────────────────────────────────────
+    w.__perfGenerateObjectId = (boardId) => generateObjectId(boardId);
+
+    w.__perfCreateObject = async (boardId, id, data) => {
+      const t0 = Date.now();
+      await createObject(
+        boardId,
+        data as Omit<BoardObject, 'id' | 'createdAt' | 'updatedAt'>,
+        id,
+      );
+      return t0;
+    };
+
+    w.__perfUpdateObject = async (boardId, id, updates) => {
+      const t0 = Date.now();
+      await updateObject(boardId, id, updates as Partial<BoardObject>);
+      return t0;
+    };
+
+    w.__perfWaitForObjectId = (id, timeoutMs) =>
+      new Promise<number>((resolve) => {
+        const deadline = Date.now() + timeoutMs;
+        function poll() {
+          if (useObjectStore.getState().objects[id]) {
+            resolve(Date.now());
+          } else if (Date.now() >= deadline) {
+            resolve(-1);
+          } else {
+            setTimeout(poll, 20);
+          }
+        }
+        poll();
+      });
+
+    w.__perfWaitForObjectField = (id, field, expected, timeoutMs) =>
+      new Promise<number>((resolve) => {
+        const deadline = Date.now() + timeoutMs;
+        function poll() {
+          const obj = useObjectStore.getState().objects[id];
+          if (obj && (obj as Record<string, unknown>)[field] === expected) {
+            resolve(Date.now());
+          } else if (Date.now() >= deadline) {
+            resolve(-1);
+          } else {
+            setTimeout(poll, 20);
+          }
+        }
+        poll();
+      });
+
+    w.__perfGetUserId = () => useAuthStore.getState().user?.uid ?? null;
+
+    w.__perfWriteCursor = (boardId, uid, x, y, name) => {
+      const t0 = Date.now();
+      setCursor(boardId, uid, { x, y, name, color: '#6366f1', timestamp: t0 });
+      return t0;
+    };
+
+    w.__perfWaitForCursor = (boardId, targetUid, minTimestamp, timeoutMs) =>
+      new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(`Cursor for ${targetUid} not received within ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        const unsub = onCursorChildEvents(boardId, {
+          onAdd: (uid, data: CursorData) => {
+            if (uid === targetUid && data.timestamp >= minTimestamp) {
+              clearTimeout(timer);
+              unsub();
+              resolve(Date.now());
+            }
+          },
+          onChange: (uid, data: CursorData) => {
+            if (uid === targetUid && data.timestamp >= minTimestamp) {
+              clearTimeout(timer);
+              unsub();
+              resolve(Date.now());
+            }
+          },
+          onRemove: () => {},
+        });
+      });
+
     return () => {
       delete w.__perfSeedObjects;
       delete w.__perfGetObjectCount;
       delete w.__perfSetViewport;
+      delete w.__perfGenerateObjectId;
+      delete w.__perfCreateObject;
+      delete w.__perfUpdateObject;
+      delete w.__perfWaitForObjectId;
+      delete w.__perfWaitForObjectField;
+      delete w.__perfGetUserId;
+      delete w.__perfWriteCursor;
+      delete w.__perfWaitForCursor;
     };
   }, []);
 
