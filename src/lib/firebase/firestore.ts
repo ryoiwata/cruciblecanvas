@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  addDoc,
   setDoc,
   getDoc,
   getDocs,
@@ -489,6 +490,39 @@ export async function checkRateLimit(
   }
 
   return { allowed: true, remaining: userLimit - userCount };
+}
+
+/**
+ * Queues an invitation email via the Firebase Trigger Email extension.
+ * The extension listens to the `mail` collection and dispatches messages
+ * using the configured SMTP provider. This is a fire-and-forget write;
+ * the extension handles delivery and retries.
+ */
+export async function sendBoardInviteEmail({
+  toEmail,
+  boardTitle,
+  fromName,
+  boardUrl,
+}: {
+  toEmail: string;
+  boardTitle: string;
+  fromName: string;
+  boardUrl: string;
+}): Promise<void> {
+  const mailCol = collection(db, 'mail');
+  await addDoc(mailCol, {
+    to: [toEmail],
+    message: {
+      subject: `${fromName} invited you to collaborate on "${boardTitle}"`,
+      html: `
+        <p>Hi,</p>
+        <p><strong>${fromName}</strong> has invited you to collaborate on the board
+        <strong>${boardTitle}</strong>.</p>
+        <p><a href="${boardUrl}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Open board</a></p>
+        <p>If you did not expect this invitation, you can safely ignore this email.</p>
+      `,
+    },
+  });
 }
 
 /**

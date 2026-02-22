@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getBoardMetadata, updateBoardMetadata } from "@/lib/firebase/firestore";
+import { getBoardMetadata, updateBoardMetadata, sendBoardInviteEmail } from "@/lib/firebase/firestore";
 import { setBoardPrivacy } from "@/lib/firebase/rtdb";
 import { useAuthStore } from "@/lib/store/authStore";
 import Toast from "./Toast";
@@ -100,6 +100,7 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
 
+  const [boardTitle, setBoardTitle] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [invitePermission, setInvitePermission] = useState<InvitePermission>('edit');
   const [isInviteDropdownOpen, setIsInviteDropdownOpen] = useState(false);
@@ -131,6 +132,7 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
     setIsMetaLoading(true);
     getBoardMetadata(boardId).then((meta) => {
       if (meta) {
+        setBoardTitle(meta.title ?? 'Untitled Board');
         setGeneralAccess(resolveGeneralAccess(meta.isPublic));
         setInvitedEmails(meta.invitedEmails ?? []);
         setCreatedBy(meta.createdBy);
@@ -202,12 +204,20 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
       await updateBoardMetadata(boardId, { invitedEmails: next });
       setInvitedEmails(next);
       setEmailInput('');
+      // Fire-and-forget: email delivery failure must not block the invite flow
+      const boardUrl = `${window.location.origin}/board/${boardId}`;
+      sendBoardInviteEmail({
+        toEmail: trimmed,
+        boardTitle,
+        fromName: displayName || user?.email || 'A collaborator',
+        boardUrl,
+      }).catch(console.error);
     } catch (err) {
       console.error('[ShareModal] Failed to invite collaborator:', err);
     } finally {
       setIsSending(false);
     }
-  }, [boardId, emailInput, invitedEmails, isSending]);
+  }, [boardId, boardTitle, displayName, emailInput, invitedEmails, isSending, user]);
 
   const handleCopyLink = useCallback(async () => {
     const url = `${window.location.origin}/board/${boardId}`;

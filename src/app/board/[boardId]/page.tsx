@@ -24,7 +24,6 @@ import PropertiesSidebar from "@/components/properties/PropertiesSidebar";
 import ContextMenu from "@/components/ui/ContextMenu";
 import DeleteDialog from "@/components/ui/DeleteDialog";
 import PresenceIndicator from "@/components/ui/PresenceIndicator";
-import PrivacyToggle from "@/components/ui/PrivacyToggle";
 import ShareButton from "@/components/ui/ShareButton";
 import CanvasTitle from "@/components/ui/CanvasTitle";
 import SelectionCounter from "@/components/ui/SelectionCounter";
@@ -374,7 +373,6 @@ export default function BoardPage() {
           <FpsCounter />
           <PresenceIndicator />
           <div className="h-5 w-px bg-gray-200" />
-          <PrivacyToggle boardId={boardId} />
           <ShareButton boardId={boardId} />
           <div className="h-5 w-px bg-gray-200" />
 
