@@ -285,6 +285,10 @@ export default function Canvas({ boardId }: CanvasProps) {
   const selRectRef = useRef({ startX: 0, startY: 0, currentX: 0, currentY: 0 });
   const selRectRafRef = useRef(0);
   const selRectNodeRef = useRef<Konva.Rect>(null);
+  // Konva fires a synthetic click on the Stage after every mousedown+mouseup on
+  // the same element — including after a significant marquee drag. Without this
+  // guard, handleClick's clearSelection() would wipe the selection we just made.
+  const selRectJustCompletedRef = useRef(false);
 
   // Minimal state for cursor display during pan
   const [isPanActive, setIsPanActive] = useState(false);
@@ -537,6 +541,14 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Cancel connector start on empty canvas click
         setConnectorStart(null);
         setConnectorEndpoint(null);
+        return;
+      }
+
+      // A non-trivial marquee drag (w > 5 && h > 5) just completed. Konva fires
+      // a synthetic click after the mouseup — skip the deselect logic so the
+      // freshly-made selection is preserved. Reset the guard for subsequent clicks.
+      if (selRectJustCompletedRef.current) {
+        selRectJustCompletedRef.current = false;
         return;
       }
 
@@ -1164,6 +1176,12 @@ export default function Canvas({ boardId }: CanvasProps) {
               useCanvasStore.setState({ selectedObjectIds: matchingIds });
             }
           }
+
+          // Prevent the trailing synthetic Konva click event (which fires on every
+          // mousedown+mouseup on the same stage element) from calling clearSelection()
+          // and wiping the selection we just built. Applies even when no objects were
+          // captured — the user intended to drag, not to click-to-deselect.
+          selRectJustCompletedRef.current = true;
         }
 
         // Hide selection rect node
@@ -1300,6 +1318,31 @@ export default function Canvas({ boardId }: CanvasProps) {
     pointerInteractionRef.current = null;
     setIsPanActive(false);
   }, [mode]);
+
+  // --- Window-level mouseup: clean up if the drag ends outside the Stage ---
+  // Without this, dragging out of the canvas and releasing the mouse leaves the
+  // selRect Konva node visible and pointerInteractionRef in a stale state.
+  // The Stage's onMouseUp only fires when the release happens inside the canvas,
+  // so we attach a window listener as a fallback.
+  useEffect(() => {
+    function handleWindowMouseUp() {
+      if (!pointerInteractionRef.current) return;
+      if (pointerInteractionRef.current.type === 'selRect') {
+        cancelAnimationFrame(selRectRafRef.current);
+        selRectRafRef.current = 0;
+        const node = selRectNodeRef.current;
+        if (node) {
+          node.visible(false);
+          node.getLayer()?.batchDraw();
+        }
+      } else if (pointerInteractionRef.current.type === 'pan') {
+        setIsPanActive(false);
+      }
+      pointerInteractionRef.current = null;
+    }
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => window.removeEventListener('mouseup', handleWindowMouseUp);
+  }, []);
 
   // --- Cursor style per mode ---
   const getCursorStyle = () => {

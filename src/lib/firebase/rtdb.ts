@@ -9,7 +9,6 @@ import {
   onChildChanged,
   onChildRemoved,
   onDisconnect,
-  serverTimestamp,
   type Unsubscribe,
 } from "firebase/database";
 import { rtdb } from "./config";
@@ -206,6 +205,11 @@ export function setPresence(
  * Registers onDisconnect cleanup for this user's presence.
  * Call once on board entry (and again after reconnect).
  * Separated from setPresence() to avoid re-registering on every heartbeat.
+ *
+ * Uses remove() rather than update({ online: false }) so the node is fully
+ * deleted from RTDB when the WebSocket drops — covering both tab close/crash
+ * and explicit sign-out (which closes the WebSocket). The onChildRemoved
+ * listener in useMultiplayer then removes the user from all clients' stores.
  */
 export function setupPresenceDisconnect(
   boardId: string,
@@ -213,10 +217,7 @@ export function setupPresenceDisconnect(
 ): void {
   const presenceRef = ref(rtdb, `boards/${boardId}/presence/${userId}`);
   onDisconnect(presenceRef)
-    .update({
-      online: false,
-      lastSeen: serverTimestamp(),
-    })
+    .remove()
     .catch((err) => {
       presenceLogger.writeError("setupPresenceDisconnect", err);
     });
