@@ -31,6 +31,7 @@ import FpsCounter from "@/components/ui/FpsCounter";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import MessagePreview from "@/components/chat/MessagePreview";
 import GuestAuthTrigger from "@/components/ui/GuestAuthTrigger";
+import UserProfileButton from "@/components/ui/UserProfileButton";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -369,6 +370,7 @@ export default function BoardPage() {
         {/* Right: Controls */}
         <div className="ml-auto flex items-center gap-2">
           <GuestAuthTrigger />
+          <UserProfileButton />
           <FpsCounter />
           <PresenceIndicator />
           <div className="h-5 w-px bg-gray-200" />

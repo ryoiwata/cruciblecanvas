@@ -78,3 +78,24 @@ export async function linkAnonymousAccount(
 export async function signOutUser(): Promise<void> {
   await signOut(auth);
 }
+
+/**
+ * Updates the current user's display name in both Firebase Auth and Firestore.
+ *
+ * The name is trimmed and capped at 25 characters before persisting. RTDB
+ * presence propagates automatically: `useMultiplayer` re-runs its setPresence
+ * effect whenever `authStore.displayName` changes, which callers must update
+ * via `useAuthStore.getState().setDisplayName(trimmed)` after this resolves.
+ *
+ * @param newDisplayName - The desired display name (trimmed, max 25 chars).
+ */
+export async function updateUserProfile(newDisplayName: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('No authenticated user');
+
+  const trimmed = newDisplayName.trim().slice(0, 25);
+  await updateProfile(user, { displayName: trimmed });
+
+  const profileRef = doc(db, 'users', user.uid, 'profile', 'info');
+  await setDoc(profileRef, { displayName: trimmed }, { merge: true });
+}

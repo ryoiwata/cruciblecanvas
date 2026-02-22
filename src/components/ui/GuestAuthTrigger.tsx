@@ -38,8 +38,6 @@ export default function GuestAuthTrigger() {
       const code = (err as { code?: string }).code;
       if (code === 'auth/popup-blocked') {
         setError('Popups blocked — allow popups and try again.');
-      } else if (code === 'auth/credential-already-in-use') {
-        setError('That Google account is already in use.');
       } else {
         setError('Sign-in failed. Please try again.');
       }
