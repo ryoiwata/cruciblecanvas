@@ -7,6 +7,7 @@ import {
   SHAPE_DEFAULTS,
   FRAME_DEFAULTS,
   COLOR_LEGEND_DEFAULTS,
+  TEXT_DEFAULTS,
 } from "@/lib/types";
 
 interface GhostPreviewProps {
@@ -14,34 +15,45 @@ interface GhostPreviewProps {
   x: number;
   y: number;
   color: string;
+  /** Current canvas zoom level — ghost dimensions are scaled to match creation defaults. */
+  stageScale: number;
 }
 
-function getDefaultSize(tool: ObjectType) {
+/**
+ * Returns the canvas-space dimensions for the ghost preview, scaled to match
+ * what getDefaultsForTool() will produce when the user clicks to create.
+ * Uses the same [0.25, 4.0] clamp as the creation path.
+ */
+function getGhostSize(tool: ObjectType, stageScale: number) {
+  const s = Math.max(0.25, Math.min(4.0, stageScale));
   switch (tool) {
     case "stickyNote":
-      return { width: STICKY_NOTE_DEFAULT.width, height: STICKY_NOTE_DEFAULT.height };
+      return { width: Math.round(STICKY_NOTE_DEFAULT.width / s), height: Math.round(STICKY_NOTE_DEFAULT.height / s) };
     case "rectangle":
-      return { width: SHAPE_DEFAULTS.rectangle.width, height: SHAPE_DEFAULTS.rectangle.height };
+      return { width: Math.round(SHAPE_DEFAULTS.rectangle.width / s), height: Math.round(SHAPE_DEFAULTS.rectangle.height / s) };
     case "circle":
-      return { width: SHAPE_DEFAULTS.circle.width, height: SHAPE_DEFAULTS.circle.height };
+      return { width: Math.round(SHAPE_DEFAULTS.circle.width / s), height: Math.round(SHAPE_DEFAULTS.circle.height / s) };
     case "frame":
-      return { width: FRAME_DEFAULTS.width, height: FRAME_DEFAULTS.height };
+      return { width: Math.round(FRAME_DEFAULTS.width / s), height: Math.round(FRAME_DEFAULTS.height / s) };
     case "colorLegend":
-      return { width: COLOR_LEGEND_DEFAULTS.width, height: COLOR_LEGEND_DEFAULTS.height };
+      return { width: Math.round(COLOR_LEGEND_DEFAULTS.width / s), height: Math.round(COLOR_LEGEND_DEFAULTS.height / s) };
+    case "text":
+      return { width: Math.round(TEXT_DEFAULTS.width / s), height: Math.round(TEXT_DEFAULTS.height / s) };
     default:
-      return { width: 100, height: 100 };
+      return { width: Math.round(100 / s), height: Math.round(100 / s) };
   }
 }
 
-export default function GhostPreview({ tool, x, y, color }: GhostPreviewProps) {
-  const { width, height } = getDefaultSize(tool);
+export default function GhostPreview({ tool, x, y, color, stageScale }: GhostPreviewProps) {
+  const { width, height } = getGhostSize(tool, stageScale);
+  const s = Math.max(0.25, Math.min(4.0, stageScale));
 
   if (tool === "line") {
     return (
       <Line
         x={x}
         y={y}
-        points={[0, 0, 120, 0]}
+        points={[0, 0, Math.round(120 / s), 0]}
         stroke={color}
         strokeWidth={2}
         opacity={0.4}

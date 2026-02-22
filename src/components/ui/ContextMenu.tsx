@@ -327,8 +327,11 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
     };
   };
 
-  const handlePaste = () => {
+  const handlePasteAtCursor = () => {
     if (!user || clipboard.length === 0) return;
+
+    // Snapshot before pasting so the operation can be undone in one step.
+    useObjectStore.getState().snapshot();
 
     // Convert right-click viewport position to world canvas coordinates,
     // accounting for the canvas element's own screen offset.
@@ -361,6 +364,8 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
         createdBy: user.uid,
         createdAt: Date.now(),
         updatedAt: Date.now(),
+        // Pasted objects are always free-floating — clear any frame membership.
+        parentFrame: undefined,
       };
       upsertObject(newObj);
       createObject(
@@ -469,7 +474,7 @@ export default function ContextMenu({ boardId }: ContextMenuProps) {
   if (!target) {
     // Empty canvas context menu
     if (clipboard.length > 0) {
-      items.push({ label: "Paste", onClick: handlePaste });
+      items.push({ label: "Paste at Cursor", onClick: handlePasteAtCursor });
     }
     items.push({ label: "Create Sticky Note", onClick: handleCreateStickyNote });
     items.push({ label: "Create Rectangle", onClick: handleCreateShape });

@@ -74,25 +74,44 @@ function getColorForTool(
 }
 
 // --- Helper: get default dimensions for a tool ---
-function getDefaultsForTool(tool: ObjectType): { width: number; height: number } {
+/**
+ * Clamps stageScale for default-size calculations.
+ * Prevents extreme zoom values from generating absurdly large (zoom=0.05)
+ * or tiny (zoom=5.0) objects when a user clicks to create.
+ * Range [0.25, 4.0] keeps defaults within 4× of their zoom-1 size.
+ */
+function effectiveScaleForDefaults(stageScale: number): number {
+  return Math.max(0.25, Math.min(4.0, stageScale));
+}
+
+/**
+ * Returns canvas-space default dimensions for a newly-placed object,
+ * scaled inversely with the current zoom so the object always appears
+ * at a consistent screen size (≈ the zoom-1 pixel dimensions).
+ *
+ * E.g. a rectangle at zoom=2.0 gets 50×50 canvas units → 100×100 px on screen.
+ *      At zoom=0.5 it gets 200×200 canvas units → still 100×100 px on screen.
+ */
+function getDefaultsForTool(tool: ObjectType, stageScale: number): { width: number; height: number } {
+  const s = effectiveScaleForDefaults(stageScale);
   switch (tool) {
     case "stickyNote":
-      return { width: STICKY_NOTE_DEFAULT.width, height: STICKY_NOTE_DEFAULT.height };
+      return { width: Math.round(STICKY_NOTE_DEFAULT.width / s), height: Math.round(STICKY_NOTE_DEFAULT.height / s) };
     case "rectangle":
-      return { width: SHAPE_DEFAULTS.rectangle.width, height: SHAPE_DEFAULTS.rectangle.height };
+      return { width: Math.round(SHAPE_DEFAULTS.rectangle.width / s), height: Math.round(SHAPE_DEFAULTS.rectangle.height / s) };
     case "circle":
-      return { width: SHAPE_DEFAULTS.circle.width, height: SHAPE_DEFAULTS.circle.height };
+      return { width: Math.round(SHAPE_DEFAULTS.circle.width / s), height: Math.round(SHAPE_DEFAULTS.circle.height / s) };
     case "frame":
-      return { width: FRAME_DEFAULTS.width, height: FRAME_DEFAULTS.height };
+      return { width: Math.round(FRAME_DEFAULTS.width / s), height: Math.round(FRAME_DEFAULTS.height / s) };
     case "colorLegend":
-      return { width: COLOR_LEGEND_DEFAULTS.width, height: COLOR_LEGEND_DEFAULTS.height };
-    // Line: default is a 120px horizontal line (width = length, height = 0)
+      return { width: Math.round(COLOR_LEGEND_DEFAULTS.width / s), height: Math.round(COLOR_LEGEND_DEFAULTS.height / s) };
+    // Line: width encodes length, height is always 0 (it's a point-to-point vector)
     case "line":
-      return { width: 120, height: 0 };
+      return { width: Math.round(120 / s), height: 0 };
     case "text":
-      return { width: TEXT_DEFAULTS.width, height: TEXT_DEFAULTS.height };
+      return { width: Math.round(TEXT_DEFAULTS.width / s), height: Math.round(TEXT_DEFAULTS.height / s) };
     default:
-      return { width: 100, height: 100 };
+      return { width: Math.round(100 / s), height: Math.round(100 / s) };
   }
 }
 
@@ -1055,6 +1074,11 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Dragged past threshold — persist to Firestore
         const obj = useObjectStore.getState().objects[drawing.objectId];
         if (obj) {
+          // Scale fontSize for text objects so text is legible at the current zoom.
+          const { stageScale: currentScale } = useCanvasStore.getState();
+          const dragScaledFontSize = obj.type === 'text'
+            ? Math.max(8, Math.min(72, Math.round(TEXT_DEFAULTS.fontSize / effectiveScaleForDefaults(currentScale))))
+            : undefined;
           createObject(
             boardId,
             {
@@ -1067,7 +1091,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               text: obj.text ?? "",
               zIndex: obj.zIndex,
               createdBy: user.uid,
-              ...(obj.type === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
+              ...(obj.type === 'text' ? { fontSize: dragScaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
             },
             drawing.objectId
           ).catch((err) => {
@@ -1083,9 +1107,17 @@ export default function Canvas({ boardId }: CanvasProps) {
       } else {
         // Click (no drag) — create at default size; snapshot so creation is undoable
         useObjectStore.getState().snapshot();
-        const defaults = getDefaultsForTool(creationTool);
+        // stageScale is intentionally absent from handleMouseUp's dep array (it would
+        // cause excessive re-creation). Read imperatively so defaults reflect the zoom
+        // level at the moment the user clicks, not a potentially stale closure value.
+        const { stageScale: currentScale } = useCanvasStore.getState();
+        const defaults = getDefaultsForTool(creationTool, currentScale);
         const color = getColorForTool(creationTool, lastUsedColors, activeColor);
         const maxZ = getMaxZIndexForTool(creationTool);
+        // Scale fontSize so text appears at a consistent screen size regardless of zoom.
+        const scaledFontSize = creationTool === 'text'
+          ? Math.max(8, Math.min(72, Math.round(TEXT_DEFAULTS.fontSize / effectiveScaleForDefaults(currentScale))))
+          : undefined;
 
         const newObject = {
           id: drawing.objectId,
@@ -1100,7 +1132,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           createdBy: user.uid,
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
+          ...(creationTool === 'text' ? { fontSize: scaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
         };
 
         upsertObject(newObject);
@@ -1117,7 +1149,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             text: "",
             zIndex: maxZ,
             createdBy: user.uid,
-            ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
+            ...(creationTool === 'text' ? { fontSize: scaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
           },
           drawing.objectId
         ).catch((err) => {
@@ -1430,6 +1462,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               x={ghostPos!.x}
               y={ghostPos!.y}
               color={getColorForTool(creationTool!, lastUsedColors, activeColor)}
+              stageScale={stageScale}
             />
           )}
 
