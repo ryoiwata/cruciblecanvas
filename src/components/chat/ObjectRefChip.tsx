@@ -60,7 +60,6 @@ export default function ObjectRefChip({ reference }: ObjectRefChipProps) {
       stageScale: fromScale,
       setViewport,
       selectObject,
-      setTeleportHighlightId,
     } = useCanvasStore.getState();
 
     // Container dimensions — prefer the actual Konva canvas element so that
@@ -98,9 +97,7 @@ export default function ObjectRefChip({ reference }: ObjectRefChipProps) {
     const noMoveNeeded = isFullyVisible && targetScale === fromScale;
 
     if (noMoveNeeded) {
-      // Already visible — just select + highlight.
       selectObject(obj.id);
-      setTeleportHighlightId(obj.id);
       return;
     }
 
@@ -120,9 +117,7 @@ export default function ObjectRefChip({ reference }: ObjectRefChipProps) {
       if (t < 1) {
         requestAnimationFrame(step);
       } else {
-        // Animation complete — selection + highlight trigger.
         selectObject(obj.id);
-        setTeleportHighlightId(obj.id);
       }
     }
 
