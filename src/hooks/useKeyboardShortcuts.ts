@@ -364,13 +364,13 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
         return;
       }
 
-      // Type-to-edit: when a single sticky note is selected and the user presses a
-      // printable key (not a modifier combo), enter edit mode and seed the textarea
-      // with that character via pendingEditChar in canvasStore.
+      // Type-to-edit: when a single sticky note or text object is selected and the
+      // user presses a printable key (not a modifier combo), enter edit mode and seed
+      // the textarea with that character via pendingEditChar in canvasStore.
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (ids.length === 1) {
           const selectedObj = useObjectStore.getState().objects[ids[0]];
-          if (selectedObj?.type === 'stickyNote') {
+          if (selectedObj?.type === 'stickyNote' || selectedObj?.type === 'text') {
             e.preventDefault();
             useCanvasStore.getState().setPendingEditChar(e.key);
             useCanvasStore.getState().setEditingObject(selectedObj.id);

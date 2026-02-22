@@ -176,6 +176,20 @@ export default function TextEditor({ boardId }: TextEditorProps) {
   const isFrame = object.type === "frame";
   const isText = object.type === "text";
 
+  // For freeform text objects: clamp the textarea origin to the visible canvas
+  // area (>= 0) so it never slides behind the SubHeaderToolbar when the canvas
+  // is panned down. The canvas container uses overflow:hidden, so a negative
+  // screenY would silently clip the top of the textarea.
+  const clampedScreenX = isText ? Math.max(0, screenX) : screenX;
+  const clampedScreenY = isText ? Math.max(0, screenY) : screenY;
+
+  // Max height available from the clamped top to the container's bottom edge,
+  // with an 8px margin. This prevents the auto-growing textarea from expanding
+  // off-screen; when content exceeds this cap, it scrolls internally instead.
+  const textMaxHeight = isText
+    ? `calc(100% - ${clampedScreenY}px - 8px)`
+    : undefined;
+
   // For frames, only edit the title bar area
   const editHeight = isFrame ? 40 * stageScale : screenHeight;
 
@@ -306,10 +320,13 @@ export default function TextEditor({ boardId }: TextEditorProps) {
         onKeyDown={handleKeyDown}
         style={{
           position: "absolute",
-          left: screenX,
-          top: screenY,
+          left: isText ? clampedScreenX : screenX,
+          top: isText ? clampedScreenY : screenY,
           width: screenWidth,
           height: editHeight,
+          // Cap freeform text textarea so it never expands beyond the visible
+          // canvas container; content exceeding the cap scrolls internally.
+          maxHeight: textMaxHeight,
           // Rotate the textarea to match the object's canvas rotation.
           transform: `rotate(${object.rotation ?? 0}deg)`,
           transformOrigin: "top left",
@@ -328,7 +345,10 @@ export default function TextEditor({ boardId }: TextEditorProps) {
           borderRadius: isStickyNote ? 0 : `${4 * stageScale}px`,
           outline: "none",
           resize: "none",
-          overflow: "hidden",
+          // Freeform text: overflow-y:auto enables internal scrolling when
+          // content exceeds the max-height cap. Other types stay clipped.
+          overflowX: "hidden",
+          overflowY: isText ? "auto" : "hidden",
           background: bgColor,
           color: textColor,
           // Cursor color matches the text color so it's legible on any background.
