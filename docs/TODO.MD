@@ -113,6 +113,8 @@ AI TODOs
 - [ ] New items should not be overlapping frames that are already there.
 - [ ] New items should be placed where there is open space in the current view that it can fit in. Or below existing items in the current view or lower of if not space in current view.
 
+~~~~~~~~~~~~~~~~~~~~~~~
+
 Low priority TODOs
 - [ ] Remove different types of lines.
 - [ ] Remove dashes for lines?
@@ -121,50 +123,71 @@ Low priority TODOs
 - [] Fix AI agent logo in chat to robot instead of sparkle
 - Create board preview
 - Make login page more aesthetic
+- Add arrows as an option for shapes
+- Make colors in the pop up menu the recent colors used
+- [] Make the Toggle suggestion more darker font
+- [ ] Default line thickness should be bigger, like 10. Default color should be black, unless if previous line was different color.
+- [ ] Different zoom options
+- [ ] Option to go to specific coordinates
 
+~~~~~~~~~~~~~~~~~~~~~~~~~~~`
 
 Actual TODOs
 - [x] Fix group select when right clicking one item highlight
 - [ ] Button Marquee needs to actually select items
   - [ ] For some reason locally it doesnt work???
-- [ ] When window is smaller, the distance between buttons should still be similar. Remove distance in gap between main tools and keyboard shortcuts
-- Right click paster needs to copy where the cursor is.
-- Make right click window smaller
-
-- [ ] Right click copy and paste option
+- [ ] When window is smaller, the distance 
+  - [ ] between buttons should still be similar. Remove distance in gap between main tools and keyboard shortcuts
 - [ ] Paste should paste where the cursor is if pasting by right click, else it will duplicate diagonally from where the copied item is
   - [ ] Paste is pasting to somewhere that's not where the cursor is
-  - [ ] Paste via ctrl + v or button should just paster diagonally of original item
-- [ ] Include a paste button in the short cut legend side of the main toolbar
-- [ ] fix Group select is not working after clicking button
-- [ ] Fix Drag is not working after clicking button.
-- [ ] There should be an option to copy as well as duplicate item when Right click copy option
-- [ ] Right click on item should automatically select it
-- [ ] Multi select button should allow for clicking multiple items without hitting ctrl until you click on an empty spot or change tools
-- [ ] Clicking maruee button should allow you to drag select after clkicking
-- [ ] Names of key board short cuts and short cut should be below the button like in the tools 
-- [ ] If window is too small, you should be able to scroll through the tool bar
-
-- [] Make the Toggle suggestion more darker font
-- [] Fix the numbers on the tool bar
-- [x] Text on sticky should be edited in place, instead of changing boxes
-- [x] Sticky should grow vertically in size if text gets too large with resizing or when more is being typed
+- [ ] Sign in with Google or email banner should be closable with x. It should also push down rest of the window and not cover anything
 - [ ] Frames should move items around so no item is overlapped inside and frame should adjust size if bigger is needed based on moved around items. Shapes should be adjusted to all fit in.
-- [ ] Default line thickness should be bigger, like 10. Default color should be black, unless if previous line was different color.
-
 - [ ] Defaults for shapes and frames should be a good size relative to current zoom
 - [ ] In chat, objects should be referenceable
 - [ ] While selecting, it should put the reference in the chat
-- [ ] Different zoom options
-- [ ] Option to go to specific coordinates
 - [ ] Description of different AI personalities
 - [ ] Text color is redundaat in properties
-- [ ] HAve a 
 - [ ] Option to create an account to save if using as guest
+- [] IF you click on text and drag it, it should drag the whole text box over
+- [] Rotating text should not disappear it
 - [ ] Fix up AI logic
-- [ ] Should have who the creator is
+- [ ] Should have who the creator is for a given board. Board properties tab
 - [ ] Make boards deletable in dashboard
-- [ ] Fix redo button
+- [ ] Line types need to be fixed
+  - [ ] ie straight, curvy, etc.
+- Freeform text selection shows a box when selecting. Make it have similar text behavior like text in sticky when editing.
+  - [ ] Make it more clear that free form text is being selected 
+  - [ ] Free form text behavior selection behavior should be fixed
+- Remove height and width from free form text properties tab
+- Presets should be 18 in total, but 6 representative ones that are always displayed
+- [ ] Properties fill and stroke input boxes should not  cut off
+- [ ] Redudant text color option for sticky note
+- [ ] Make canvas be able to have titles with space in them
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Previous TODOs
+
+- [x] Right click copy and paste option
+  - [x] Paste via ctrl + v or button should just paster diagonally of original item
+- [x] Include a paste button in the short cut legend side of the main toolbar
+- [x] fix Group select is not working after clicking button
+- [x] Fix Drag is not working after clicking button.
+- [x] There should be an option to copy as well as duplicate item when Right click copy option
+- [x] Right click on item should automatically select it
+- [x] Multi select button should allow for clicking multiple items without hitting ctrl until you click on an empty spot or change tools
+- [x] Clicking maruee button should allow you to drag select after clkicking
+- [x] Names of key board short cuts and short cut should be below the button like in the tools 
+- [x] If window is too small, you should be able to scroll through the tool bar
+- [x] Text on sticky should be edited in place, instead of changing boxes
+- [x] Sticky should grow vertically in size if text gets too large with resizing or when more is being typed
+
+
+
+
+
 
 
 TODOs
@@ -181,25 +204,22 @@ TODOs
 - [x] If item in frame is taken out, then it actually is deframed
 - [x] Items in frames should be allowed to freely move within the frame
 - [x] Change presets to something more meaningful
-- [ ] Line types need to be fixed
-  - [ ] ie straight, curvy, etc.
+
 - [x] Properties should only reflect the item type being selected or was previously selected ie shape types shouldn't have any text options
 - [x] Text edit should change text in real time
 - [x] Text should be on the lines within the sticky
 - [x] Standalone text should default to black and be bigger by default (unless previously selected standalone text was a different color or a certain size)
-- [ ] Standalone text should be bigger by default (unless previously selected standalone text was a different certain size)
+- [x] Standalone text should be bigger by default (unless previously selected standalone text was a different certain size)
 - [x] There should be a size dimension toggle for height and width of shapes
 - [x] Sticky should have a height and width option
 - [x] Cursor should have coordinates
 - [x] Make undo and redo button work
-- [ ] Make it more clear that free form text is being selected 
-- [ ] Free form text behavior selection behavior should be fixed
+
 - [x] Fix sticky text editing
 - [x] Make presets more pastel colors
 - [ ] Keep properties tabs minimal to what's being done only, ie only show shape properties when selecting shapes
-- [ ] Properties fill and stroke input boxes should not  cut off
+
 - [ ] Sticky note h and v align are not working
-- [ ] Redudant text color option for sticky note
 - [ ] Lines should adjust for sticky notes with increase text size
 - [x] Free form text shows double when adding text
 - [ ] Free form text has double box when selected
@@ -210,8 +230,6 @@ TODOs
 - [x] Make black one of the preset colors in the front(Use a white font for the text inside it)
 - [ ] Limit the presets to 6, add option so see more with 18 pastelle colors
 - [ ] Color text box in Fill box for shape should be ssmaller, same size as Hex code, but little bigger. should not be cut off. 
-- [ ] Make canvas be able to have titles with space in them
-- [ ] Selection reference in chat and AI
 
 
 
