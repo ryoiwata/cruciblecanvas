@@ -150,8 +150,14 @@ const CursorLayer = memo(function CursorLayer({ boardId }: CursorLayerProps) {
     });
   }, []);
 
-  // Subscribe to RTDB cursor events
+  // Subscribe to RTDB cursor events — guard against unauthenticated access.
+  // In perf bypass mode the canvas renders before Firebase restores auth from
+  // IndexedDB, so we must wait for userId to be truthy before attaching the
+  // listener. Without this guard, the RTDB client fires as unauthenticated and
+  // the server rejects it with permission_denied, causing error log flooding
+  // and degraded performance in concurrent-user tests.
   useEffect(() => {
+    if (!userId) return;
     const unsubscribe = onCursorChildEvents(boardId, {
       onAdd: handleUpsert,
       onChange: handleUpsert,
@@ -161,7 +167,7 @@ const CursorLayer = memo(function CursorLayer({ boardId }: CursorLayerProps) {
       unsubscribe();
       setCursors({});
     };
-  }, [boardId, handleUpsert, handleRemove]);
+  }, [boardId, userId, handleUpsert, handleRemove]);
 
   // Periodic stale cursor cleanup — removes cursors older than threshold
   // so they don't linger visually after a user disconnects without cleanup
