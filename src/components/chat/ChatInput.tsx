@@ -4,6 +4,10 @@
  *   - ✨ AI    → dispatches to the AI agent
  *   - 👥 Group → writes to Firestore as a group message
  * Send on Enter, newline on Shift+Enter.
+ *
+ * Object referencing: when the input is focused (isInsertingRef mode), selecting
+ * canvas objects auto-adds them as ObjectReference chips above the input field.
+ * Backspace removes the last chip when the text field is empty.
  */
 
 'use client';
@@ -11,8 +15,21 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useChatStore, usePersonaStore } from '@/lib/store/chatStore';
 import { useAuthStore } from '@/lib/store/authStore';
+import { useCanvasStore } from '@/lib/store/canvasStore';
+import { useObjectStore } from '@/lib/store/objectStore';
 import { sendChatMessage, checkRateLimit } from '@/lib/firebase/firestore';
 import type { ChatMessage, ObjectReference } from '@/lib/types';
+
+const OBJECT_TYPE_ICONS: Record<string, string> = {
+  stickyNote: '📝',
+  rectangle: '▭',
+  circle: '⬤',
+  frame: '⬜',
+  connector: '→',
+  colorLegend: '🎨',
+  text: '✏️',
+  line: '—',
+};
 
 interface ChatInputProps {
   boardId: string;
@@ -26,6 +43,8 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
   const [rateLimitError, setRateLimitError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  // Tracks the previous canvas selection to diff and detect newly selected objects.
+  const prevSelectedIdsRef = useRef<string[]>([]);
 
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
@@ -36,6 +55,9 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
   const chatMode = useChatStore((s) => s.chatMode);
   const setChatMode = useChatStore((s) => s.setChatMode);
   const persona = usePersonaStore((s) => s.persona);
+
+  // Narrow subscription — only re-renders when the selection array reference changes.
+  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
 
   const isAIMode = chatMode === 'ai';
 
@@ -53,9 +75,47 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
     }
   }, [isInsertingRef]);
 
+  // Auto-add newly selected canvas objects as reference chips while ref mode is active.
+  // Reads objectStore imperatively (getState) to avoid subscribing to the full objects map —
+  // the same pattern used in useKeyboardShortcuts to keep the dep array minimal.
+  useEffect(() => {
+    const prevIds = new Set(prevSelectedIdsRef.current);
+
+    if (isInsertingRef) {
+      const newlySelectedIds = selectedObjectIds.filter((id) => !prevIds.has(id));
+
+      if (newlySelectedIds.length > 0) {
+        const currentObjects = useObjectStore.getState().objects;
+        setPendingRefs((prev) => {
+          let next = prev;
+          for (const id of newlySelectedIds) {
+            const obj = currentObjects[id];
+            if (!obj) continue;
+            // Skip duplicates
+            if (next.some((r) => r.objectId === id)) continue;
+            next = [
+              ...next,
+              { objectId: id, objectText: obj.text ?? '', objectType: obj.type },
+            ];
+          }
+          return next;
+        });
+      }
+    }
+
+    prevSelectedIdsRef.current = [...selectedObjectIds];
+  }, [selectedObjectIds, isInsertingRef]);
+
+  const removeRef = useCallback((objectId: string) => {
+    setPendingRefs((prev) => prev.filter((r) => r.objectId !== objectId));
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     if (!text || !user) return;
+
+    // Capture before clearing so rate-limit restore works correctly
+    const refsToSend = pendingRefs;
 
     setInputText('');
     setPendingRefs([]);
@@ -69,6 +129,7 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
         if (!allowed) {
           setRateLimitError('Rate limit reached. Try again later.');
           setInputText(text);
+          setPendingRefs(refsToSend);
           return;
         }
         if (remaining <= 3) {
@@ -79,7 +140,17 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
       }
 
       // Strip a leading @ai prefix in case the user typed it from habit
-      const command = text.replace(/^@ai\s*/i, '');
+      let command = text.replace(/^@ai\s*/i, '');
+
+      // Append referenced-object context so the AI can act on specific objects.
+      // Format mirrors the board-state serialization so tool calls can use the ids directly.
+      if (refsToSend.length > 0) {
+        const refContext = refsToSend
+          .map((r) => `- ${r.objectType} "${r.objectText}" [id:${r.objectId}]`)
+          .join('\n');
+        command = `${command}\n\nReferenced objects:\n${refContext}`;
+      }
+
       onSendAICommand?.(command);
     } else {
       // Group mode — write directly to Firestore
@@ -90,7 +161,7 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
         senderPhotoURL: user.photoURL ?? undefined,
         type: 'group',
         content: text,
-        ...(pendingRefs.length > 0 ? { objectReferences: pendingRefs } : {}),
+        ...(refsToSend.length > 0 ? { objectReferences: refsToSend } : {}),
         aiPersona: persona,
       };
 
@@ -104,8 +175,13 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
         e.preventDefault();
         handleSend();
       }
+      // Backspace on empty input removes the last pending ref chip
+      if (e.key === 'Backspace' && inputText === '' && pendingRefs.length > 0) {
+        e.preventDefault();
+        setPendingRefs((prev) => prev.slice(0, -1));
+      }
     },
-    [handleSend]
+    [handleSend, inputText, pendingRefs.length]
   );
 
   const handleFocus = () => {
@@ -113,7 +189,7 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
   };
 
   const handleBlur = () => {
-    // Only clear inserting mode if sidebar is still open
+    // Delay so a canvas click (which blurs the input) can still register as a ref
     setTimeout(() => setIsInsertingRef(false), 200);
   };
 
@@ -135,8 +211,40 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
         </div>
       )}
 
-      {/* Object reference insertion hint */}
-      {isInsertingRef && (
+      {/* Pending object reference chips */}
+      {pendingRefs.length > 0 && (
+        <div className="px-3 py-1.5 flex flex-wrap gap-1 border-b border-indigo-100 bg-indigo-50">
+          {pendingRefs.map((ref) => {
+            const icon = OBJECT_TYPE_ICONS[ref.objectType] ?? '□';
+            const label =
+              ref.objectText.length > 20
+                ? ref.objectText.slice(0, 20) + '…'
+                : ref.objectText || ref.objectType;
+            return (
+              <span
+                key={ref.objectId}
+                className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-xs"
+              >
+                <span aria-hidden="true">{icon}</span>
+                <span>{label}</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeRef(ref.objectId);
+                  }}
+                  title="Remove reference"
+                  className="ml-0.5 w-4 h-4 rounded flex items-center justify-center hover:bg-indigo-200 text-indigo-500 hover:text-indigo-800 transition-colors leading-none"
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Object reference hint — shown when input is focused but no refs added yet */}
+      {isInsertingRef && pendingRefs.length === 0 && (
         <div className="px-3 py-1.5 bg-indigo-50 border-b border-indigo-100 text-xs text-indigo-600">
           Click an object on the canvas to reference it
         </div>
