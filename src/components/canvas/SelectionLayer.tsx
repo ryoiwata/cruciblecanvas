@@ -158,7 +158,7 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       // before this effect fired). A destroyed node has no parent and its canvas element
       // is torn down — passing it to Transformer causes _proxyDrag to crash with
       // "can't access property dragStatus, elem is undefined".
-      if (node && !node.destroyed) nodes.push(node);
+      if (node && node.getParent() != null) nodes.push(node);
     }
 
     transformer.nodes(nodes);
@@ -193,7 +193,7 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       for (const node of nodes) {
         // Skip nodes already destroyed — their properties are torn down and
         // calling scaleX() / width() on them is a no-op at best, crash at worst.
-        if (node.destroyed) continue;
+        if (node.getParent() == null) continue;
         node.off('remove.trGuard');
         if (node.scaleX() !== 1 || node.scaleY() !== 1) {
           const id = node.id();

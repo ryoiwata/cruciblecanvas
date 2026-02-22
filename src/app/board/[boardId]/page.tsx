@@ -247,7 +247,7 @@ export default function BoardPage() {
         const deadline = Date.now() + timeoutMs;
         function poll() {
           const obj = useObjectStore.getState().objects[id];
-          if (obj && (obj as Record<string, unknown>)[field] === expected) {
+          if (obj && (obj as unknown as Record<string, unknown>)[field] === expected) {
             resolve(Date.now());
           } else if (Date.now() >= deadline) {
             resolve(-1);
