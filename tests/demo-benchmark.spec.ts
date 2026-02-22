@@ -478,16 +478,30 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
   test('5 users — cursor sync + object sync + simultaneous load', async () => {
     test.setTimeout(180_000);
 
-    test.skip(!hasAdminEnv(), 'Requires FIREBASE_ADMIN_SERVICE_ACCOUNT');
-    test.skip(
-      !process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
-      'Requires NEXT_PUBLIC_FIREBASE_DATABASE_URL',
-    );
+    // All Scenario B window helpers (__perfWriteCursor, __perfCreateObject, etc.)
+    // use the client Firebase SDK baked into the app bundle — no Admin credentials
+    // are needed at the Playwright-runner level.  The only Admin-dependent call is
+    // ensureTestBoardMetadata, which is guarded below.  We therefore only hard-skip
+    // when RTDB is genuinely absent from the app config (surfaced at runtime by
+    // __perfWriteCursor returning undefined).
 
     const BG_USER_COUNT = 4;
 
-    // Ensure the sync board exists in Firestore (isPublic: true)
-    await ensureTestBoardMetadata(DEMO_SYNC_BOARD_ID);
+    // Ensure the sync board exists in Firestore (isPublic: true).
+    // Uses the Admin SDK when available; falls back to using DEMO_BOARD_ID
+    // (already public, verified by globalSetup) when credentials are absent.
+    const activeSyncBoardId = hasAdminEnv()
+      ? DEMO_SYNC_BOARD_ID
+      : DEMO_BOARD_ID;
+
+    if (hasAdminEnv()) {
+      await ensureTestBoardMetadata(DEMO_SYNC_BOARD_ID);
+    } else {
+      console.warn(
+        '[Demo-B] FIREBASE_ADMIN_SERVICE_ACCOUNT not set — ' +
+          `using existing board "${DEMO_BOARD_ID}" for sync scenario instead of "${DEMO_SYNC_BOARD_ID}".`,
+      );
+    }
 
     // ── Browser setup ────────────────────────────────────────────────────────
     // Primary window: headed (visible), GPU compositing active for demo
@@ -543,14 +557,14 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
       // ── Auth + Navigation ──────────────────────────────────────────────────
       console.log('\n[Demo-B] Signing in all users…');
       await Promise.all([
-        bypassAuth(primaryPage, DEMO_SYNC_BOARD_ID),
-        ...bgPages.map((p) => bypassAuth(p, DEMO_SYNC_BOARD_ID)),
+        bypassAuth(primaryPage, activeSyncBoardId),
+        ...bgPages.map((p) => bypassAuth(p, activeSyncBoardId)),
       ]);
 
       console.log('[Demo-B] Navigating all contexts to demo sync board…');
       await Promise.all([
-        navigateToBoard(primaryPage, DEMO_SYNC_BOARD_ID),
-        ...bgPages.map((p) => navigateToBoard(p, DEMO_SYNC_BOARD_ID)),
+        navigateToBoard(primaryPage, activeSyncBoardId),
+        ...bgPages.map((p) => navigateToBoard(p, activeSyncBoardId)),
       ]);
 
       // Inject the latency overlay in the primary window only
@@ -601,7 +615,7 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
             };
             return w.__perfWriteCursor?.(boardId, uid, x, y, name) ?? Date.now();
           },
-          [DEMO_SYNC_BOARD_ID, bgUserIds[0], Math.round(cx), Math.round(cy), 'BgUser0'] as [string, string, number, number, string],
+          [activeSyncBoardId, bgUserIds[0], Math.round(cx), Math.round(cy), 'BgUser0'] as [string, string, number, number, string],
         );
 
         // Primary window waits for that specific cursor event via __perfWaitForCursor
@@ -617,7 +631,7 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
                 ) => Promise<number>;
               }
             ).__perfWaitForCursor?.(boardId, targetUid, minTs, timeout) ?? -1,
-          [DEMO_SYNC_BOARD_ID, bgUserIds[0], writeTs, CURSOR_SYNC_TARGET_MS * 4] as [string, string, number, number],
+          [activeSyncBoardId, bgUserIds[0], writeTs, CURSOR_SYNC_TARGET_MS * 4] as [string, string, number, number],
         );
 
         if (arrivalTs !== -1) {
@@ -653,7 +667,7 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
                   );
                 },
                 [
-                  DEMO_SYNC_BOARD_ID,
+                  activeSyncBoardId,
                   bgUserIds[idx + 1],
                   Math.round(bx),
                   Math.round(by),
@@ -711,7 +725,7 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
           };
           return w.__perfGenerateObjectId?.(boardId) ?? `demo-sync-obj-${Date.now()}`;
         },
-        [DEMO_SYNC_BOARD_ID],
+        [activeSyncBoardId],
       );
 
       const writeTimestamp: number = await bgPages[1].evaluate(
@@ -737,7 +751,7 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
             }) ?? Promise.resolve(Date.now())
           );
         },
-        [DEMO_SYNC_BOARD_ID, newObjectId],
+        [activeSyncBoardId, newObjectId],
       );
 
       // Primary window polls for the new object in its Zustand store
@@ -794,7 +808,7 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
             };
             return w.__perfUpdateObject?.(boardId, id, { x: 600, y: 350 });
           },
-          [DEMO_SYNC_BOARD_ID, newObjectId],
+          [activeSyncBoardId, newObjectId],
         ),
         // Background users 1-3: write rapid cursor bursts to simulate movement
         ...bgPages.slice(1).map((p, idx) =>
@@ -820,7 +834,7 @@ test.describe('Scenario B: Synchronized Multiplayer', () => {
               }
               return true;
             },
-            [DEMO_SYNC_BOARD_ID, bgUserIds[idx + 1], idx + 1] as [string, string, number],
+            [activeSyncBoardId, bgUserIds[idx + 1], idx + 1] as [string, string, number],
           ),
         ),
       ]);
