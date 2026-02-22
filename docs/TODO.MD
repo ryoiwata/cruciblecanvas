@@ -119,7 +119,7 @@ Low priority TODOs
 - [ ] Remove different types of lines.
 - [ ] Remove dashes for lines?
 - [ ] Fix ordering of tool shorcut numbers, have number next to tool label
-- [ ] See if Marquee is a good word
+- [x] See if Marquee is a good word
 - [] Fix AI agent logo in chat to robot instead of sparkle
 - Create board preview
 - Make login page more aesthetic
@@ -129,7 +129,11 @@ Low priority TODOs
 - [ ] Default line thickness should be bigger, like 10. Default color should be black, unless if previous line was different color.
 - [ ] Different zoom options
 - [ ] Option to go to specific coordinates
+- [x] Fix email login
+- [] If there's already an account, it should save it to that account
+Option to change display name color
 
+TODO How to have Claude code remove any email logins, or any decision to send email.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~`
 TODO Queue:
 

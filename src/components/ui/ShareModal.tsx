@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * ShareModal — full collaboration management modal.
- * Handles collaborator invites, general link access control, and link copying.
+ * ShareModal — link-based sharing management modal.
+ * Controls general link access level and provides a Copy Link action.
  * Dual-writes privacy changes to both Firestore and RTDB for instant propagation
  * to all connected clients without a page refresh.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getBoardMetadata, updateBoardMetadata, sendBoardInviteEmail } from "@/lib/firebase/firestore";
+import { getBoardMetadata, updateBoardMetadata } from "@/lib/firebase/firestore";
 import { setBoardPrivacy } from "@/lib/firebase/rtdb";
 import { useAuthStore } from "@/lib/store/authStore";
 import Toast from "./Toast";
@@ -19,17 +19,7 @@ interface ShareModalProps {
   onClose: () => void;
 }
 
-type InvitePermission = 'edit' | 'view';
 type GeneralAccess = 'no_access' | 'can_view' | 'can_edit';
-
-const INVITE_PERMISSION_OPTIONS: ReadonlyArray<{
-  value: InvitePermission;
-  label: string;
-  description: string;
-}> = [
-  { value: 'edit', label: 'Can edit', description: 'Can edit and invite collaborators' },
-  { value: 'view', label: 'Can view', description: 'Can view and make a copy' },
-];
 
 const GENERAL_ACCESS_OPTIONS: ReadonlyArray<{
   value: GeneralAccess;
@@ -100,28 +90,19 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
 
-  const [boardTitle, setBoardTitle] = useState('');
-  const [emailInput, setEmailInput] = useState('');
-  const [invitePermission, setInvitePermission] = useState<InvitePermission>('edit');
-  const [isInviteDropdownOpen, setIsInviteDropdownOpen] = useState(false);
   const [isGeneralDropdownOpen, setIsGeneralDropdownOpen] = useState(false);
   const [generalAccess, setGeneralAccess] = useState<GeneralAccess>('no_access');
-  const [invitedEmails, setInvitedEmails] = useState<string[]>([]);
   const [createdBy, setCreatedBy] = useState<string | null>(null);
   const [isMetaLoading, setIsMetaLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
   const [toastVisible, setToastVisible] = useState(false);
 
-  const inviteDropdownRef = useRef<HTMLDivElement>(null);
   const generalDropdownRef = useRef<HTMLDivElement>(null);
 
   const isCreator = !!user && createdBy === user.uid;
-
-  const selectedInviteOption = INVITE_PERMISSION_OPTIONS.find((o) => o.value === invitePermission)!;
   const selectedGeneralOption = GENERAL_ACCESS_OPTIONS.find((o) => o.value === generalAccess)!;
 
   const generalAccessSubtext = (() => {
-    if (generalAccess === 'no_access') return 'Only people added as collaborators can access with the link.';
+    if (generalAccess === 'no_access') return 'Only people with a direct link and access can open this board.';
     if (generalAccess === 'can_view') return 'Anyone with the link can view this board.';
     return 'Anyone with the link can edit this board.';
   })();
@@ -132,9 +113,7 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
     setIsMetaLoading(true);
     getBoardMetadata(boardId).then((meta) => {
       if (meta) {
-        setBoardTitle(meta.title ?? 'Untitled Board');
         setGeneralAccess(resolveGeneralAccess(meta.isPublic));
-        setInvitedEmails(meta.invitedEmails ?? []);
         setCreatedBy(meta.createdBy);
       }
       setIsMetaLoading(false);
@@ -151,12 +130,9 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Close floating dropdowns when clicking outside their refs
+  // Close general access dropdown when clicking outside its ref
   useEffect(() => {
     const handleMouseDown = (e: MouseEvent) => {
-      if (inviteDropdownRef.current && !inviteDropdownRef.current.contains(e.target as Node)) {
-        setIsInviteDropdownOpen(false);
-      }
       if (generalDropdownRef.current && !generalDropdownRef.current.contains(e.target as Node)) {
         setIsGeneralDropdownOpen(false);
       }
@@ -189,36 +165,6 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
     [boardId, isCreator]
   );
 
-  /** Appends a validated email to invitedEmails in Firestore. */
-  const handleSendInvite = useCallback(async () => {
-    const trimmed = emailInput.trim();
-    if (!trimmed || isSending) return;
-    if (!trimmed.includes('@')) return;
-    if (invitedEmails.includes(trimmed)) {
-      setEmailInput('');
-      return;
-    }
-    setIsSending(true);
-    const next = [...invitedEmails, trimmed];
-    try {
-      await updateBoardMetadata(boardId, { invitedEmails: next });
-      setInvitedEmails(next);
-      setEmailInput('');
-      // Fire-and-forget: email delivery failure must not block the invite flow
-      const boardUrl = `${window.location.origin}/board/${boardId}`;
-      sendBoardInviteEmail({
-        toEmail: trimmed,
-        boardTitle,
-        fromName: displayName || user?.email || 'A collaborator',
-        boardUrl,
-      }).catch(console.error);
-    } catch (err) {
-      console.error('[ShareModal] Failed to invite collaborator:', err);
-    } finally {
-      setIsSending(false);
-    }
-  }, [boardId, boardTitle, displayName, emailInput, invitedEmails, isSending, user]);
-
   const handleCopyLink = useCallback(async () => {
     const url = `${window.location.origin}/board/${boardId}`;
     try {
@@ -250,15 +196,12 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
       >
         {/* Modal panel */}
         <div
-          className="relative flex w-[640px] flex-col rounded-2xl bg-white shadow-2xl"
+          className="relative flex w-[520px] flex-col rounded-2xl bg-white shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {/* ---- Header ---- */}
-          <div className="flex items-center gap-4 px-6 pt-6 pb-5">
-            <h2 className="text-xl font-bold text-gray-900">Invite collaborators</h2>
-            <button className="text-base font-medium text-gray-400 hover:text-gray-600 transition-colors">
-              Add to community
-            </button>
+          <div className="flex items-center px-6 pt-6 pb-5">
+            <h2 className="text-xl font-bold text-gray-900">Share board</h2>
             <button
               onClick={onClose}
               className="ml-auto flex h-8 w-8 items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900"
@@ -280,110 +223,27 @@ export default function ShareModal({ boardId, isOpen, onClose }: ShareModalProps
             </button>
           </div>
 
-          {/* ---- Invite input row ---- */}
-          <div className="flex items-center gap-3 px-6 pb-5">
-            {/* Email input + inline permission dropdown */}
-            <div className="flex flex-1 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2.5 focus-within:border-indigo-400 focus-within:ring-1 focus-within:ring-indigo-400">
-              <input
-                type="email"
-                value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSendInvite();
-                }}
-                placeholder="Add people, emails, or groups"
-                className="flex-1 bg-transparent text-sm text-gray-700 placeholder-gray-400 outline-none"
-              />
-              {/* Branded dots icon (matches design's red grid icon) */}
-              <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-red-500">
-                <svg width="13" height="13" viewBox="0 0 16 16" fill="white">
-                  <rect x="1" y="1" width="5" height="5" rx="1" />
-                  <rect x="8.5" y="1" width="5" height="5" rx="1" />
-                  <rect x="1" y="8.5" width="5" height="5" rx="1" />
-                  <rect x="8.5" y="8.5" width="5" height="5" rx="1" />
-                </svg>
-              </div>
-              {/* Invite permission selector */}
-              <div ref={inviteDropdownRef} className="relative flex-shrink-0">
-                <button
-                  onClick={() => setIsInviteDropdownOpen((v) => !v)}
-                  className="flex items-center gap-1 text-sm font-medium text-[#6366f1] transition-colors hover:text-[#4f46e5]"
-                >
-                  {selectedInviteOption.label}
-                  <ChevronDownIcon />
-                </button>
-                {isInviteDropdownOpen && (
-                  <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-lg border border-gray-200 bg-white py-2 shadow-xl">
-                    {INVITE_PERMISSION_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => {
-                          setInvitePermission(option.value);
-                          setIsInviteDropdownOpen(false);
-                        }}
-                        className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
-                      >
-                        <span className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center text-gray-900">
-                          {invitePermission === option.value && <CheckIcon />}
-                        </span>
-                        <div>
-                          <p className="text-sm font-semibold text-gray-900">{option.label}</p>
-                          <p className="text-sm text-gray-500">{option.description}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            {/* Send Invite CTA */}
-            <button
-              onClick={handleSendInvite}
-              disabled={!emailInput.trim() || isSending}
-              className="rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-medium text-gray-500 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSending ? 'Sending…' : 'Send Invite'}
-            </button>
-          </div>
-
-          {/* ---- Collaborator list ---- */}
+          {/* ---- Owner row ---- */}
           <div className="px-6 pb-4">
             {isMetaLoading ? (
               <div className="py-4 text-center text-sm text-gray-400">Loading…</div>
             ) : (
-              <div>
-                {/* Owner row */}
-                {user && (
-                  <div className="flex items-center gap-3 py-3">
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-indigo-400 text-sm font-semibold text-white">
-                      {getInitials(displayName, user.email)}
-                    </div>
-                    <div className="flex flex-1 flex-col min-w-0">
-                      <span className="truncate text-sm font-semibold text-gray-900">
-                        {displayName || user.email}
-                      </span>
-                      {displayName && (
-                        <span className="truncate text-sm text-gray-500">{user.email}</span>
-                      )}
-                    </div>
-                    <span className="flex-shrink-0 text-sm text-gray-500">Owner</span>
+              user && (
+                <div className="flex items-center gap-3 py-2">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-indigo-400 text-sm font-semibold text-white">
+                    {getInitials(displayName, user.email)}
                   </div>
-                )}
-                {/* Invited collaborators */}
-                {invitedEmails.map((email) => (
-                  <div key={email} className="flex items-center gap-3 border-t border-gray-100 py-3">
-                    <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gray-300 text-sm font-semibold text-gray-700">
-                      {email[0].toUpperCase()}
-                    </div>
-                    <div className="flex flex-1 flex-col min-w-0">
-                      <span className="truncate text-sm text-gray-900">{email}</span>
-                    </div>
-                    <span className="flex-shrink-0 text-sm text-gray-500">
-                      {invitePermission === 'edit' ? 'Editor' : 'Viewer'}
+                  <div className="flex flex-1 flex-col min-w-0">
+                    <span className="truncate text-sm font-semibold text-gray-900">
+                      {displayName || user.email}
                     </span>
+                    {displayName && (
+                      <span className="truncate text-sm text-gray-500">{user.email}</span>
+                    )}
                   </div>
-                ))}
-              </div>
+                  <span className="flex-shrink-0 text-sm text-gray-500">Owner</span>
+                </div>
+              )
             )}
           </div>
 
