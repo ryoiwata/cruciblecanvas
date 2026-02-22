@@ -28,6 +28,7 @@ import PrivacyToggle from "@/components/ui/PrivacyToggle";
 import ShareButton from "@/components/ui/ShareButton";
 import CanvasTitle from "@/components/ui/CanvasTitle";
 import SelectionCounter from "@/components/ui/SelectionCounter";
+import FpsCounter from "@/components/ui/FpsCounter";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import MessagePreview from "@/components/chat/MessagePreview";
 import SaveToAccountBanner from "@/components/ui/SaveToAccountBanner";
@@ -370,6 +371,7 @@ export default function BoardPage() {
 
         {/* Right: Controls */}
         <div className="ml-auto flex items-center gap-2">
+          <FpsCounter />
           <PresenceIndicator />
           <div className="h-5 w-px bg-gray-200" />
           <PrivacyToggle boardId={boardId} />
