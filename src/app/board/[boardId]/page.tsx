@@ -5,6 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useObjectStore } from "@/lib/store/objectStore";
+import { useCanvasStore } from "@/lib/store/canvasStore";
+import type { BoardObject } from "@/lib/types";
 import { useChatStore } from "@/lib/store/chatStore";
 import { signInAsGuest, signOutUser } from "@/lib/firebase/auth";
 import { auth } from "@/lib/firebase/config";
@@ -128,6 +130,39 @@ export default function BoardPage() {
     w.__perfSignInAsGuest = getPerfBypassSignIn;
     return () => {
       delete w.__perfSignInAsGuest;
+    };
+  }, []);
+
+  // Expose Playwright helpers for the visual capacity test.
+  // All helpers are active only in bypass mode — never in production.
+  useEffect(() => {
+    if (!IS_PERF_BYPASS) return;
+    const w = window as Window & {
+      // Injects objects directly into the Zustand store, bypassing Firestore.
+      __perfSeedObjects?: (objects: Record<string, unknown>[]) => number;
+      // Reads the live object count from the Zustand store (not from Konva,
+      // which only contains spatially-visible Groups due to culling).
+      __perfGetObjectCount?: () => number;
+      // Updates the canvas viewport (x, y, scale) via canvasStore so the
+      // Konva stage and the R-tree culling logic stay in sync.
+      __perfSetViewport?: (x: number, y: number, scale: number) => void;
+    };
+
+    w.__perfSeedObjects = (objects) => {
+      useObjectStore.getState().batchUpsert(objects as unknown as BoardObject[]);
+      return objects.length;
+    };
+
+    w.__perfGetObjectCount = () =>
+      Object.keys(useObjectStore.getState().objects).length;
+
+    w.__perfSetViewport = (x, y, scale) =>
+      useCanvasStore.getState().setViewport(x, y, scale);
+
+    return () => {
+      delete w.__perfSeedObjects;
+      delete w.__perfGetObjectCount;
+      delete w.__perfSetViewport;
     };
   }, []);
 
