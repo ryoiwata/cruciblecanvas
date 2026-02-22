@@ -32,6 +32,7 @@ import FpsCounter from "@/components/ui/FpsCounter";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import MessagePreview from "@/components/chat/MessagePreview";
 import SaveToAccountBanner from "@/components/ui/SaveToAccountBanner";
+import TeleportHighlight from "@/components/canvas/TeleportHighlight";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -473,6 +474,9 @@ export default function BoardPage() {
           isAILoading={isAILoading}
         />
       </div>
+
+      {/* Teleport-to-reference highlight — fixed overlay, pointer-events-none */}
+      <TeleportHighlight />
     </div>
   );
 }

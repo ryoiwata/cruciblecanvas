@@ -89,6 +89,11 @@ interface CanvasState {
   setPendingEditChar: (char: string | null) => void;
   setMarqueeMode: (enabled: boolean) => void;
   setMultiSelectMode: (enabled: boolean) => void;
+
+  // Teleport-to-reference highlight — set after pan animation completes;
+  // cleared by TeleportHighlight after the CSS animation finishes (~1.2 s).
+  teleportHighlightId: string | null;
+  setTeleportHighlightId: (id: string | null) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -123,6 +128,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   pendingEditChar: null,
   isMarqueeMode: false,
   isMultiSelectMode: false,
+  teleportHighlightId: null,
 
   setMode: (mode) =>
     set({
@@ -232,4 +238,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({ isMarqueeMode: enabled, isMultiSelectMode: enabled ? false : get().isMultiSelectMode }),
   setMultiSelectMode: (enabled) =>
     set({ isMultiSelectMode: enabled, isMarqueeMode: enabled ? false : get().isMarqueeMode }),
+
+  setTeleportHighlightId: (id) => set({ teleportHighlightId: id }),
 }));

@@ -149,6 +149,9 @@ Select border should be thicker with zoom out
 Be able to reference items in chat
 Text should not disappear when zooming out
 Select all should select all items even when zoomed out
+Fix paddword login
+Select refernce nees to be fixed
+
 
 
 Actual TODOs
