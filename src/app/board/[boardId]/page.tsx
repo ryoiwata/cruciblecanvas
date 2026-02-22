@@ -30,7 +30,7 @@ import SelectionCounter from "@/components/ui/SelectionCounter";
 import FpsCounter from "@/components/ui/FpsCounter";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import MessagePreview from "@/components/chat/MessagePreview";
-import SaveToAccountBanner from "@/components/ui/SaveToAccountBanner";
+import GuestAuthTrigger from "@/components/ui/GuestAuthTrigger";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -354,8 +354,6 @@ export default function BoardPage() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
-      {/* Anonymous-user banner — prompts linking to a permanent account */}
-      <SaveToAccountBanner />
 
       {/* ── Tier 1: Top Header ─────────────────────────────────────────────── */}
       <header className="flex h-12 w-full shrink-0 items-center border-b border-gray-200 bg-white px-4 z-40">
@@ -370,6 +368,7 @@ export default function BoardPage() {
 
         {/* Right: Controls */}
         <div className="ml-auto flex items-center gap-2">
+          <GuestAuthTrigger />
           <FpsCounter />
           <PresenceIndicator />
           <div className="h-5 w-px bg-gray-200" />
