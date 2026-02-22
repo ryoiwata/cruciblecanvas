@@ -15,6 +15,7 @@ import {
   SHAPE_SIZE_LIMITS,
   FRAME_SIZE_LIMITS,
   STICKY_NOTE_SIZE_LIMITS,
+  type BoardObject,
 } from "@/lib/types";
 
 function getLimitsForType(type: string) {
@@ -56,6 +57,18 @@ function getFixedEdges(anchor: string | null): { xFixed: boolean | null; yFixed:
     xFixed: anchor.includes("left") ? false : anchor.includes("right") ? true : null,
     yFixed: anchor.includes("top") ? false : anchor.includes("bottom") ? true : null,
   };
+}
+
+// Corner anchors trigger diagonal scaling — both width and fontSize change together.
+// Mid-edge anchors (middle-left, middle-right, top-center, bottom-center) only
+// change one dimension, so fontSize is intentionally left unchanged.
+function isCornerAnchor(anchor: string | null): boolean {
+  return (
+    anchor === 'top-left' ||
+    anchor === 'top-right' ||
+    anchor === 'bottom-left' ||
+    anchor === 'bottom-right'
+  );
 }
 
 interface SelectionLayerProps {
@@ -120,9 +133,10 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         enabledAnchors = [];
         break;
       case "text":
-        // Freeform text is not resizable via handles — height is content-driven.
-        // Rotation is still enabled (rotateEnabled = !allConnectors).
-        enabledAnchors = [];
+        // All 8 handles: horizontal drag changes wrapping width, vertical drag sets
+        // explicit height, diagonal drag changes both. Height auto-adjusts to content
+        // after a width-only resize via the useEffect in TextObject.
+        enabledAnchors = ALL_ANCHORS;
         break;
     }
   }
@@ -197,6 +211,8 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       const transformer = transformerRef.current;
       if (!transformer) return;
 
+      // Save anchor BEFORE clearing — needed for fontSize scale decision below.
+      const savedAnchor = activeAnchorRef.current;
       activeAnchorRef.current = null;
       setTransforming(false);
 
@@ -205,7 +221,7 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       const boardId = getBoardIdFromUrl();
 
       // Collect all updates to dispatch as a single Firestore batch write (N objects → 1 round-trip).
-      const batchUpdates: { id: string; changes: { x: number; y: number; width: number; height: number; rotation: number } }[] = [];
+      const batchUpdates: { id: string; changes: Partial<BoardObject> }[] = [];
 
       for (const node of transformer.nodes()) {
         const id = node.id();
@@ -216,12 +232,16 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         const limits = getLimitsForType(obj.type);
         const isCircle = obj.type === "circle";
 
+        // Capture raw scale values BEFORE resetting them — needed for fontSize scaling below.
+        const rawScaleX = Math.abs(node.scaleX());
+        const rawScaleY = Math.abs(node.scaleY());
+
         // Use node.width()/height() — these are kept in sync by applyResizeToKonvaNode
         // during border resize and by react-konva reconciliation otherwise.
         // Avoids getClientRect which can return stale child bounding boxes after
         // direct Konva manipulation, causing anchor instability on subsequent resizes.
-        let newWidth = Math.round(node.width() * Math.abs(node.scaleX()));
-        let newHeight = Math.round(node.height() * Math.abs(node.scaleY()));
+        let newWidth = Math.round(node.width() * rawScaleX);
+        let newHeight = Math.round(node.height() * rawScaleY);
 
         // CRUCIAL: Reset scale immediately to clear Konva's transform matrix
         // before any downstream state updates
@@ -257,13 +277,24 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         // Bake the post-transform rotation (in degrees, rounded to nearest integer)
         const newRotation = Math.round(node.rotation());
 
-        const updates = {
+        const updates: Partial<BoardObject> = {
           x: newX,
           y: newY,
           width: newWidth,
           height: newHeight,
           rotation: newRotation,
         };
+
+        // Diagonal corner drag on text objects: scale fontSize proportionally so the
+        // text "grows" visually, matching BioRender-style text scaling. The geometric
+        // mean of scaleX/scaleY handles non-uniform corner drags gracefully.
+        // Horizontal/vertical-only drags (middle-left, top-center, etc.) leave fontSize
+        // unchanged so the user can adjust wrapping width or explicit height independently.
+        if (obj.type === 'text' && isCornerAnchor(savedAnchor) && (rawScaleX !== 1 || rawScaleY !== 1)) {
+          const scaleFactor = Math.sqrt(rawScaleX * rawScaleY);
+          const currentFontSize = obj.fontSize ?? 16;
+          updates.fontSize = Math.max(8, Math.min(144, Math.round(currentFontSize * scaleFactor)));
+        }
 
         // Apply to local store immediately for responsive UI
         updateObjectLocal(id, updates);
@@ -293,11 +324,6 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
     [updateObjectLocal]
   );
 
-  // For freeform text, the TextObject renders its own selection border (a styled
-  // Rect matching the text's content bounds). The generic Transformer border box
-  // is suppressed here to avoid a duplicate/generic-looking blue rectangle.
-  const shouldHideTransformerBorder = singleType === 'text';
-
   return (
     <Transformer
       ref={transformerRef}
@@ -307,7 +333,6 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       flipEnabled={false}
       centeredScaling={false}
       ignoreStroke={true}
-      borderEnabled={!shouldHideTransformerBorder}
       borderStroke="#2196F3"
       borderStrokeWidth={2}
       anchorFill="#ffffff"

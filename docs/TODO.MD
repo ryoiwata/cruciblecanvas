@@ -131,6 +131,12 @@ Low priority TODOs
 - [ ] Option to go to specific coordinates
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~`
+TODO Queue:
+
+- Rotates copied items should be rotated
+- Make default for shapes yellow pastel
+- Textbox
+
 
 Actual TODOs
 - [x] Fix group select when right clicking one item highlight
@@ -166,7 +172,7 @@ Actual TODOs
 - [ ] Sticky note h and v align are not working
 - [] Include a forgot password option
 - Ability to change my name??
-
+- Make sure people are removed when they log off or exit the app
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
