@@ -164,6 +164,8 @@ Actual TODOs
 - [ ] Redudant text color option for sticky note
 - [ ] Make canvas be able to have titles with space in them
 - [ ] Sticky note h and v align are not working
+- [] Include a forgot password option
+- Ability to change my name??
 
 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
