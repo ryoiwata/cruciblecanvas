@@ -338,6 +338,27 @@ export function removePresence(boardId: string, userId: string): void {
   });
 }
 
+/**
+ * Atomically updates the user's color in both presence and cursor nodes via
+ * a single multi-path RTDB write. Called immediately when the user selects a
+ * new color so other clients see the change without waiting for a full
+ * presence re-broadcast.
+ */
+export function updatePresenceColor(
+  boardId: string,
+  userId: string,
+  color: string
+): void {
+  const boardRef = ref(rtdb, `boards/${boardId}`);
+  update(boardRef, {
+    [`presence/${userId}/color`]: color,
+    [`cursors/${userId}/color`]: color,
+  }).catch((err) => {
+    console.error("[RTDB] updatePresenceColor failed:", err.message);
+    presenceLogger.writeError("updatePresenceColor", err);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Privacy — /boards/{boardId}/privacy
 // ---------------------------------------------------------------------------

@@ -8,14 +8,30 @@
  * Firebase account-linking flow directly; the AuthProvider's onAuthStateChanged
  * listener updates the store once linking succeeds, which unmounts this
  * component automatically.
+ *
+ * Ghost-presence cleanup: before the auth state changes, we explicitly cancel
+ * onDisconnect handlers and remove the anonymous UID's RTDB presence/cursor
+ * nodes. This prevents the "idle ghost" avatar from persisting on other clients
+ * when the anonymous session is superseded by the linked Google account.
  */
 
 import { useState } from 'react';
 import { getAuth } from 'firebase/auth';
 import { useAuthStore } from '@/lib/store/authStore';
 import { linkAnonymousToGoogle } from '@/lib/firebase/linkAccount';
+import {
+  cancelPresenceDisconnect,
+  cancelCursorDisconnect,
+  removePresence,
+  removeCursor,
+} from '@/lib/firebase/rtdb';
 
-export default function GuestAuthTrigger() {
+interface GuestAuthTriggerProps {
+  /** Board ID used to target the correct RTDB presence/cursor nodes for cleanup. */
+  boardId: string;
+}
+
+export default function GuestAuthTrigger({ boardId }: GuestAuthTriggerProps) {
   const isAnonymous = useAuthStore((s) => s.isAnonymous);
   const user = useAuthStore((s) => s.user);
 
@@ -29,8 +45,21 @@ export default function GuestAuthTrigger() {
     if (linking) return;
     setLinking(true);
     setError(null);
+
+    // Snapshot the anonymous UID now — it may change if the Google account
+    // already exists and signInWithCredential replaces the session entirely.
+    const anonymousUid = user.uid;
+
     try {
       const auth = getAuth();
+
+      // Atomically clean up the anonymous presence BEFORE the auth state
+      // transition so other clients never see the ghost "idle" entry.
+      cancelPresenceDisconnect(boardId, anonymousUid);
+      cancelCursorDisconnect(boardId, anonymousUid);
+      removePresence(boardId, anonymousUid);
+      removeCursor(boardId, anonymousUid);
+
       await linkAnonymousToGoogle(auth);
       // AuthProvider's onAuthStateChanged will flip isAnonymous → false,
       // causing this component to unmount automatically.

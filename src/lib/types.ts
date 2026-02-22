@@ -257,6 +257,29 @@ export const STICKY_NOTE_COLORS = [
   "#FFAB91", // Coral
 ] as const;
 
+/**
+ * 15 saturated, high-contrast colors for user cursors and presence avatars.
+ * Chosen to stand out on the white dot-grid canvas and remain visually distinct
+ * even at small cursor sizes. Restricted set prevents cursor collisions.
+ */
+export const CURSOR_COLORS = [
+  "#6366F1", // Indigo
+  "#EC4899", // Pink
+  "#14B8A6", // Teal
+  "#F59E0B", // Amber
+  "#10B981", // Emerald
+  "#3B82F6", // Blue
+  "#EF4444", // Red
+  "#8B5CF6", // Violet
+  "#F97316", // Orange
+  "#06B6D4", // Cyan
+  "#84CC16", // Lime
+  "#E11D48", // Rose
+  "#7C3AED", // Purple
+  "#0EA5E9", // Sky
+  "#D97706", // Yellow-Orange
+] as const;
+
 export const STICKY_NOTE_DEFAULT = {
   width: 200,
   height: 150,

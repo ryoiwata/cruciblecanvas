@@ -8,7 +8,7 @@ import { useObjectStore } from "@/lib/store/objectStore";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import type { BoardObject, CursorData } from "@/lib/types";
 import { useChatStore } from "@/lib/store/chatStore";
-import { signInAsGuest, signOutUser } from "@/lib/firebase/auth";
+import { signInAsGuest, signOutUser, loadPreferredColor } from "@/lib/firebase/auth";
 import { auth } from "@/lib/firebase/config";
 import { useFirestoreSync } from "@/hooks/useFirestoreSync";
 import { recordBoardVisit, createObject, updateObject, generateObjectId } from "@/lib/firebase/firestore";
@@ -79,6 +79,7 @@ export default function BoardPage() {
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const setPreferredColor = useAuthStore((s) => s.setPreferredColor);
   const isObjectsLoaded = useObjectStore((s) => s.isLoaded);
 
   const toggleSidebar = useChatStore((s) => s.toggleSidebar);
@@ -313,6 +314,19 @@ export default function BoardPage() {
     }
   }, [user, boardId]);
 
+  // Load the user's preferred cursor color from Firestore once after auth resolves.
+  // This seeds authStore.preferredColor so useMultiplayer broadcasts the correct
+  // color on the initial presence write, without waiting for the color picker to open.
+  const userId = user?.uid;
+  useEffect(() => {
+    if (!userId) return;
+    loadPreferredColor().then((color) => {
+      if (color) setPreferredColor(color);
+    }).catch(() => {
+      // Non-critical — falls back to deterministic UID hash color.
+    });
+  }, [userId, setPreferredColor]);
+
   // Firestore object sync — only after auth resolves
   useFirestoreSync(user ? boardId : undefined);
 
@@ -369,8 +383,8 @@ export default function BoardPage() {
 
         {/* Right: Controls */}
         <div className="ml-auto flex items-center gap-2">
-          <GuestAuthTrigger />
-          <UserProfileButton />
+          <GuestAuthTrigger boardId={boardId} />
+          <UserProfileButton boardId={boardId} />
           <FpsCounter />
           <PresenceIndicator />
           <div className="h-5 w-px bg-gray-200" />
