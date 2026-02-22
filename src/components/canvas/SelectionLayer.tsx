@@ -119,6 +119,11 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       case "connector":
         enabledAnchors = [];
         break;
+      case "text":
+        // Freeform text is not resizable via handles — height is content-driven.
+        // Rotation is still enabled (rotateEnabled = !allConnectors).
+        enabledAnchors = [];
+        break;
     }
   }
 
@@ -288,6 +293,11 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
     [updateObjectLocal]
   );
 
+  // For freeform text, the TextObject renders its own selection border (a styled
+  // Rect matching the text's content bounds). The generic Transformer border box
+  // is suppressed here to avoid a duplicate/generic-looking blue rectangle.
+  const shouldHideTransformerBorder = singleType === 'text';
+
   return (
     <Transformer
       ref={transformerRef}
@@ -297,6 +307,7 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       flipEnabled={false}
       centeredScaling={false}
       ignoreStroke={true}
+      borderEnabled={!shouldHideTransformerBorder}
       borderStroke="#2196F3"
       borderStrokeWidth={2}
       anchorFill="#ffffff"
