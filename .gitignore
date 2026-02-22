@@ -4,6 +4,7 @@
 test-results/
 tests/reports/
 tests/performance/
+tests/.auth/
 
 
 # dependencies
