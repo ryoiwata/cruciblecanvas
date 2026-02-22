@@ -29,7 +29,8 @@ export default memo(function ColorLegendObject({
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Narrow boolean selector — only re-renders when this legend's own selection state changes.
+  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
@@ -37,7 +38,6 @@ export default memo(function ColorLegendObject({
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
 
-  const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked;
   const entries = object.legendEntries || [];
 

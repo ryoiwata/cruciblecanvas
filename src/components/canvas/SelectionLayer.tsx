@@ -5,7 +5,7 @@ import { Transformer } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore, rebuildSpatialIndex } from "@/lib/store/objectStore";
-import { updateObject } from "@/lib/firebase/firestore";
+import { updateObjects } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import { useAuthStore } from "@/lib/store/authStore";
 import { setTransforming, borderResizingIds } from "@/lib/resizeState";
@@ -70,12 +70,11 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
   const borderResizeGeneration = useCanvasStore((s) => s.borderResizeGeneration);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
-  // Determine transformer config based on selected objects
-  // Subscribe to objects for rendering config only (not used in effect/callbacks)
-  const objects = useObjectStore((s) => s.objects);
-  const selectedObjects = selectedObjectIds
-    .map((id) => objects[id])
-    .filter(Boolean);
+  // Narrow selector — only subscribes to the specific objects that are selected.
+  // Avoids re-rendering SelectionLayer on any unrelated object change in the board.
+  const selectedObjects = useObjectStore((s) =>
+    selectedObjectIds.map((id) => s.objects[id]).filter((o): o is NonNullable<typeof o> => !!o)
+  );
 
   const hasMixedTypes =
     new Set(selectedObjects.map((o) => o.type)).size > 1;
@@ -198,6 +197,10 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
 
       const currentObjects = useObjectStore.getState().objects;
       const { endLocalEdit } = useObjectStore.getState();
+      const boardId = getBoardIdFromUrl();
+
+      // Collect all updates to dispatch as a single Firestore batch write (N objects → 1 round-trip).
+      const batchUpdates: { id: string; changes: { x: number; y: number; width: number; height: number; rotation: number } }[] = [];
 
       for (const node of transformer.nodes()) {
         const id = node.id();
@@ -249,7 +252,6 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         // Bake the post-transform rotation (in degrees, rounded to nearest integer)
         const newRotation = Math.round(node.rotation());
 
-        // Persist to local store and Firestore
         const updates = {
           x: newX,
           y: newY,
@@ -258,15 +260,20 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
           rotation: newRotation,
         };
 
+        // Apply to local store immediately for responsive UI
         updateObjectLocal(id, updates);
-        updateObject(getBoardIdFromUrl(), id, updates).catch(console.error);
+        batchUpdates.push({ id, changes: updates });
 
-        // Release local edit guard and soft lock after persisting
+        // Release local edit guard and soft lock
         endLocalEdit(id);
-        const boardId = getBoardIdFromUrl();
         if (boardId) {
           releaseLock(boardId, id);
         }
+      }
+
+      // Single Firestore batch write for all transformed objects (replaces N individual calls).
+      if (batchUpdates.length > 0 && boardId) {
+        updateObjects(boardId, batchUpdates).catch(console.error);
       }
 
       // Force a synchronous draw of the objects layer to paint correct dimensions

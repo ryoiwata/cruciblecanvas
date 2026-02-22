@@ -39,7 +39,8 @@ export default memo(function LineObject({
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Narrow boolean selector — only re-renders when this line's own selection state changes.
+  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
@@ -47,7 +48,6 @@ export default memo(function LineObject({
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
 
-  const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked;
 
   // LOD: simplified single-color line at extreme zoom-out

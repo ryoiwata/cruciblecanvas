@@ -119,13 +119,16 @@ Low priority TODOs
 - [ ] Fix ordering of tool shorcut numbers, have number next to tool label
 - [ ] See if Marquee is a good word
 - [] Fix AI agent logo in chat to robot instead of sparkle
+- Create board preview
+- Make login page more aesthetic
 
 
 Actual TODOs
 - [x] Fix group select when right clicking one item highlight
-- Button Marquee needs to actually select items
-- When window is smaller, the distance between buttons should still be similar. Remove distance in gap between main tools and keyboard shortcuts
-- Right click paster needs to copy where the cursor is, not where the right clikc window is
+- [ ] Button Marquee needs to actually select items
+  - [ ] For some reason locally it doesnt work???
+- [ ] When window is smaller, the distance between buttons should still be similar. Remove distance in gap between main tools and keyboard shortcuts
+- Right click paster needs to copy where the cursor is.
 - Make right click window smaller
 
 - [ ] Right click copy and paste option

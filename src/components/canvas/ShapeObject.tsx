@@ -5,7 +5,7 @@ import { Group, Rect, Circle, Text } from "react-konva";
 import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
-import { useObjectStore } from "@/lib/store/objectStore";
+import { useObjectStore, spatialIndex } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
@@ -38,7 +38,9 @@ export default memo(function ShapeObject({
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Narrow boolean selector — only re-renders when this object's own selection state changes,
+  // not when any other object is selected/deselected.
+  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
@@ -65,11 +67,20 @@ export default memo(function ShapeObject({
       const curY = node.y();
       const dragBounds = { x: curX, y: curY, width: object.width, height: object.height };
 
+      // O(log N + k) frame detection via spatial index instead of O(N) full scan.
+      // Connectors are excluded from the index so no extra filtering needed for them.
       const allObjects = useObjectStore.getState().objects;
+      const nearby = spatialIndex.search({
+        minX: curX,
+        minY: curY,
+        maxX: curX + object.width,
+        maxY: curY + object.height,
+      });
       let bestId: string | null = null;
       let bestOverlap = 0;
-      for (const candidate of Object.values(allObjects)) {
-        if (candidate.type !== "frame" || candidate.id === object.id) continue;
+      for (const item of nearby) {
+        const candidate = allObjects[item.id];
+        if (!candidate || candidate.type !== "frame" || candidate.id === object.id) continue;
         const frac = overlapFraction(dragBounds, candidate);
         if (frac > 0.5 && frac > bestOverlap) {
           bestOverlap = frac;
@@ -80,7 +91,6 @@ export default memo(function ShapeObject({
     });
   }, [object.id, object.width, object.height]);
 
-  const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
 
   // LOD: simplified render for extreme zoom-out — no text, borders, shadows

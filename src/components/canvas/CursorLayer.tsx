@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, memo } from "react";
 import { Path, Rect, Text, Group } from "react-konva";
+import type Konva from "konva";
 import { onCursorChildEvents } from "@/lib/firebase/rtdb";
 import { useAuthStore } from "@/lib/store/authStore";
 import type { CursorData } from "@/lib/types";
@@ -24,7 +25,9 @@ const NAME_TAG_PADDING_Y = 3;
 const NAME_TAG_CORNER_RADIUS = 4;
 
 // ---------------------------------------------------------------------------
-// Memoized per-cursor component — only re-renders when its own data changes
+// Memoized per-cursor component — only re-renders when its own data changes.
+// Uses an imperative Konva ref + RAF lerp loop so cursor position updates
+// are applied directly to the Konva node, bypassing React's render cycle.
 // ---------------------------------------------------------------------------
 
 interface RemoteCursorProps {
@@ -32,12 +35,59 @@ interface RemoteCursorProps {
 }
 
 const RemoteCursor = memo(function RemoteCursor({ data }: RemoteCursorProps) {
+  const groupRef = useRef<Konva.Group>(null);
+  // Current interpolated position — mutated imperatively, not via React state
+  const posRef = useRef({ x: data.x, y: data.y });
+  const targetRef = useRef({ x: data.x, y: data.y });
+  const rafRef = useRef(0);
+
+  // Update target whenever new position data arrives from RTDB
+  useEffect(() => {
+    targetRef.current = { x: data.x, y: data.y };
+
+    // Restart lerp loop on each new position update. The loop runs until
+    // the cursor converges within 0.5px of the target, then stops to avoid
+    // wasting CPU when the remote user is stationary.
+    function tick() {
+      const pos = posRef.current;
+      const target = targetRef.current;
+      const dx = target.x - pos.x;
+      const dy = target.y - pos.y;
+
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+        // Snap to target and stop the loop
+        posRef.current = { x: target.x, y: target.y };
+        groupRef.current?.x(target.x);
+        groupRef.current?.y(target.y);
+        groupRef.current?.getLayer()?.batchDraw();
+        rafRef.current = 0;
+        return;
+      }
+
+      // Exponential ease-out: 30% toward target per frame (~83ms to converge within 1px)
+      posRef.current = { x: pos.x + dx * 0.3, y: pos.y + dy * 0.3 };
+      groupRef.current?.x(posRef.current.x);
+      groupRef.current?.y(posRef.current.y);
+      groupRef.current?.getLayer()?.batchDraw();
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = 0;
+    };
+  }, [data.x, data.y]);
+
   const nameWidth =
     data.name.length * (NAME_TAG_FONT_SIZE * 0.6) + NAME_TAG_PADDING_X * 2;
   const nameHeight = NAME_TAG_FONT_SIZE + NAME_TAG_PADDING_Y * 2;
 
+  // Initial position set from props; subsequent positions driven by the RAF lerp above
   return (
-    <Group x={data.x} y={data.y}>
+    <Group ref={groupRef} x={data.x} y={data.y}>
       {/* Pointer arrow icon */}
       <Path
         data={CURSOR_ARROW_PATH}
@@ -145,15 +195,22 @@ const CursorLayer = memo(function CursorLayer({ boardId }: CursorLayerProps) {
 
   const now = Date.now();
 
+  // Cap at 10 visible remote cursors — beyond 10 they are visually indistinguishable
+  // and rendering more adds GPU cost with no UX benefit.
+  const visibleCursors = Object.entries(cursors)
+    .filter(([id, cursor]) =>
+      id !== userId &&
+      now - cursor.timestamp <= STALE_THRESHOLD_MS &&
+      isFinite(cursor.x) &&
+      isFinite(cursor.y)
+    )
+    .slice(0, 10);
+
   return (
     <>
-      {Object.entries(cursors).map(([id, cursor]) => {
-        // Filter out local user, stale cursors, and invalid coordinates
-        if (id === userId) return null;
-        if (now - cursor.timestamp > STALE_THRESHOLD_MS) return null;
-        if (!isFinite(cursor.x) || !isFinite(cursor.y)) return null;
-        return <RemoteCursor key={id} data={cursor} />;
-      })}
+      {visibleCursors.map(([id, cursor]) => (
+        <RemoteCursor key={id} data={cursor} />
+      ))}
     </>
   );
 });

@@ -36,7 +36,8 @@ export default memo(function ConnectorObject({
   const endObj = useObjectStore((s) => (endpointId1 ? s.objects[endpointId1] : null) ?? null);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Narrow boolean selector — only re-renders when this connector's own selection state changes.
+  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const mode = useCanvasStore((s) => s.mode);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
 
@@ -63,7 +64,6 @@ export default memo(function ConnectorObject({
       | undefined;
   const effectiveStyle = (object.borderType as ConnectorStyle | undefined) ?? legacyStyle ?? 'solid';
   const dash = getDash(effectiveStyle);
-  const isSelected = selectedObjectIds.includes(object.id);
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     // Only handle left-click; right-click fires contextmenu and should not change selection
