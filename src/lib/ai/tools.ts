@@ -25,7 +25,10 @@ import {
   calculateVerticalLayout,
 } from './validation';
 import { serializeBoardState } from './context';
-import type { ObjectType, ConnectorStyle } from '@/lib/types';
+import { computeOccupiedZones, findClearRect } from './spatialPlanning';
+import { computeFlowchartLayout, computeGridLayout } from './layoutAlgorithms';
+import type { LayoutNode, LayoutEdge } from './layoutAlgorithms';
+import type { ObjectType, ConnectorStyle, BoardObject } from '@/lib/types';
 import { STICKY_NOTE_DEFAULT, FRAME_DEFAULTS, CONNECTOR_DEFAULTS } from '@/lib/types';
 
 interface ToolContext {
@@ -34,6 +37,10 @@ interface ToolContext {
   aiCommandId: string;
   /** Firebase ID token used to authenticate Firestore REST API calls. */
   userToken: string;
+  /** Current board objects — used by spatial tools (findAvailableSpace, createFlowchart). */
+  boardObjects?: Record<string, BoardObject>;
+  /** Visible canvas viewport bounds in canvas coordinates. */
+  viewportBounds?: { x: number; y: number; width: number; height: number };
 }
 
 /**
@@ -80,10 +87,10 @@ export function createAITools(ctx: ToolContext) {
     }),
 
     createShape: tool({
-      description: 'Create a rectangle or circle shape on the board.',
+      description: 'Create a shape on the board. Supports rectangle, circle, diamond (decision diamond for flowcharts), and roundedRect.',
       inputSchema: zodSchema(
         z.object({
-          type: z.enum(['rectangle', 'circle']).describe('Shape type'),
+          type: z.enum(['rectangle', 'circle', 'diamond', 'roundedRect']).describe('Shape type'),
           x: z.number().describe('X coordinate'),
           y: z.number().describe('Y coordinate'),
           width: z.number().optional().describe('Width in pixels (default 100)'),
@@ -91,7 +98,7 @@ export function createAITools(ctx: ToolContext) {
           color: z.string().describe('Fill color as hex'),
         })
       ),
-      execute: async ({ type, x, y, width = 100, height = 100, color }: { type: 'rectangle' | 'circle'; x: number; y: number; width?: number; height?: number; color: string }) => {
+      execute: async ({ type, x, y, width = 100, height = 100, color }: { type: 'rectangle' | 'circle' | 'diamond' | 'roundedRect'; x: number; y: number; width?: number; height?: number; color: string }) => {
         const coords = validateCoordinates(snapToGrid(x), snapToGrid(y));
         const clamped = clampSize(type as ObjectType, width, height);
         const id = uuidv4();
@@ -154,9 +161,10 @@ export function createAITools(ctx: ToolContext) {
           style: z.enum(['solid', 'dashed', 'dotted']).optional().describe('Line style (default solid)'),
           color: z.string().optional().describe('Connector color as hex'),
           label: z.string().optional().describe('Optional label text on the connector'),
+          directed: z.boolean().optional().describe('Whether to show an arrowhead (default true)'),
         })
       ),
-      execute: async ({ fromObjectId, toObjectId, style = 'solid', color = CONNECTOR_DEFAULTS.color, label }: { fromObjectId: string; toObjectId: string; style?: string; color?: string; label?: string }) => {
+      execute: async ({ fromObjectId, toObjectId, style = 'solid', color = CONNECTOR_DEFAULTS.color, label, directed = true }: { fromObjectId: string; toObjectId: string; style?: string; color?: string; label?: string; directed?: boolean }) => {
         const id = uuidv4();
         await restCreateObject(boardId, {
           id,
@@ -168,6 +176,7 @@ export function createAITools(ctx: ToolContext) {
           color,
           connectedTo: [fromObjectId, toObjectId],
           metadata: { connectorStyle: style as ConnectorStyle },
+          endEffect: directed ? 'arrow' : 'none',
           ...(label ? { text: label } : {}),
           createdBy: userId,
           isAIGenerated: true,
@@ -453,5 +462,297 @@ export function createAITools(ctx: ToolContext) {
         return { clarificationSent: true, question };
       },
     }),
+
+    // -------------------------------------------------------------------------
+    // Spatial planning tools (Tier 2)
+    // -------------------------------------------------------------------------
+
+    findAvailableSpace: tool({
+      description:
+        'Find a clear rectangular area on the board with no overlapping content. ' +
+        'Call this BEFORE createFlowchart or createElementsBatch to get a safe starting position. ' +
+        'Always returns a clear position even if the viewport is full (scans offscreen).',
+      inputSchema: zodSchema(
+        z.object({
+          neededWidth: z.number().describe('Required width of the clear area in pixels'),
+          neededHeight: z.number().describe('Required height of the clear area in pixels'),
+          preferX: z.number().optional().describe('Preferred X search origin (defaults to viewport left)'),
+          preferY: z.number().optional().describe('Preferred Y search origin (defaults to viewport top)'),
+        })
+      ),
+      execute: async ({ neededWidth, neededHeight, preferX, preferY }: { neededWidth: number; neededHeight: number; preferX?: number; preferY?: number }) => {
+        const occupied = computeOccupiedZones(ctx.boardObjects ?? {});
+        const origin = {
+          x: preferX ?? ctx.viewportBounds?.x ?? 0,
+          y: preferY ?? ctx.viewportBounds?.y ?? 0,
+        };
+        const pos = findClearRect(occupied, neededWidth, neededHeight, origin);
+        return { x: pos.x, y: pos.y, message: `Clear area found at (${pos.x}, ${pos.y})` };
+      },
+    }),
+
+    createElementsBatch: tool({
+      description:
+        'Create multiple board objects in one operation. ' +
+        'Use this for 4+ objects that are independent (no connectors needed). ' +
+        'For flowcharts with connectors, use createFlowchart instead. ' +
+        'Use stickyNote (not rectangle) for any element that displays text content.',
+      inputSchema: zodSchema(
+        z.object({
+          elements: z.array(
+            z.object({
+              type: z.enum(['stickyNote', 'rectangle', 'circle', 'diamond', 'roundedRect', 'text', 'frame']).describe('Object type. Use stickyNote for labeled content, rectangle only for decorative/structural boxes with no text.'),
+              text: z.string().optional().describe('Text content'),
+              x: z.number().describe('X coordinate'),
+              y: z.number().describe('Y coordinate'),
+              width: z.number().optional().describe('Width in pixels'),
+              height: z.number().optional().describe('Height in pixels'),
+              color: z.string().optional().describe('Fill color as hex'),
+            })
+          ).describe('List of objects to create'),
+        })
+      ),
+      execute: async ({ elements }: { elements: Array<{ type: string; text?: string; x: number; y: number; width?: number; height?: number; color?: string }> }) => {
+        const createdIds: string[] = [];
+
+        await Promise.all(
+          elements.map(async (el) => {
+            const id = uuidv4();
+            const type = el.type as ObjectType;
+            const defaults =
+              type === 'stickyNote'
+                ? { width: STICKY_NOTE_DEFAULT.width, height: STICKY_NOTE_DEFAULT.height, color: '#FEFF9C' }
+                : type === 'frame'
+                ? { width: FRAME_DEFAULTS.width, height: FRAME_DEFAULTS.height, color: FRAME_DEFAULTS.color }
+                : type === 'diamond'
+                ? { width: 160, height: 120, color: '#FEFF9C' }
+                : type === 'roundedRect'
+                ? { width: 160, height: 80, color: '#DBEAFE' }
+                : type === 'circle'
+                ? { width: 100, height: 100, color: '#98FF98' }
+                // rectangle: visible light gray instead of invisible white
+                : { width: 160, height: 80, color: '#F3F4F6' };
+
+            const coords = { x: snapToGrid(el.x), y: snapToGrid(el.y) };
+            await restCreateObject(
+              boardId,
+              {
+                id,
+                type,
+                text: el.text ?? '',
+                x: coords.x,
+                y: coords.y,
+                width: snapToGrid(el.width ?? defaults.width),
+                height: snapToGrid(el.height ?? defaults.height),
+                color: el.color ?? defaults.color,
+                createdBy: userId,
+                isAIGenerated: true,
+                isAIPending: true,
+                aiCommandId,
+              },
+              userToken
+            );
+            createdIds.push(id);
+          })
+        );
+
+        return { createdIds, count: createdIds.length };
+      },
+    }),
+
+    createFlowchart: tool({
+      description:
+        'Create a complete flowchart with nodes and directed connectors. ' +
+        'Handles BFS layout automatically. Call findAvailableSpace first to get startX/startY. ' +
+        'Default node type is stickyNote (shows text). ' +
+        'Use shape "diamond" for decisions (yellow #FEFF9C), shape "roundedRect" for process steps (light blue #DBEAFE). ' +
+        'Always provide a color — never omit it.',
+      inputSchema: zodSchema(
+        z.object({
+          nodes: z.array(
+            z.object({
+              id: z.string().describe('Local node id (used for edge from/to references)'),
+              label: z.string().describe('Text displayed in the node'),
+              shape: z.enum(['stickyNote', 'diamond', 'roundedRect', 'circle', 'rectangle']).optional().describe('Node type. Default: stickyNote. Use diamond for decisions, roundedRect for steps.'),
+              color: z.string().optional().describe('Fill color as hex. Default: #FEFF9C for stickyNote/diamond, #DBEAFE for roundedRect, #F3F4F6 for rectangle.'),
+            })
+          ).describe('Nodes in the flowchart'),
+          edges: z.array(
+            z.object({
+              from: z.string().describe('Source node id'),
+              to: z.string().describe('Target node id'),
+              label: z.string().optional().describe('Edge label text'),
+              directed: z.boolean().optional().describe('Whether to show arrowhead (default true)'),
+            })
+          ).describe('Edges connecting nodes'),
+          startX: z.number().describe('X origin for the layout (use findAvailableSpace result)'),
+          startY: z.number().describe('Y origin for the layout (use findAvailableSpace result)'),
+          wrapInFrame: z.boolean().optional().describe('Whether to create a frame around the entire flowchart'),
+          title: z.string().optional().describe('Frame title if wrapInFrame is true'),
+          layoutType: z.enum(['flowchart', 'grid']).optional().describe('Layout algorithm (default flowchart)'),
+        })
+      ),
+      execute: async ({
+        nodes,
+        edges,
+        startX,
+        startY,
+        wrapInFrame = false,
+        title,
+        layoutType = 'flowchart',
+      }: {
+        nodes: Array<{ id: string; label: string; shape?: string; color?: string }>;
+        edges: Array<{ from: string; to: string; label?: string; directed?: boolean }>;
+        startX: number;
+        startY: number;
+        wrapInFrame?: boolean;
+        title?: string;
+        layoutType?: 'flowchart' | 'grid';
+      }) => {
+        // ── Compute layout ──────────────────────────────────────────────────
+        const layoutNodes: LayoutNode[] = nodes.map((n) => ({
+          id: n.id,
+          label: n.label,
+          shape: (n.shape as LayoutNode['shape']) ?? 'rectangle',
+        }));
+        const layoutEdges: LayoutEdge[] = edges.map((e) => ({
+          from: e.from,
+          to: e.to,
+          label: e.label,
+          directed: e.directed ?? true,
+        }));
+
+        const layout =
+          layoutType === 'grid'
+            ? computeGridLayout(layoutNodes, startX, startY)
+            : computeFlowchartLayout(layoutNodes, layoutEdges, startX, startY);
+
+        // ── Create shapes (parallel) ────────────────────────────────────────
+        // Maps caller's local node id → Firestore object id
+        const nodeIdMap = new Map<string, string>();
+
+        await Promise.all(
+          nodes.map(async (n) => {
+            const pos = layout.nodes.get(n.id);
+            if (!pos) return;
+
+            const firestoreId = uuidv4();
+            nodeIdMap.set(n.id, firestoreId);
+
+            // Map shape hint to ObjectType.
+            // Default to stickyNote so labeled nodes are always visible and show text.
+            const shapeType: ObjectType =
+              n.shape === 'diamond'
+                ? 'diamond'
+                : n.shape === 'roundedRect'
+                ? 'roundedRect'
+                : n.shape === 'circle'
+                ? 'circle'
+                : n.shape === 'rectangle'
+                ? 'rectangle'
+                : 'stickyNote';
+
+            // Per-type sensible color defaults — white on a white board is invisible.
+            const defaultColor =
+              shapeType === 'diamond' ? '#FEFF9C'     // yellow decision
+              : shapeType === 'roundedRect' ? '#DBEAFE' // light blue process step
+              : shapeType === 'circle' ? '#98FF98'     // green terminal
+              : shapeType === 'rectangle' ? '#F3F4F6'  // light gray
+              : '#FEFF9C';                             // stickyNote yellow
+
+            await restCreateObject(
+              boardId,
+              {
+                id: firestoreId,
+                type: shapeType,
+                text: n.label,
+                x: pos.x,
+                y: pos.y,
+                width: pos.width,
+                height: pos.height,
+                color: n.color ?? defaultColor,
+                createdBy: userId,
+                isAIGenerated: true,
+                isAIPending: true,
+                aiCommandId,
+              },
+              userToken
+            );
+          })
+        );
+
+        // ── Create connectors (parallel, after shapes) ──────────────────────
+        const edgeIds: string[] = [];
+
+        await Promise.all(
+          edges.map(async (e) => {
+            const fromId = nodeIdMap.get(e.from);
+            const toId = nodeIdMap.get(e.to);
+            if (!fromId || !toId) return;
+
+            const id = uuidv4();
+            edgeIds.push(id);
+
+            await restCreateObject(
+              boardId,
+              {
+                id,
+                type: 'connector',
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                color: CONNECTOR_DEFAULTS.color,
+                connectedTo: [fromId, toId],
+                endEffect: (e.directed ?? true) ? 'arrow' : 'none',
+                ...(e.label ? { text: e.label } : {}),
+                createdBy: userId,
+                isAIGenerated: true,
+                isAIPending: true,
+                aiCommandId,
+              },
+              userToken
+            );
+          })
+        );
+
+        // ── Optional frame ──────────────────────────────────────────────────
+        let frameId: string | undefined;
+        if (wrapInFrame) {
+          frameId = uuidv4();
+          const framePad = 40;
+          await restCreateObject(
+            boardId,
+            {
+              id: frameId,
+              type: 'frame',
+              text: title ?? 'Flowchart',
+              x: startX - framePad,
+              y: startY - framePad,
+              width: layout.totalWidth + framePad * 2,
+              height: layout.totalHeight + framePad * 2 + 20, // extra for title
+              color: FRAME_DEFAULTS.color,
+              createdBy: userId,
+              isAIGenerated: true,
+              isAIPending: true,
+              aiCommandId,
+            },
+            userToken
+          );
+        }
+
+        const nodeIds = Array.from(nodeIdMap.values());
+        return {
+          frameId,
+          nodeIds,
+          edgeIds,
+          nodeCount: nodeIds.length,
+          edgeCount: edgeIds.length,
+          totalWidth: layout.totalWidth,
+          totalHeight: layout.totalHeight,
+        };
+      },
+    }),
   };
 }
+

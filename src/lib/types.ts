@@ -8,6 +8,8 @@ export type ObjectType =
   | "stickyNote"
   | "rectangle"
   | "circle"
+  | "diamond"
+  | "roundedRect"
   | "frame"
   | "connector"
   | "colorLegend"

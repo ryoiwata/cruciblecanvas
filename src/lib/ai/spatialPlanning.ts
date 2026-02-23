@@ -18,6 +18,158 @@
 
 import type { BoardObject } from '@/lib/types';
 
+// ---------------------------------------------------------------------------
+// Server-side spatial analysis (used by AI route for Tier 1 & Tier 2)
+// ---------------------------------------------------------------------------
+
+export interface OccupiedZone {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Human-readable label for debugging. */
+  label: string;
+}
+
+const ZONE_PADDING = 20;
+const CLUSTER_PROXIMITY = 100; // px — objects closer than this are merged into one zone
+// Must match the board's GRID_SIZE constant (also declared below for computeSuggestedPositions)
+const SERVER_GRID_SNAP = 20;
+
+/**
+ * Converts board objects into compact occupied zone rectangles.
+ *
+ * Frames → exact AABB + 20px padding (treated as opaque exclusive zones).
+ * Non-frame/non-connector objects → proximity-clustered bounding boxes + 20px padding.
+ * Connectors are skipped (no meaningful footprint).
+ */
+export function computeOccupiedZones(objects: Record<string, BoardObject>): OccupiedZone[] {
+  const zones: OccupiedZone[] = [];
+
+  // ── Frames ────────────────────────────────────────────────────────────────
+  for (const obj of Object.values(objects)) {
+    if (obj.type === 'frame') {
+      zones.push({
+        x: obj.x - ZONE_PADDING,
+        y: obj.y - ZONE_PADDING,
+        width: obj.width + ZONE_PADDING * 2,
+        height: obj.height + ZONE_PADDING * 2,
+        label: `frame:${obj.text ?? obj.id}`,
+      });
+    }
+  }
+
+  // ── Non-frame, non-connector objects → cluster by proximity ───────────────
+  const contentObjects = Object.values(objects).filter(
+    (o) => o.type !== 'frame' && o.type !== 'connector' && o.type !== 'line'
+  );
+
+  // Simple greedy clustering: expand clusters as objects are processed
+  const clusters: { minX: number; minY: number; maxX: number; maxY: number; label: string }[] = [];
+
+  for (const obj of contentObjects) {
+    const objRight = obj.x + obj.width;
+    const objBottom = obj.y + obj.height;
+
+    // Check if this object is within CLUSTER_PROXIMITY of any existing cluster
+    let merged = false;
+    for (const cluster of clusters) {
+      const nearX =
+        obj.x <= cluster.maxX + CLUSTER_PROXIMITY &&
+        objRight >= cluster.minX - CLUSTER_PROXIMITY;
+      const nearY =
+        obj.y <= cluster.maxY + CLUSTER_PROXIMITY &&
+        objBottom >= cluster.minY - CLUSTER_PROXIMITY;
+
+      if (nearX && nearY) {
+        cluster.minX = Math.min(cluster.minX, obj.x);
+        cluster.minY = Math.min(cluster.minY, obj.y);
+        cluster.maxX = Math.max(cluster.maxX, objRight);
+        cluster.maxY = Math.max(cluster.maxY, objBottom);
+        merged = true;
+        break;
+      }
+    }
+
+    if (!merged) {
+      clusters.push({
+        minX: obj.x,
+        minY: obj.y,
+        maxX: objRight,
+        maxY: objBottom,
+        label: `cluster:${obj.text ?? obj.type}`,
+      });
+    }
+  }
+
+  for (const c of clusters) {
+    zones.push({
+      x: c.minX - ZONE_PADDING,
+      y: c.minY - ZONE_PADDING,
+      width: c.maxX - c.minX + ZONE_PADDING * 2,
+      height: c.maxY - c.minY + ZONE_PADDING * 2,
+      label: c.label,
+    });
+  }
+
+  return zones;
+}
+
+const MAX_SCAN_RADIUS = 100_000; // effectively unlimited per requirements
+
+/**
+ * Finds the first clear rectangle of the given size by scanning from searchOrigin.
+ * Scans indefinitely downward — always finds clear space even far off-screen.
+ *
+ * Step sizes are adaptive: `max(40, dimension / 4)` per axis for fine-grained
+ * detection without O(N²) cost on small objects.
+ *
+ * Result is snapped to the 20px board grid.
+ */
+export function findClearRect(
+  occupied: OccupiedZone[],
+  neededW: number,
+  neededH: number,
+  searchOrigin: { x: number; y: number }
+): { x: number; y: number } {
+  const stepX = Math.max(40, Math.round(neededW / 4));
+  const stepY = Math.max(40, Math.round(neededH / 4));
+
+  function overlapsAny(cx: number, cy: number): boolean {
+    for (const zone of occupied) {
+      if (
+        cx < zone.x + zone.width &&
+        cx + neededW > zone.x &&
+        cy < zone.y + zone.height &&
+        cy + neededH > zone.y
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Row-major scan starting from searchOrigin, expanding downward
+  for (let dy = 0; dy < MAX_SCAN_RADIUS; dy += stepY) {
+    const cy = searchOrigin.y + dy;
+    for (let dx = 0; dx < MAX_SCAN_RADIUS; dx += stepX) {
+      const cx = searchOrigin.x + dx;
+      if (!overlapsAny(cx, cy)) {
+        return {
+          x: Math.round(cx / SERVER_GRID_SNAP) * SERVER_GRID_SNAP,
+          y: Math.round(cy / SERVER_GRID_SNAP) * SERVER_GRID_SNAP,
+        };
+      }
+    }
+  }
+
+  // Absolute fallback: place far below (should never reach here in practice)
+  return {
+    x: Math.round(searchOrigin.x / SERVER_GRID_SNAP) * SERVER_GRID_SNAP,
+    y: Math.round((searchOrigin.y + MAX_SCAN_RADIUS) / SERVER_GRID_SNAP) * SERVER_GRID_SNAP,
+  };
+}
+
 export interface SuggestedPosition {
   x: number;
   y: number;

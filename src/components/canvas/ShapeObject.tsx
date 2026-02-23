@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, memo } from "react";
-import { Group, Rect, Circle, Text } from "react-konva";
+import { Group, Rect, Circle, Line, Text } from "react-konva";
 import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
@@ -95,20 +95,24 @@ export default memo(function ShapeObject({
 
   // LOD: simplified render for extreme zoom-out — no text, borders, shadows
   if (isSimpleLod) {
-    return object.type === 'rectangle' ? (
+    if (object.type === 'circle') {
+      return (
+        <Circle
+          x={object.x + object.width / 2}
+          y={object.y + object.height / 2}
+          radius={object.width / 2}
+          fill={object.color}
+          listening={false}
+        />
+      );
+    }
+    // rectangle, roundedRect, diamond all fall back to a simple Rect at LOD
+    return (
       <Rect
         x={object.x}
         y={object.y}
         width={object.width}
         height={object.height}
-        fill={object.color}
-        listening={false}
-      />
-    ) : (
-      <Circle
-        x={object.x + object.width / 2}
-        y={object.y + object.height / 2}
-        radius={object.width / 2}
         fill={object.color}
         listening={false}
       />
@@ -252,34 +256,81 @@ export default memo(function ShapeObject({
         const strokeColor = isSelected ? '#2196F3' : (hasBorder ? (object.strokeColor ?? '#374151') : undefined);
         const strokeWidth = isSelected ? 2 : (hasBorder ? (object.thickness ?? 2) : 0);
         const dash = isSelected ? undefined : getStrokeDash(object.borderType);
-        return object.type === 'rectangle' ? (
+        const shadowProps = {
+          shadowColor: isConnectorTarget ? '#6366f1' : undefined,
+          shadowBlur: isConnectorTarget ? 15 : 0,
+          shadowEnabled: !!isConnectorTarget,
+        };
+
+        if (object.type === 'circle') {
+          return (
+            <Circle
+              x={object.width / 2}
+              y={object.height / 2}
+              radius={object.width / 2}
+              fill={object.color}
+              stroke={strokeColor}
+              strokeWidth={strokeWidth}
+              dash={dash}
+              {...shadowProps}
+            />
+          );
+        }
+
+        if (object.type === 'diamond') {
+          // Rotated-square diamond polygon
+          const pts = [
+            object.width / 2, 0,
+            object.width, object.height / 2,
+            object.width / 2, object.height,
+            0, object.height / 2,
+          ];
+          return (
+            <Line
+              points={pts}
+              closed
+              fill={object.color}
+              stroke={strokeColor}
+              strokeWidth={strokeWidth}
+              dash={dash}
+              {...shadowProps}
+            />
+          );
+        }
+
+        // rectangle and roundedRect
+        return (
           <Rect
             width={object.width}
             height={object.height}
             fill={object.color}
-            cornerRadius={4}
+            cornerRadius={object.type === 'roundedRect' ? 20 : 4}
             stroke={strokeColor}
             strokeWidth={strokeWidth}
             dash={dash}
-            shadowColor={isConnectorTarget ? '#6366f1' : undefined}
-            shadowBlur={isConnectorTarget ? 15 : 0}
-            shadowEnabled={!!isConnectorTarget}
-          />
-        ) : (
-          <Circle
-            x={object.width / 2}
-            y={object.height / 2}
-            radius={object.width / 2}
-            fill={object.color}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-            dash={dash}
-            shadowColor={isConnectorTarget ? '#6366f1' : undefined}
-            shadowBlur={isConnectorTarget ? 15 : 0}
-            shadowEnabled={!!isConnectorTarget}
+            {...shadowProps}
           />
         );
       })()}
+
+      {/* Text label — rendered for shapes that carry textual content (e.g. flowchart
+          nodes, SWOT quadrant labels). Centered horizontally and vertically. */}
+      {object.text ? (
+        <Text
+          text={object.text}
+          x={8}
+          y={object.height / 2 - (object.fontSize ?? 14) * 0.7}
+          width={object.width - 16}
+          height={object.height - 16}
+          align="center"
+          verticalAlign="middle"
+          fontSize={object.fontSize ?? 14}
+          fontFamily="sans-serif"
+          fill={object.textColor ?? '#374151'}
+          wrap="word"
+          listening={false}
+        />
+      ) : null}
 
       {isLocked && lockedByName && (
         <Text

@@ -159,6 +159,8 @@ export default function BoardObjects({
         );
       case "rectangle":
       case "circle":
+      case "diamond":
+      case "roundedRect":
         return (
           <ShapeObject
             key={obj.id}

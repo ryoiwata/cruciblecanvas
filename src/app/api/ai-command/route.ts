@@ -1,20 +1,22 @@
 /**
  * /api/ai-command — AI board agent endpoint.
- * Accepts @ai commands from authenticated users, streams Claude's response
- * with tool calling for board manipulation.
+ * Accepts @ai commands from authenticated users. Implements a two-tier strategy:
+ *
+ * Tier 1 (simple, ≤3 objects): Single Haiku generateObject call classifies +
+ * extracts the creation spec. Server computes clear positions via findClearRect.
+ * Objects are written immediately (isAIPending: false). ~500ms wall-clock.
+ *
+ * Tier 2 (complex, diagrams, 4+ objects): Sonnet streamText with tool calling.
+ * Compact occupied-zones block injected into prompt. Enhanced tools:
+ * findAvailableSpace, createFlowchart, createElementsBatch.
  *
  * Runs on the Node.js runtime so that the OpenTelemetry NodeSDK (initialised in
  * src/instrumentation.ts) is available. Authentication uses jose (lightweight JWT
  * verification against Google's public JWKS) — no firebase-admin dependency needed.
  *
- * Langfuse observability is provided via OpenTelemetry. The NodeSDK (with
- * LangfuseSpanProcessor) is started in src/instrumentation.ts at server startup.
- * Passing `experimental_telemetry: { isEnabled: true }` to streamText causes the
- * Vercel AI SDK to emit OTel spans that LangfuseSpanProcessor forwards to Langfuse.
- *
  * Request: POST with Authorization: Bearer <Firebase ID Token>
- * Body: { message, boardId, boardState, selectedObjectIds, persona, aiCommandId }
- * Response: SSE stream (text/event-stream via Vercel AI SDK)
+ * Body: { message, boardId, boardState, selectedObjectIds, aiCommandId, suggestedPositions?, viewportBounds? }
+ * Response: SSE stream (text/event-stream via Vercel AI SDK) or plain text for Tier 1
  */
 
 export const runtime = 'nodejs';
@@ -22,6 +24,7 @@ export const runtime = 'nodejs';
 import { streamText, stepCountIs } from 'ai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { v4 as uuidv4 } from 'uuid';
 
 // Explicitly target Anthropic's API, bypassing the ANTHROPIC_BASE_URL env var
 // which may be set to Vercel's AI Gateway (requires separate AI_GATEWAY_API_KEY).
@@ -29,10 +32,18 @@ const anthropic = createAnthropic({
   baseURL: 'https://api.anthropic.com/v1',
 });
 
-import { buildSystemPrompt } from '@/lib/ai/prompts';
+import { buildTier2SystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
+import { classifyAndExtract } from '@/lib/ai/tierClassifier';
+import {
+  computeOccupiedZones,
+  findClearRect,
+} from '@/lib/ai/spatialPlanning';
+import { restCreateObject } from '@/lib/firebase/firestoreRest';
 import type { AIBoardContext } from '@/lib/ai/context';
 import type { SuggestedPosition } from '@/lib/ai/spatialPlanning';
+import type { BoardObject, ObjectType } from '@/lib/types';
+import { STICKY_NOTE_DEFAULT } from '@/lib/types';
 
 // Firebase publishes its token-signing keys at this JWKS endpoint.
 // jose caches the key set and re-fetches when keys rotate.
@@ -85,6 +96,38 @@ interface AICommandRequestBody {
   selectedObjectIds: string[];
   aiCommandId: string;
   suggestedPositions?: SuggestedPosition[];
+  viewportBounds?: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Reconstructs a minimal BoardObject map from AIBoardContext for server-side spatial computation.
+ * AIObjectSummary has all spatial fields needed (x, y, width, height, type, id).
+ */
+function buildBoardObjectsFromContext(boardState: AIBoardContext): Record<string, BoardObject> {
+  const result: Record<string, BoardObject> = {};
+
+  for (const obj of boardState.visibleObjects) {
+    result[obj.id] = {
+      id: obj.id,
+      type: obj.type as ObjectType,
+      x: obj.x,
+      y: obj.y,
+      width: obj.width,
+      height: obj.height,
+      color: obj.color,
+      createdBy: '',
+      createdAt: 0,
+      updatedAt: 0,
+      ...(obj.parentFrame ? { parentFrame: obj.parentFrame } : {}),
+    };
+  }
+
+  return result;
+}
+
+const GRID_SNAP = 20;
+function snapToGrid(value: number): number {
+  return Math.round(value / GRID_SNAP) * GRID_SNAP;
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -127,7 +170,16 @@ export async function POST(req: Request): Promise<Response> {
     });
   }
 
-  const { message, messages: turnHistory, boardId, boardState, selectedObjectIds, aiCommandId, suggestedPositions } = body;
+  const {
+    message,
+    messages: turnHistory,
+    boardId,
+    boardState,
+    selectedObjectIds,
+    aiCommandId,
+    suggestedPositions,
+    viewportBounds,
+  } = body;
 
   if (!message || !boardId || !aiCommandId) {
     return new Response(
@@ -144,12 +196,125 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Build system prompt
+  // 3. Classify the command (Haiku, fast, non-streaming)
   // ---------------------------------------------------------------------------
+  let classification: Awaited<ReturnType<typeof classifyAndExtract>> | null = null;
+  try {
+    classification = await classifyAndExtract(message);
+  } catch (err) {
+    // Non-fatal: fall through to Tier 2 (Sonnet) as a safe fallback
+    console.warn('[AI] Classifier failed, falling back to Tier 2:', err instanceof Error ? err.message : err);
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4a. Tier 1 — Direct structured write (simple commands, ≤3 objects)
+  // ---------------------------------------------------------------------------
+  if (classification?.tier === 'simple') {
+    const boardObjects = buildBoardObjectsFromContext(boardState);
+    const occupied = computeOccupiedZones(boardObjects);
+    const searchOrigin = {
+      x: viewportBounds?.x ?? 0,
+      y: viewportBounds?.y ?? 0,
+    };
+
+    // Default dimensions by type for clear-rect sizing
+    const createdIds: string[] = [];
+
+    try {
+      // Compute positions sequentially so each placed object is considered for the next
+      const placedZones = [...occupied];
+
+      await Promise.all(
+        classification.objects.map(async (spec, idx) => {
+          const isSticky = spec.type === 'stickyNote';
+          const objW = isSticky ? STICKY_NOTE_DEFAULT.width : 160;
+          const objH = isSticky ? STICKY_NOTE_DEFAULT.height : 80;
+
+          // Offset origin slightly for each object to avoid re-scanning from the same point
+          const origin = {
+            x: searchOrigin.x + idx * 20,
+            y: searchOrigin.y,
+          };
+
+          const pos = findClearRect(placedZones, objW, objH, origin);
+
+          // Add the placed object as an occupied zone so subsequent placements avoid it
+          placedZones.push({
+            x: pos.x - 20,
+            y: pos.y - 20,
+            width: objW + 40,
+            height: objH + 40,
+            label: `tier1:${spec.type}`,
+          });
+
+          const id = uuidv4();
+          createdIds.push(id);
+
+          const defaultColor =
+            spec.type === 'stickyNote'
+              ? '#FEFF9C'
+              : spec.type === 'circle'
+              ? '#7AFCFF'
+              : '#FFFFFF';
+
+          await restCreateObject(
+            boardId,
+            {
+              id,
+              type: spec.type as ObjectType,
+              text: spec.text ?? '',
+              x: snapToGrid(pos.x),
+              y: snapToGrid(pos.y),
+              width: snapToGrid(objW),
+              height: snapToGrid(objH),
+              color: spec.color ?? defaultColor,
+              createdBy: userId,
+              isAIGenerated: true,
+              isAIPending: false, // Tier 1: confirmed immediately (no streaming rollback)
+              aiCommandId,
+            },
+            idToken
+          );
+        })
+      );
+    } catch (err) {
+      console.error('[AI] Tier 1 write failed:', err);
+      return new Response(
+        JSON.stringify({ error: 'Failed to create objects. Please try again.' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Stream the summary text so the client's useAIStream reader works unchanged
+    const summaryText = classification.summaryText;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(summaryText));
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'X-Is-Anonymous': isAnonymous ? '1' : '0',
+        'X-Tier': '1',
+        'X-Created-Ids': createdIds.join(','),
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 4b. Tier 2 — Plan-then-batch (Sonnet with spatial tools)
+  // ---------------------------------------------------------------------------
+  const boardObjects = buildBoardObjectsFromContext(boardState);
+  const occupiedZones = computeOccupiedZones(boardObjects);
+
   const selectedObjects =
     boardState?.visibleObjects?.filter((o) => selectedObjectIds?.includes(o.id)) ?? [];
 
-  const systemPrompt = buildSystemPrompt({
+  const systemPrompt = buildTier2SystemPrompt({
     objectCount: boardState?.totalObjects ?? 0,
     visibleCount: boardState?.visibleObjects?.length ?? 0,
     selectedCount: selectedObjectIds?.length ?? 0,
@@ -164,15 +329,20 @@ export async function POST(req: Request): Promise<Response> {
       y: o.y,
     })),
     suggestedPositions: suggestedPositions ?? [],
+    occupiedZones,
+    viewportBounds,
   });
 
-  // ---------------------------------------------------------------------------
-  // 4. Stream Claude response with tool calling
-  // Tools authenticate with the user's ID token (BaaS pattern: user writes
-  // through Security Rules rather than bypassing them with admin credentials).
-  // Mason persona only gets operational tools — analytical tools are stripped.
-  // ---------------------------------------------------------------------------
-  const allTools = createAITools({ boardId, userId, aiCommandId, userToken: idToken });
+  // Provide boardObjects and viewportBounds to spatial tools so they can call
+  // findClearRect without additional Firestore reads.
+  const allTools = createAITools({
+    boardId,
+    userId,
+    aiCommandId,
+    userToken: idToken,
+    boardObjects,
+    viewportBounds,
+  });
 
   // Mason is the only persona — strip analytical tools (operational-only).
   const MASON_EXCLUDED_TOOLS = new Set(['redTeamThis', 'mapDecision', 'findGaps']);
@@ -194,7 +364,7 @@ export async function POST(req: Request): Promise<Response> {
       system: systemPrompt,
       messages: chatMessages,
       tools,
-      stopWhen: stepCountIs(15),
+      stopWhen: stepCountIs(30),
       // OTel spans are emitted by the AI SDK and captured by LangfuseSpanProcessor
       // (initialised in src/instrumentation.ts) for Langfuse observability.
       experimental_telemetry: { isEnabled: true },
@@ -208,6 +378,7 @@ export async function POST(req: Request): Promise<Response> {
       headers: {
         // Inform the client whether this is an anonymous session (affects rate-limit UI)
         'X-Is-Anonymous': isAnonymous ? '1' : '0',
+        'X-Tier': '2',
       },
     });
   } catch (err) {
