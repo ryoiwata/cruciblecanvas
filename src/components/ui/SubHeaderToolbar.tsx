@@ -127,6 +127,15 @@ function LineToolIcon() {
   );
 }
 
+function ArrowToolIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+      <line x1="2.5" y1="12.5" x2="11" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M11 4L7.5 4.8L10.2 7.5L11 4Z" fill="currentColor" />
+    </svg>
+  );
+}
+
 function RectIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -301,6 +310,8 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const isMultiSelectMode = useCanvasStore((s) => s.isMultiSelectMode);
   const setMarqueeMode = useCanvasStore((s) => s.setMarqueeMode);
   const setMultiSelectMode = useCanvasStore((s) => s.setMultiSelectMode);
+  const pendingLineArrow = useCanvasStore((s) => s.pendingLineArrow);
+  const setPendingLineArrow = useCanvasStore((s) => s.setPendingLineArrow);
 
   const clipboard = useCanvasStore((s) => s.clipboard);
   const past = useObjectStore((s) => s.past);
@@ -375,7 +386,9 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   }, [boardId, user]);
 
   const isPointerActive = mode === 'pointer';
-  const isLineActive = mode === 'create' && creationTool === 'line';
+  // Line vs Arrow share the 'line' creationTool; pendingLineArrow distinguishes them
+  const isLineActive = mode === 'create' && creationTool === 'line' && !pendingLineArrow;
+  const isArrowActive = mode === 'create' && creationTool === 'line' && pendingLineArrow;
   const isConnectorActive = mode === 'create' && creationTool === 'connector';
   const isRectActive = mode === 'create' && creationTool === 'rectangle';
   const isCircleActive = mode === 'create' && creationTool === 'circle';
@@ -434,7 +447,22 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         icon={<LineToolIcon />}
         isActive={isLineActive}
         shortcut="L"
-        onClick={() => enterCreateMode('line')}
+        onClick={() => {
+          setPendingLineArrow(false);
+          enterCreateMode('line');
+        }}
+      />
+
+      {/* Arrow — line with a directional arrowhead at the end */}
+      <ToolButton
+        label="Arrow"
+        icon={<ArrowToolIcon />}
+        isActive={isArrowActive}
+        shortcut="A"
+        onClick={() => {
+          setPendingLineArrow(true);
+          enterCreateMode('line');
+        }}
       />
 
       {/* Connector */}

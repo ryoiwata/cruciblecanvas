@@ -61,6 +61,10 @@ interface CanvasState {
   isMarqueeMode: boolean;
   isMultiSelectMode: boolean;
 
+  // Arrow tool flag — when true, next 'line' creation will have endEffect: 'arrow'.
+  // Set by the Arrow toolbar button; reset when exiting to pointer mode.
+  pendingLineArrow: boolean;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -89,6 +93,7 @@ interface CanvasState {
   setPendingEditChar: (char: string | null) => void;
   setMarqueeMode: (enabled: boolean) => void;
   setMultiSelectMode: (enabled: boolean) => void;
+  setPendingLineArrow: (arrow: boolean) => void;
 
   // Teleport-to-reference highlight — set after pan animation completes;
   // cleared by TeleportHighlight after the CSS animation finishes (~1.2 s).
@@ -128,6 +133,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   pendingEditChar: null,
   isMarqueeMode: false,
   isMultiSelectMode: false,
+  pendingLineArrow: false,
   teleportHighlightId: null,
 
   setMode: (mode) =>
@@ -152,6 +158,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({
       mode: "pointer",
       creationTool: null,
+      pendingLineArrow: false,
       selectedObjectIds: [],
       connectorStart: null,
       connectorDragging: false,
@@ -240,4 +247,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({ isMultiSelectMode: enabled, isMarqueeMode: enabled ? false : get().isMarqueeMode }),
 
   setTeleportHighlightId: (id) => set({ teleportHighlightId: id }),
+
+  setPendingLineArrow: (arrow) => set({ pendingLineArrow: arrow }),
 }));

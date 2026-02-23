@@ -103,6 +103,31 @@ export async function deleteObject(
   await deleteDoc(docRef);
 }
 
+/**
+ * Cascading delete of a board: removes all objects, the metadata/config document,
+ * and the owning user's ownedBoards registry entry.
+ * Objects are deleted in batches of 499 to stay within Firestore's 500-op batch limit.
+ */
+export async function deleteBoardCascade(boardId: string, userId: string): Promise<void> {
+  const objectsRef = collection(db, 'boards', boardId, 'objects');
+  const objectsSnap = await getDocs(objectsRef);
+
+  const CHUNK_SIZE = 499;
+  for (let i = 0; i < objectsSnap.docs.length; i += CHUNK_SIZE) {
+    const batch = writeBatch(db);
+    for (const docSnap of objectsSnap.docs.slice(i, i + CHUNK_SIZE)) {
+      batch.delete(docSnap.ref);
+    }
+    await batch.commit();
+  }
+
+  // Remove metadata and ownedBoards entry in a single batch
+  const finalBatch = writeBatch(db);
+  finalBatch.delete(doc(db, 'boards', boardId, 'metadata', 'config'));
+  finalBatch.delete(doc(db, 'users', userId, 'ownedBoards', boardId));
+  await finalBatch.commit();
+}
+
 // ---------------------------------------------------------------------------
 // Batch operations (Phase 3)
 // ---------------------------------------------------------------------------

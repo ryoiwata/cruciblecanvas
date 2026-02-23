@@ -745,6 +745,10 @@ export default function Canvas({ boardId }: CanvasProps) {
               createdBy: user.uid,
               createdAt: Date.now(),
               updatedAt: Date.now(),
+              // Arrow tool: inject arrowhead so the preview matches the final object
+              ...(creationTool === 'line' && useCanvasStore.getState().pendingLineArrow
+                ? { endEffect: 'arrow' as const }
+                : {}),
             };
             upsertObject(newObject);
             drawingRef.current.created = true;
@@ -1092,6 +1096,8 @@ export default function Canvas({ boardId }: CanvasProps) {
               zIndex: obj.zIndex,
               createdBy: user.uid,
               ...(obj.type === 'text' ? { fontSize: dragScaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
+              // Propagate arrowhead already set on the in-memory object during drag start
+              ...(obj.endEffect ? { endEffect: obj.endEffect } : {}),
             },
             drawing.objectId
           ).catch((err) => {
@@ -1119,6 +1125,11 @@ export default function Canvas({ boardId }: CanvasProps) {
           ? Math.max(8, Math.min(72, Math.round(TEXT_DEFAULTS.fontSize / effectiveScaleForDefaults(currentScale))))
           : undefined;
 
+        // Arrow tool: arrow lines get endEffect injected at creation time
+        const lineArrowEffect = creationTool === 'line' && useCanvasStore.getState().pendingLineArrow
+          ? { endEffect: 'arrow' as const }
+          : {};
+
         const newObject = {
           id: drawing.objectId,
           type: creationTool,
@@ -1133,6 +1144,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           createdAt: Date.now(),
           updatedAt: Date.now(),
           ...(creationTool === 'text' ? { fontSize: scaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
+          ...lineArrowEffect,
         };
 
         upsertObject(newObject);
@@ -1150,6 +1162,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             zIndex: maxZ,
             createdBy: user.uid,
             ...(creationTool === 'text' ? { fontSize: scaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
+            ...lineArrowEffect,
           },
           drawing.objectId
         ).catch((err) => {

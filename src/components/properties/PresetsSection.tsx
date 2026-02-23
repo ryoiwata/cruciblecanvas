@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { STYLE_PRESETS, type StylePreset } from '@/lib/types';
 import type { BoardObject } from '@/lib/types';
+import { useCanvasStore } from '@/lib/store/canvasStore';
 
 interface PresetsSectionProps {
   /** Currently selected object(s) — used to highlight the active preset if any. */
@@ -27,6 +28,7 @@ function isActivePreset(object: BoardObject, preset: StylePreset): boolean {
 export default function PresetsSection({ object, onChange }: PresetsSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const visiblePresets = expanded ? STYLE_PRESETS : STYLE_PRESETS.slice(0, 6);
+  const setActiveColor = useCanvasStore((s) => s.setActiveColor);
 
   const applyPreset = (preset: StylePreset) => {
     onChange({
@@ -34,6 +36,8 @@ export default function PresetsSection({ object, onChange }: PresetsSectionProps
       strokeColor: preset.strokeColor,
       textColor: preset.textColor,
     });
+    // Also seed activeColor so the next created object uses this preset's fill
+    setActiveColor(preset.color);
   };
 
   return (

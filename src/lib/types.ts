@@ -431,26 +431,26 @@ export interface StylePreset {
 }
 
 export const STYLE_PRESETS: StylePreset[] = [
-  // Dark
-  { id: 'jet-black', label: 'Jet Black', color: '#111827', strokeColor: '#000000', textColor: '#FFFFFF', previewBg: '#111827', previewBorder: '#000000' },
-  // Neutrals
-  { id: 'soft-white',      label: 'Soft White',      color: '#FFFFFF', strokeColor: '#D1D5DB', textColor: '#374151', previewBg: '#FFFFFF', previewBorder: '#D1D5DB' },
+  // --- First 6: always-visible solid primaries ---
+  { id: 'black',  label: 'Black',  color: '#111827', strokeColor: '#000000', textColor: '#FFFFFF', previewBg: '#111827', previewBorder: '#000000' },
+  { id: 'white',  label: 'White',  color: '#FFFFFF', strokeColor: '#D1D5DB', textColor: '#374151', previewBg: '#FFFFFF', previewBorder: '#D1D5DB' },
+  { id: 'red',    label: 'Red',    color: '#EF4444', strokeColor: '#DC2626', textColor: '#FFFFFF', previewBg: '#EF4444', previewBorder: '#DC2626' },
+  { id: 'yellow', label: 'Yellow', color: '#EAB308', strokeColor: '#CA8A04', textColor: '#FFFFFF', previewBg: '#EAB308', previewBorder: '#CA8A04' },
+  { id: 'green',  label: 'Green',  color: '#22C55E', strokeColor: '#16A34A', textColor: '#FFFFFF', previewBg: '#22C55E', previewBorder: '#16A34A' },
+  { id: 'blue',   label: 'Blue',   color: '#3B82F6', strokeColor: '#2563EB', textColor: '#FFFFFF', previewBg: '#3B82F6', previewBorder: '#2563EB' },
+  // --- Next 12: pastels shown behind "See more" ---
   { id: 'pale-cloud',      label: 'Pale Cloud',      color: '#F3F4F6', strokeColor: '#CBD5E1', textColor: '#374151', previewBg: '#F3F4F6', previewBorder: '#CBD5E1' },
-  // Pinks & Reds
   { id: 'pastel-pink',     label: 'Pastel Pink',     color: '#FFD6E8', strokeColor: '#F9A8D4', textColor: '#9D174D', previewBg: '#FFD6E8', previewBorder: '#F9A8D4' },
   { id: 'pastel-rose',     label: 'Pastel Rose',     color: '#FFE4E6', strokeColor: '#FCA5A5', textColor: '#9F1239', previewBg: '#FFE4E6', previewBorder: '#FCA5A5' },
-  // Oranges & Yellows
   { id: 'pastel-peach',    label: 'Pastel Peach',    color: '#FFECD2', strokeColor: '#FDBA74', textColor: '#9A3412', previewBg: '#FFECD2', previewBorder: '#FDBA74' },
   { id: 'pastel-yellow',   label: 'Pastel Yellow',   color: '#FEF9C3', strokeColor: '#FDE047', textColor: '#713F12', previewBg: '#FEF9C3', previewBorder: '#FDE047' },
-  // Greens
   { id: 'pastel-mint',     label: 'Pastel Mint',     color: '#D1FAE5', strokeColor: '#6EE7B7', textColor: '#065F46', previewBg: '#D1FAE5', previewBorder: '#6EE7B7' },
   { id: 'pastel-sage',     label: 'Pastel Sage',     color: '#DCFCE7', strokeColor: '#86EFAC', textColor: '#14532D', previewBg: '#DCFCE7', previewBorder: '#86EFAC' },
-  // Blues
   { id: 'pastel-sky',      label: 'Pastel Sky',      color: '#E0F2FE', strokeColor: '#7DD3FC', textColor: '#0C4A6E', previewBg: '#E0F2FE', previewBorder: '#7DD3FC' },
   { id: 'pastel-blue',     label: 'Pastel Blue',     color: '#DBEAFE', strokeColor: '#93C5FD', textColor: '#1E3A8A', previewBg: '#DBEAFE', previewBorder: '#93C5FD' },
-  // Purples
   { id: 'pastel-lavender', label: 'Pastel Lavender', color: '#EDE9FE', strokeColor: '#C4B5FD', textColor: '#4C1D95', previewBg: '#EDE9FE', previewBorder: '#C4B5FD' },
   { id: 'pastel-lilac',    label: 'Pastel Lilac',    color: '#FAE8FF', strokeColor: '#E879F9', textColor: '#701A75', previewBg: '#FAE8FF', previewBorder: '#E879F9' },
+  { id: 'jet-black',       label: 'Jet Black',       color: '#1F2937', strokeColor: '#111827', textColor: '#FFFFFF', previewBg: '#1F2937', previewBorder: '#111827' },
 ] as const;
 
 // ---------------------------------------------------------------------------

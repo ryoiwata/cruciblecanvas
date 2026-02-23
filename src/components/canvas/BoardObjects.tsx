@@ -37,15 +37,27 @@ function getCreatedAtMs(obj: BoardObject): number {
 }
 
 /**
- * Sort comparator: frames always render below non-frames regardless of stored zIndex
- * (guards against stale Firestore data with inflated zIndex values on frames).
+ * Render tier for z-ordering:
+ *   0 — frames (always bottom, so children can overlap them)
+ *   1 — shapes, stickies, lines, color legends (normal layer)
+ *   2 — text objects (sit above shapes so labels remain interactive and readable)
+ *   3 — connectors (always topmost so arrows are never obscured)
+ *
  * Within each tier, explicit zIndex is used first, then createdAt as a tiebreaker.
  */
+function objectRenderTier(obj: BoardObject): number {
+  switch (obj.type) {
+    case 'frame':     return 0;
+    case 'text':      return 2;
+    case 'connector': return 3;
+    default:          return 1;
+  }
+}
+
 function zSort(a: BoardObject, b: BoardObject): number {
-  const aIsFrame = a.type === 'frame';
-  const bIsFrame = b.type === 'frame';
-  // Hard floor: any frame always sorts before any non-frame
-  if (aIsFrame !== bIsFrame) return aIsFrame ? -1 : 1;
+  const aTier = objectRenderTier(a);
+  const bTier = objectRenderTier(b);
+  if (aTier !== bTier) return aTier - bTier;
   const za = a.zIndex ?? 0;
   const zb = b.zIndex ?? 0;
   if (za !== zb) return za - zb;

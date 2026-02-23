@@ -581,3 +581,11 @@ export function onAIStreamChildEvents(
     unsubRemove();
   };
 }
+
+/**
+ * Removes all RTDB data for a board node (cursors, presence, locks, AI streams).
+ * Called as part of cascading board deletion from the dashboard.
+ */
+export async function deleteBoardRTDB(boardId: string): Promise<void> {
+  await remove(ref(rtdb, `boards/${boardId}`));
+}
