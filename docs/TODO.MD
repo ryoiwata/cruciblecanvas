@@ -114,22 +114,32 @@ AI TODOs
 - [ ] New items should be placed where there is open space in the current view that it can fit in. Or below existing items in the current view or lower of if not space in current view.
 
 ~~~~~~~~~~~~~~~~~~~~~~~
+Current TODOs
+- When selecting multiple items and referencing them in chat, there should be group icon of the group as well as each individual item in the chat reference. Make sure that it actually goes to chat when the message is sent, instead of disappearing.
+- [ ] Include directed connedctors for flow charts
+- [ ] Arrows as an option for shapes
+  - should be some sort of shape
+- [ ] Fix ordering of tool shorcut numbers, have number next to tool label
+
 
 Low priority TODOs
-- [ ] Remove different types of lines from properties
-- [ ] Remove dash lines from properties
-- Include directed connedctors for flow charts
-- Add arrows as an option for shapes
-- [] Make the Toggle suggestion more darker font in the chart
-Add option to delete boards.
+
+
+TODOs to check
+When frames are aligned, the groups items should move with them but stay in place relative to the frame's positioniing. 
+- Stiucky should remain whatever size when text is being entered. It should not shrink down to size of text. It should only increase when more vertical space is neded for text.
+- [x] Deleted boards should be deleted right there and removed from dashboard
+- [x] Remove different types of lines from properties
+-  [x] Remove dash lines from properties
+- [x] Make the Toggle suggestion more darker font in the chart
+- [x] Add option to delete boards.
 Clicking on presets should change shape colors too. make 
-There should be 18 presets with representative colors across the raainbow and are visible with see more, with black/white,red, yellow, green, blue as the 6 that always are shown
-Presets should chang eline color too
+- [x] There should be 18 presets with representative colors across the raainbow and are visible with see more, with black/white,red, yellow, green, blue as the 6 that always are shown
+- [x] Presets should chang eline color too
 Make an option for directed connectors vs non directed connectors
 Add ann arror shape
-Make it so that text can be placed over shapes
+- [x] Make it so that text can be placed over shapes
 
-- [ ] Fix ordering of tool shorcut numbers, have number next to tool label
 - [x] See if Marquee is a good word
 - [] Fix AI agent logo in chat to robot instead of sparkle
 - Create board preview

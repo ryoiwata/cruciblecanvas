@@ -4,8 +4,8 @@
  * TextEditor — floating textarea overlay that renders over a Konva object
  * when the user enters text-edit mode.
  *
- * Sticky notes: grow vertically in real-time, shrink on commit, clamped to
- * STICKY_NOTE_SIZE_LIMITS. Font/padding matches the Konva text node exactly
+ * Sticky notes: grow vertically in real-time; never shrink below the size the
+ * user manually set, clamped to STICKY_NOTE_SIZE_LIMITS. Font/padding matches the Konva text node exactly
  * so the text never appears to jump when entering or leaving edit mode.
  *
  * Freeform text objects (BioRender-style auto-expansion):
@@ -64,6 +64,9 @@ export default function TextEditor({ boardId }: TextEditorProps) {
   // Stable ref to the current object id — lets measureAndSync have empty deps
   // while still reading the latest id without closing over a stale value.
   const objectIdRef = useRef<string | null>(null);
+  // Captures the sticky note's stored height at edit-start so commit can
+  // enforce "never shrink below the user's manual size" semantics.
+  const originalStickyHeightRef = useRef<number>(0);
 
   const [text, setText] = useState("");
   // Viewport-space offset of the canvas container's top-left corner.
@@ -186,16 +189,21 @@ export default function TextEditor({ boardId }: TextEditorProps) {
       if (!ta) return;
 
       if (object.type === "stickyNote") {
-        // Sticky notes: vertical-only auto-expand, clamped to size limits.
+        // Capture height before any editing so commit can restore it if text shrinks.
+        originalStickyHeightRef.current = object.height;
+        // Sticky notes: expand-only — never shrink the sticky below its stored size.
         ta.style.height = "1px";
         const scrollH = ta.scrollHeight;
         const currentScale = useCanvasStore.getState().stageScale;
         const minScreenH = STICKY_NOTE_SIZE_LIMITS.min.height * currentScale;
         const maxScreenH = STICKY_NOTE_SIZE_LIMITS.max.height * currentScale;
-        const newScreenH = Math.max(minScreenH, Math.min(maxScreenH, scrollH));
+        // Preserve the user's manual size — only grow if the content needs more room.
+        const storedScreenH = object.height * currentScale;
+        const newScreenH = Math.max(minScreenH, Math.min(maxScreenH, Math.max(scrollH, storedScreenH)));
         ta.style.height = `${newScreenH}px`;
         const newCanvasH = Math.ceil(newScreenH / currentScale);
-        if (newCanvasH !== object.height) {
+        // Only update the store if we actually need to expand.
+        if (newCanvasH > object.height) {
           useObjectStore.getState().updateObjectLocal(object.id, { height: newCanvasH });
         }
       } else if (object.type === "text") {
@@ -247,16 +255,21 @@ export default function TextEditor({ boardId }: TextEditorProps) {
     }
 
     if (object.type === "stickyNote" && textareaRef.current) {
-      // Sticky note: re-measure final scrollHeight (may be smaller if user deleted text).
+      // Sticky note: never shrink below the height the user had before editing.
+      // Only the vertical space needed for the new text content matters;
+      // if that is less than the pre-edit height we keep the pre-edit height.
       const ta = textareaRef.current;
       ta.style.height = "1px";
       const scrollH = ta.scrollHeight;
       const currentScale = useCanvasStore.getState().stageScale;
+      const textNeededH = Math.ceil(scrollH / currentScale);
       const newHeight = Math.max(
         STICKY_NOTE_SIZE_LIMITS.min.height,
         Math.min(
           STICKY_NOTE_SIZE_LIMITS.max.height,
-          Math.ceil(scrollH / currentScale),
+          // originalStickyHeightRef holds the height recorded at edit-start so
+          // the sticky is never compacted below what the user manually sized it to.
+          Math.max(textNeededH, originalStickyHeightRef.current),
         ),
       );
       updateObjectLocal(editingObjectId, { text: trimmed, height: newHeight });

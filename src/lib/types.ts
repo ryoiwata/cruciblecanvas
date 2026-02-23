@@ -434,10 +434,10 @@ export const STYLE_PRESETS: StylePreset[] = [
   // --- First 6: always-visible solid primaries ---
   { id: 'black',  label: 'Black',  color: '#111827', strokeColor: '#000000', textColor: '#FFFFFF', previewBg: '#111827', previewBorder: '#000000' },
   { id: 'white',  label: 'White',  color: '#FFFFFF', strokeColor: '#D1D5DB', textColor: '#374151', previewBg: '#FFFFFF', previewBorder: '#D1D5DB' },
-  { id: 'red',    label: 'Red',    color: '#EF4444', strokeColor: '#DC2626', textColor: '#FFFFFF', previewBg: '#EF4444', previewBorder: '#DC2626' },
-  { id: 'yellow', label: 'Yellow', color: '#EAB308', strokeColor: '#CA8A04', textColor: '#FFFFFF', previewBg: '#EAB308', previewBorder: '#CA8A04' },
-  { id: 'green',  label: 'Green',  color: '#22C55E', strokeColor: '#16A34A', textColor: '#FFFFFF', previewBg: '#22C55E', previewBorder: '#16A34A' },
-  { id: 'blue',   label: 'Blue',   color: '#3B82F6', strokeColor: '#2563EB', textColor: '#FFFFFF', previewBg: '#3B82F6', previewBorder: '#2563EB' },
+  { id: 'red',    label: 'Red',    color: '#DB4437', strokeColor: '#C1351D', textColor: '#FFFFFF', previewBg: '#DB4437', previewBorder: '#C1351D' },
+  { id: 'yellow', label: 'Yellow', color: '#FBBC05', strokeColor: '#E5A800', textColor: '#1a1a1a', previewBg: '#FBBC05', previewBorder: '#E5A800' },
+  { id: 'green',  label: 'Green',  color: '#0F9D58', strokeColor: '#0B7B44', textColor: '#FFFFFF', previewBg: '#0F9D58', previewBorder: '#0B7B44' },
+  { id: 'blue',   label: 'Blue',   color: '#4285F4', strokeColor: '#1A73E8', textColor: '#FFFFFF', previewBg: '#4285F4', previewBorder: '#1A73E8' },
   // --- Next 12: pastels shown behind "See more" ---
   { id: 'pale-cloud',      label: 'Pale Cloud',      color: '#F3F4F6', strokeColor: '#CBD5E1', textColor: '#374151', previewBg: '#F3F4F6', previewBorder: '#CBD5E1' },
   { id: 'pastel-pink',     label: 'Pastel Pink',     color: '#FFD6E8', strokeColor: '#F9A8D4', textColor: '#9D174D', previewBg: '#FFD6E8', previewBorder: '#F9A8D4' },

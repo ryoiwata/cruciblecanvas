@@ -270,6 +270,64 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
       {/* Pending object reference chips */}
       {pendingRefs.length > 0 && (
         <div className="px-3 py-1.5 flex flex-wrap gap-1 border-b border-indigo-100 bg-indigo-50">
+          {/* Group chip — only shown when 2+ refs are active.
+              Clicking the chip body selects all referenced objects and pans to fit them.
+              The × button clears all references at once. */}
+          {pendingRefs.length > 1 && (
+            <span className="inline-flex items-center gap-1 pl-1.5 pr-0.5 py-0.5 rounded bg-violet-100 text-violet-700 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  // Select all referenced objects that still exist on the canvas.
+                  const ids = pendingRefs
+                    .map((r) => r.objectId)
+                    .filter((id) => !!useObjectStore.getState().objects[id]);
+                  if (ids.length === 0) return;
+                  useCanvasStore.getState().setSelectedObjectIds(ids);
+                  // Pan + zoom to fit all referenced objects in the viewport.
+                  const allObjects = useObjectStore.getState().objects;
+                  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                  for (const id of ids) {
+                    const o = allObjects[id];
+                    if (!o) continue;
+                    minX = Math.min(minX, o.x); minY = Math.min(minY, o.y);
+                    maxX = Math.max(maxX, o.x + o.width); maxY = Math.max(maxY, o.y + o.height);
+                  }
+                  if (!isFinite(minX)) return;
+                  const konvaEl = document.querySelector('.konvajs-content');
+                  const vpW = konvaEl?.clientWidth ?? window.innerWidth;
+                  const vpH = konvaEl?.clientHeight ?? window.innerHeight;
+                  const PADDING = 80;
+                  const boxW = maxX - minX;
+                  const boxH = maxY - minY;
+                  const scale = (boxW > 0 && boxH > 0)
+                    ? Math.max(0.1, Math.min(3, Math.min((vpW - PADDING * 2) / boxW, (vpH - PADDING * 2) / boxH)))
+                    : 1;
+                  const cx = minX + boxW / 2;
+                  const cy = minY + boxH / 2;
+                  useCanvasStore.getState().setViewport(vpW / 2 - cx * scale, vpH / 2 - cy * scale, scale);
+                }}
+                title="Select all references on canvas"
+                className="inline-flex items-center gap-1 hover:text-violet-900 transition-colors"
+              >
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                  <rect x="0.5" y="3.5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1" fill="none" />
+                  <rect x="3.5" y="0.5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1" fill="currentColor" fillOpacity="0.2" />
+                </svg>
+                <span>{pendingRefs.length} items</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setPendingRefs([]); }}
+                title="Remove all references"
+                className="ml-0.5 w-4 h-4 rounded flex items-center justify-center hover:bg-violet-200 text-violet-500 hover:text-violet-800 transition-colors leading-none"
+              >
+                ×
+              </button>
+            </span>
+          )}
+
+          {/* Individual object chips */}
           {pendingRefs.map((ref) => {
             const icon  = OBJECT_TYPE_ICONS[ref.objectType] ?? '□';
             const label =

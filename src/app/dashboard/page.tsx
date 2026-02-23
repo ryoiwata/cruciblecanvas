@@ -113,15 +113,19 @@ export default function DashboardPage() {
   const handleDeleteBoard = async (boardId: string) => {
     if (!user) return;
     setDeletingBoardId(boardId);
+    // Optimistic UI — remove immediately so the user sees instant feedback.
+    setBoards((prev) => prev.filter((b) => b.boardId !== boardId));
+    setConfirmDeleteId(null);
     try {
-      await deleteBoardCascade(boardId, user.uid);
-      await deleteBoardRTDB(boardId);
-      setBoards((prev) => prev.filter((b) => b.boardId !== boardId));
+      // Run Firestore + RTDB deletions in parallel for faster cleanup.
+      await Promise.all([
+        deleteBoardCascade(boardId, user.uid),
+        deleteBoardRTDB(boardId),
+      ]);
     } catch (err) {
       console.error("Failed to delete board:", err);
     } finally {
       setDeletingBoardId(null);
-      setConfirmDeleteId(null);
     }
   };
 

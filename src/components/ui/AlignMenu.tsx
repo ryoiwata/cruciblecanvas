@@ -158,22 +158,20 @@ export default function AlignMenu({ boardId, showLabel }: AlignMenuProps) {
       const selected = selectedObjectIds.map((id) => objects[id]).filter(Boolean);
       if (selected.length < 2) return;
 
+      // Collect intended new positions — applied in bulk after propagating child moves.
+      const moves = new Map<string, { x?: number; y?: number }>();
+
       switch (action) {
         case "alignLeft": {
           const minX = Math.min(...selected.map((o) => o.x));
-          for (const obj of selected) {
-            updateObjectLocal(obj.id, { x: minX });
-            updateObject(boardId, obj.id, { x: minX }).catch(console.error);
-          }
+          for (const obj of selected) if (obj.x !== minX) moves.set(obj.id, { x: minX });
           break;
         }
         case "alignCenterH": {
-          const centers = selected.map((o) => o.x + o.width / 2);
-          const avg = centers.reduce((a, b) => a + b, 0) / centers.length;
+          const avg = selected.reduce((s, o) => s + o.x + o.width / 2, 0) / selected.length;
           for (const obj of selected) {
             const newX = Math.round(avg - obj.width / 2);
-            updateObjectLocal(obj.id, { x: newX });
-            updateObject(boardId, obj.id, { x: newX }).catch(console.error);
+            if (newX !== obj.x) moves.set(obj.id, { x: newX });
           }
           break;
         }
@@ -181,26 +179,20 @@ export default function AlignMenu({ boardId, showLabel }: AlignMenuProps) {
           const maxRight = Math.max(...selected.map((o) => o.x + o.width));
           for (const obj of selected) {
             const newX = maxRight - obj.width;
-            updateObjectLocal(obj.id, { x: newX });
-            updateObject(boardId, obj.id, { x: newX }).catch(console.error);
+            if (newX !== obj.x) moves.set(obj.id, { x: newX });
           }
           break;
         }
         case "alignTop": {
           const minY = Math.min(...selected.map((o) => o.y));
-          for (const obj of selected) {
-            updateObjectLocal(obj.id, { y: minY });
-            updateObject(boardId, obj.id, { y: minY }).catch(console.error);
-          }
+          for (const obj of selected) if (obj.y !== minY) moves.set(obj.id, { y: minY });
           break;
         }
         case "alignMiddle": {
-          const middles = selected.map((o) => o.y + o.height / 2);
-          const avg = middles.reduce((a, b) => a + b, 0) / middles.length;
+          const avg = selected.reduce((s, o) => s + o.y + o.height / 2, 0) / selected.length;
           for (const obj of selected) {
             const newY = Math.round(avg - obj.height / 2);
-            updateObjectLocal(obj.id, { y: newY });
-            updateObject(boardId, obj.id, { y: newY }).catch(console.error);
+            if (newY !== obj.y) moves.set(obj.id, { y: newY });
           }
           break;
         }
@@ -208,8 +200,7 @@ export default function AlignMenu({ boardId, showLabel }: AlignMenuProps) {
           const maxBottom = Math.max(...selected.map((o) => o.y + o.height));
           for (const obj of selected) {
             const newY = maxBottom - obj.height;
-            updateObjectLocal(obj.id, { y: newY });
-            updateObject(boardId, obj.id, { y: newY }).catch(console.error);
+            if (newY !== obj.y) moves.set(obj.id, { y: newY });
           }
           break;
         }
@@ -224,8 +215,7 @@ export default function AlignMenu({ boardId, showLabel }: AlignMenuProps) {
           let cursor = first.x + first.width + gap;
           for (let i = 1; i < sorted.length - 1; i++) {
             const newX = Math.round(cursor);
-            updateObjectLocal(sorted[i].id, { x: newX });
-            updateObject(boardId, sorted[i].id, { x: newX }).catch(console.error);
+            if (newX !== sorted[i].x) moves.set(sorted[i].id, { x: newX });
             cursor += sorted[i].width + gap;
           }
           break;
@@ -241,12 +231,41 @@ export default function AlignMenu({ boardId, showLabel }: AlignMenuProps) {
           let cursor = first.y + first.height + gap;
           for (let i = 1; i < sorted.length - 1; i++) {
             const newY = Math.round(cursor);
-            updateObjectLocal(sorted[i].id, { y: newY });
-            updateObject(boardId, sorted[i].id, { y: newY }).catch(console.error);
+            if (newY !== sorted[i].y) moves.set(sorted[i].id, { y: newY });
             cursor += sorted[i].height + gap;
           }
           break;
         }
+      }
+
+      // For each frame being moved, propagate its delta (Δx, Δy) to all child objects
+      // so they maintain their relative position within the frame's boundaries.
+      const childMoves = new Map<string, { x?: number; y?: number }>();
+      for (const [id, move] of Array.from(moves.entries())) {
+        const frameObj = objects[id];
+        if (!frameObj || frameObj.type !== 'frame') continue;
+        const deltaX = move.x !== undefined ? move.x - frameObj.x : 0;
+        const deltaY = move.y !== undefined ? move.y - frameObj.y : 0;
+        if (deltaX === 0 && deltaY === 0) continue;
+        for (const childObj of Object.values(objects)) {
+          if (childObj.parentFrame !== id) continue;
+          // Skip children that are also explicitly being aligned (they have their own move).
+          if (moves.has(childObj.id)) continue;
+          childMoves.set(childObj.id, {
+            x: childObj.x + deltaX,
+            y: childObj.y + deltaY,
+          });
+        }
+      }
+
+      // Apply all frame moves and their propagated child moves.
+      for (const [id, move] of [...Array.from(moves.entries()), ...Array.from(childMoves.entries())]) {
+        const patch: { x?: number; y?: number } = {};
+        if (move.x !== undefined) patch.x = move.x;
+        if (move.y !== undefined) patch.y = move.y;
+        if (Object.keys(patch).length === 0) continue;
+        updateObjectLocal(id, patch);
+        updateObject(boardId, id, patch).catch(console.error);
       }
 
       setOpen(false);
