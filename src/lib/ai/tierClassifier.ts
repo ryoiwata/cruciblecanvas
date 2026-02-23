@@ -42,9 +42,8 @@ const ClassificationSchema = z.object({
   // --- simple tier fields ---
   objects: z
     .array(SimpleObjectSpecSchema)
-    .max(3)
     .optional()
-    .describe('Objects to create. Populate only when tier="simple" (max 3).'),
+    .describe('Objects to create. Populate only when tier="simple". Maximum 3 items.'),
   summaryText: z
     .string()
     .optional()
@@ -52,7 +51,6 @@ const ClassificationSchema = z.object({
   // --- complex tier fields ---
   estimatedCount: z
     .number()
-    .int()
     .optional()
     .describe('Approximate number of objects needed. Populate only when tier="complex".'),
   layoutHint: z
@@ -105,10 +103,12 @@ export async function classifyAndExtract(message: string): Promise<Classificatio
   });
 
   if (object.tier === 'simple') {
+    // Clamp to 3 here since maxItems is not supported in Anthropic's JSON Schema
+    const objects = (object.objects ?? []).slice(0, 3);
     return {
       tier: 'simple',
-      objects: object.objects ?? [],
-      summaryText: object.summaryText ?? `Created ${object.objects?.length ?? 0} object(s).`,
+      objects,
+      summaryText: object.summaryText ?? `Created ${objects.length} object(s).`,
     };
   }
 
