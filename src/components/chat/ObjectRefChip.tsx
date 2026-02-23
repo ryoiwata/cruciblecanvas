@@ -98,11 +98,15 @@ export default function ObjectRefChip({ reference }: ObjectRefChipProps) {
 
     if (noMoveNeeded) {
       selectObject(obj.id);
+      // Trigger pulse ring even when no pan is needed so the object is visually
+      // confirmed as the navigation target on a crowded board.
+      useCanvasStore.getState().setTeleportHighlightId(obj.id);
       return;
     }
 
     // ── Smooth pan + zoom animation ───────────────────────────────────────
     const startTime = performance.now();
+    const capturedId = obj.id; // Stable capture for the async RAF closure.
 
     function step(now: number) {
       const t      = Math.min((now - startTime) / ANIMATION_DURATION_MS, 1);
@@ -117,7 +121,10 @@ export default function ObjectRefChip({ reference }: ObjectRefChipProps) {
       if (t < 1) {
         requestAnimationFrame(step);
       } else {
-        selectObject(obj.id);
+        selectObject(capturedId);
+        // Trigger the pulse ring after the viewport has settled at its final position
+        // so TeleportHighlight computes screen coordinates correctly.
+        useCanvasStore.getState().setTeleportHighlightId(capturedId);
       }
     }
 

@@ -320,6 +320,11 @@ export default function Canvas({ boardId }: CanvasProps) {
 
   // Connector drag ref — tracks the startObjectId during a drag-based connector creation
   const connectorDragRef = useRef<string | null>(null);
+  // Tracks whether actual mouse movement occurred after an anchor mousedown.
+  // Distinguishes a plain click (false → let onClick handle it) from a real drag
+  // (true → finalize via mouseup). Prevents mouseup from clearing connectorStart
+  // before the anchor's onClick fires.
+  const connectorDragMovedRef = useRef(false);
 
   // Hovered object for anchor points
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
@@ -463,12 +468,17 @@ export default function Canvas({ boardId }: CanvasProps) {
   const handleAnchorClick = useCallback(
     (objectId: string) => {
       if (!user) return;
-      if (!connectorStart) {
+      // Read connectorStart imperatively — the reactive closure value is stale
+      // because mousedown+mouseup state changes in Zustand cause React to re-render
+      // BEFORE the subsequent onClick fires, giving us a fresh store value here.
+      const currentConnectorStart = useCanvasStore.getState().connectorStart;
+      if (!currentConnectorStart) {
         // Start connector
         setConnectorStart(objectId);
+        setConnectorEndpoint(null);
       } else {
         // Complete connector
-        if (connectorStart === objectId) {
+        if (currentConnectorStart === objectId) {
           // Self-connection — cancel
           setConnectorStart(null);
           setConnectorEndpoint(null);
@@ -481,10 +491,10 @@ export default function Canvas({ boardId }: CanvasProps) {
           (o) =>
             o.type === "connector" &&
             o.connectedTo &&
-            ((o.connectedTo[0] === connectorStart &&
+            ((o.connectedTo[0] === currentConnectorStart &&
               o.connectedTo[1] === objectId) ||
               (o.connectedTo[0] === objectId &&
-                o.connectedTo[1] === connectorStart))
+                o.connectedTo[1] === currentConnectorStart))
         );
 
         if (isDuplicate) {
@@ -506,7 +516,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           width: 0,
           height: 0,
           color: CONNECTOR_DEFAULTS.color,
-          connectedTo: [connectorStart, objectId],
+          connectedTo: [currentConnectorStart, objectId],
           createdBy: user.uid,
           createdAt: Date.now(),
           updatedAt: Date.now(),
@@ -524,7 +534,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             width: 0,
             height: 0,
             color: CONNECTOR_DEFAULTS.color,
-            connectedTo: [connectorStart, objectId],
+            connectedTo: [currentConnectorStart, objectId],
             createdBy: user.uid,
             metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
             endEffect: isDirected ? 'arrow' as const : 'none' as const,
@@ -536,19 +546,22 @@ export default function Canvas({ boardId }: CanvasProps) {
         setConnectorEndpoint(null);
       }
     },
-    [connectorStart, user, boardId, upsertObject, setConnectorStart]
+    // connectorStart intentionally omitted — read via getState() to avoid stale closures
+    // caused by React re-renders between mousedown/mouseup and the subsequent onClick.
+    [user, boardId, upsertObject, setConnectorStart]
   );
 
   // --- Anchor drag start for drag-based connector creation ---
   const handleAnchorDragStart = useCallback(
     (objectId: string) => {
       if (!user) return;
+      // Only record the source anchor. Drag UI state (connectorStart, connectorDragging)
+      // is initialized lazily on first mousemove so a plain click on the anchor doesn't
+      // trigger the drag-finalization path in mouseup and clobber connectorStart.
       connectorDragRef.current = objectId;
-      setConnectorStart(objectId);
-      setConnectorDragging(true);
-      setConnectorHoverTarget(null);
+      connectorDragMovedRef.current = false;
     },
-    [user, setConnectorStart, setConnectorDragging, setConnectorHoverTarget]
+    [user]
   );
 
   // --- Click (connector cancel / select clear only) ---
@@ -836,6 +849,17 @@ export default function Canvas({ boardId }: CanvasProps) {
           setHoveredObjectId(null);
         }
 
+        // Lazy drag initialization — initialize connector drag UI state on the first
+        // actual mouse movement after an anchor mousedown. This ensures a plain click
+        // on an anchor doesn't trigger the drag-finalization path in mouseup, which
+        // would clear connectorStart before the anchor's onClick fires.
+        if (connectorDragRef.current && !connectorDragMovedRef.current) {
+          connectorDragMovedRef.current = true;
+          setConnectorStart(connectorDragRef.current);
+          setConnectorDragging(true);
+          setConnectorHoverTarget(null);
+        }
+
         // During connector drag: update hover target for glow highlighting.
         // Use getState() to avoid a reactive subscription on the full objects map.
         if (connectorDragRef.current) {
@@ -849,8 +873,9 @@ export default function Canvas({ boardId }: CanvasProps) {
           setConnectorHoverTarget(validTarget);
         }
 
-        // Update temp connector endpoint
-        if (connectorStart) {
+        // Update temp connector endpoint. Read store directly (getState) so the check
+        // reflects the value just set in the lazy init above without waiting for a re-render.
+        if (useCanvasStore.getState().connectorStart) {
           const canvasPoint = getCanvasPoint(
             stage.x(),
             stage.y(),
@@ -954,6 +979,8 @@ export default function Canvas({ boardId }: CanvasProps) {
       lastUsedColors,
       upsertObject,
       updateObjectLocal,
+      setConnectorStart,
+      setConnectorDragging,
       setConnectorHoverTarget,
     ]
   );
@@ -1012,11 +1039,20 @@ export default function Canvas({ boardId }: CanvasProps) {
 
     // --- Connector drag finalization ---
     if (connectorDragRef.current && user) {
+      if (!connectorDragMovedRef.current) {
+        // Plain click on anchor — no actual drag occurred. Clear the drag ref and let
+        // the anchor's onClick handler (handleAnchorClick) manage connectorStart via getState().
+        connectorDragRef.current = null;
+        return;
+      }
+
+      // Real drag — mouse moved after mousedown. Finalize the connector.
       const startObjectId = connectorDragRef.current;
       const hoverTarget = useCanvasStore.getState().connectorHoverTarget;
 
       // Reset all drag state
       connectorDragRef.current = null;
+      connectorDragMovedRef.current = false;
       setConnectorStart(null);
       setConnectorDragging(false);
       setConnectorHoverTarget(null);
