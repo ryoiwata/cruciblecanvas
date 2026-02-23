@@ -81,15 +81,20 @@ export default memo(function ConnectorObject({
   // Arrow effect settings — defaults to a directed arrow at the end
   const endEffect: LineEffect = object.endEffect ?? 'arrow';
   const startEffect: LineEffect = object.startEffect ?? 'none';
-  const hasArrowhead = endEffect !== 'none' || startEffect !== 'none';
+  const hasEndArrow   = endEffect   !== 'none';
+  const hasStartArrow = startEffect !== 'none';
 
   // Konva Arrow uses a single pointerLength/pointerWidth for both ends.
   // Prefer end-effect size when the end has an arrowhead, otherwise use start-effect size.
-  const effectSizePct = endEffect !== 'none'
+  // When neither end has an arrowhead, use 0 so the Arrow renders as a plain line
+  // without switching component types (avoids Konva layer-cache ghosting on toggle).
+  const effectSizePct = hasEndArrow
     ? (object.endEffectSize ?? 100)
-    : (object.startEffectSize ?? 100);
-  const pointerLen = Math.round(effectSizePct / 100 * 12);
-  const pointerW   = Math.round(effectSizePct / 100 * 10);
+    : hasStartArrow
+      ? (object.startEffectSize ?? 100)
+      : 0;
+  const pointerLen = effectSizePct > 0 ? Math.round(effectSizePct / 100 * 12) : 0;
+  const pointerW   = effectSizePct > 0 ? Math.round(effectSizePct / 100 * 10) : 0;
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     // Only handle left-click; right-click fires contextmenu and should not change selection
@@ -141,30 +146,22 @@ export default memo(function ConnectorObject({
         onContextMenu={handleContextMenu}
       />
 
-      {/* Visible line — use Arrow when arrowheads are needed, Line when not */}
-      {hasArrowhead ? (
-        <Arrow
-          points={points}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          fill={getArrowFill(endEffect, strokeColor)}
-          dash={dash}
-          // Shared arrowhead size (Konva Arrow uses one size for both ends)
-          pointerLength={pointerLen}
-          pointerWidth={pointerW}
-          pointerAtEnding={endEffect !== 'none'}
-          pointerAtBeginning={startEffect !== 'none'}
-          listening={false}
-        />
-      ) : (
-        <Line
-          points={points}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          dash={dash}
-          listening={false}
-        />
-      )}
+      {/* Visible line — always an Arrow component to avoid Konva layer-cache ghosting
+          when toggling between directed and undirected. When neither end has an
+          arrowhead, pointerLength/pointerWidth are 0 and pointerAt* are false,
+          so Konva renders a plain line with no pointer geometry at all. */}
+      <Arrow
+        points={points}
+        stroke={strokeColor}
+        strokeWidth={strokeWidth}
+        fill={hasEndArrow ? getArrowFill(endEffect, strokeColor) : 'transparent'}
+        dash={dash}
+        pointerLength={pointerLen}
+        pointerWidth={pointerW}
+        pointerAtEnding={hasEndArrow}
+        pointerAtBeginning={hasStartArrow}
+        listening={false}
+      />
 
       {/* Optional label */}
       {object.text && (
