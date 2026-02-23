@@ -146,28 +146,40 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
 
       // Tool switching — number keys and letter aliases
       switch (e.key) {
-        // Number shortcuts matching toolbar order (1–6)
+        // Number shortcuts matching toolbar order (1–9, left to right)
         case "1":
           canvasState.setMode("pointer");
           return;
         case "2":
-          canvasState.enterCreateMode("stickyNote");
+          canvasState.setPendingLineArrow(false);
+          canvasState.enterCreateMode("line");
           return;
         case "3":
-          canvasState.enterCreateMode("rectangle");
+          canvasState.setPendingLineArrow(true);
+          canvasState.enterCreateMode("line");
           return;
         case "4":
-          canvasState.enterCreateMode("circle");
+          canvasState.enterCreateMode("connector");
           return;
         case "5":
-          canvasState.enterCreateMode("text");
+          canvasState.enterCreateMode("rectangle");
           return;
         case "6":
+          canvasState.enterCreateMode("circle");
+          return;
+        case "7":
+          canvasState.enterCreateMode("text");
+          return;
+        case "8":
+          canvasState.enterCreateMode("stickyNote");
+          return;
+        case "9":
           canvasState.enterCreateMode("frame");
           return;
-        // Letter shortcuts (matches toolbar badges)
+        // Letter shortcuts (alternate aliases — unchanged)
         case "l":
         case "L":
+          canvasState.setPendingLineArrow(false);
           canvasState.enterCreateMode("line");
           return;
         case "r":

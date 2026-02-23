@@ -323,14 +323,14 @@ function ConnectorSplitButton({ isActive, isDirected, onActivate, onSetDirected 
         type="button"
         onMouseDown={(e) => e.preventDefault()}
         onClick={onActivate}
-        title={`Connector — ${isDirected ? 'Directed' : 'Undirected'} (C)`}
+        title={`Connector — ${isDirected ? 'Directed' : 'Undirected'} (4)`}
         className={`${baseBtn} h-14 w-11 pl-1`}
       >
         <Cable size={14} />
         <span className="text-[10px] font-medium leading-none">
           {isDirected ? 'Connect→' : 'Connect'}
         </span>
-        <span className="text-[9px] leading-none font-mono text-gray-400 bg-gray-100 rounded px-0.5 mt-0.5">C</span>
+        <span className="text-[9px] leading-none font-mono text-gray-400 bg-gray-100 rounded px-0.5 mt-0.5">4</span>
       </button>
 
       {/* Chevron opens the dropdown */}
@@ -568,7 +568,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Line"
         icon={<LineToolIcon />}
         isActive={isLineActive}
-        shortcut="L"
+        shortcut="2"
         onClick={() => {
           setPendingLineArrow(false);
           enterCreateMode('line');
@@ -580,7 +580,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Arrow"
         icon={<ArrowToolIcon />}
         isActive={isArrowActive}
-        shortcut="A"
+        shortcut="3"
         onClick={() => {
           setPendingLineArrow(true);
           enterCreateMode('line');
@@ -607,7 +607,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Rect"
         icon={<RectIcon />}
         isActive={isRectActive}
-        shortcut="3"
+        shortcut="5"
         onClick={() => enterCreateMode('rectangle')}
       />
 
@@ -616,7 +616,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Circle"
         icon={<CircleIcon />}
         isActive={isCircleActive}
-        shortcut="4"
+        shortcut="6"
         onClick={() => enterCreateMode('circle')}
       />
 
@@ -625,7 +625,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Text"
         icon={<span className="font-bold text-sm leading-none" aria-hidden="true">T</span>}
         isActive={isTextActive}
-        shortcut="5"
+        shortcut="7"
         onClick={() => enterCreateMode('text')}
       />
 
@@ -634,7 +634,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Sticky"
         icon={<StickyIcon />}
         isActive={isStickyActive}
-        shortcut="2"
+        shortcut="8"
         onClick={() => enterCreateMode('stickyNote')}
       />
 
@@ -643,7 +643,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Frame"
         icon={<FrameIcon />}
         isActive={isFrameActive}
-        shortcut="6"
+        shortcut="9"
         onClick={() => enterCreateMode('frame')}
       />
 
