@@ -25,10 +25,10 @@ import {
 import { setAIStream, updateAIStream, removeAIStream } from '@/lib/firebase/rtdb';
 import { serializeBoardState } from '@/lib/ai/context';
 import { computeSuggestedPositions } from '@/lib/ai/spatialPlanning';
-import type { ChatMessage } from '@/lib/types';
+import type { ChatMessage, ObjectReference } from '@/lib/types';
 
 interface UseAICommandReturn {
-  sendAICommand: (command: string) => void;
+  sendAICommand: (command: string, refs?: ObjectReference[]) => void;
   isAILoading: boolean;
 }
 
@@ -56,7 +56,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
   const persona = usePersonaStore((s) => s.persona);
 
   const sendAICommand = useCallback(
-    async (command: string) => {
+    async (command: string, refs?: ObjectReference[]) => {
       if (!user || isAILoading) return;
 
       // Open sidebar so user can see the response streaming
@@ -106,7 +106,8 @@ export function useAICommand(boardId: string): UseAICommandReturn {
       const boardState = serializeBoardState(objects, viewportBounds, selectedObjectIds);
       const suggestedPositions = computeSuggestedPositions(objects, viewportBounds, 5);
 
-      // Build optimistic ai_command message
+      // Build optimistic ai_command message — include any object references so
+      // the chat timeline can render clickable chips immediately on send.
       const commandMsgId = `optimistic-cmd-${aiCommandId}`;
       const commandMsg: ChatMessage = {
         id: commandMsgId,
@@ -120,6 +121,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         aiPersona: persona,
         aiStatus: 'streaming',
         createdAt: Date.now(),
+        ...(refs && refs.length > 0 ? { objectReferences: refs } : {}),
       };
       addMessage(commandMsg);
 
@@ -159,7 +161,8 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         timestamp: Date.now(),
       });
 
-      // Persist the ai_command message to Firestore
+      // Persist the ai_command message to Firestore — objectReferences gives
+      // other collaborators' chat timelines the same clickable chips.
       sendChatMessage(boardId, {
         boardId,
         senderId: user.uid,
@@ -170,6 +173,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         aiCommandId,
         aiPersona: persona,
         aiStatus: 'completed',
+        ...(refs && refs.length > 0 ? { objectReferences: refs } : {}),
       }).catch(console.error);
 
       // Get Firebase ID token for API authorization

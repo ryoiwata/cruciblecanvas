@@ -496,6 +496,8 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Snapshot before connector creation so it is undoable
         useObjectStore.getState().snapshot();
         const newId = generateObjectId(boardId);
+        // Read direction preference imperatively to avoid adding it to the dep array.
+        const isDirected = useCanvasStore.getState().pendingConnectorDirected;
         const newConnector = {
           id: newId,
           type: "connector" as const,
@@ -509,6 +511,7 @@ export default function Canvas({ boardId }: CanvasProps) {
           createdAt: Date.now(),
           updatedAt: Date.now(),
           metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+          endEffect: isDirected ? 'arrow' as const : 'none' as const,
         };
 
         upsertObject(newConnector);
@@ -524,6 +527,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             connectedTo: [connectorStart, objectId],
             createdBy: user.uid,
             metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+            endEffect: isDirected ? 'arrow' as const : 'none' as const,
           },
           newId
         ).catch(console.error);
@@ -1033,6 +1037,8 @@ export default function Canvas({ boardId }: CanvasProps) {
 
         if (!isDuplicate) {
           const newId = generateObjectId(boardId);
+          // Read direction preference imperatively; avoids dep array churn.
+          const isDragDirected = useCanvasStore.getState().pendingConnectorDirected;
           const newConnector = {
             id: newId,
             type: "connector" as const,
@@ -1046,6 +1052,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             createdAt: Date.now(),
             updatedAt: Date.now(),
             metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+            endEffect: isDragDirected ? 'arrow' as const : 'none' as const,
           };
 
           upsertObject(newConnector);
@@ -1061,6 +1068,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               connectedTo: [startObjectId, hoverTarget],
               createdBy: user.uid,
               metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+              endEffect: isDragDirected ? 'arrow' as const : 'none' as const,
             },
             newId
           ).catch(console.error);

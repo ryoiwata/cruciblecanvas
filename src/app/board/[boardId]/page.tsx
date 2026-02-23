@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useCanvasStore } from "@/lib/store/canvasStore";
-import type { BoardObject, CursorData } from "@/lib/types";
+import type { BoardObject, CursorData, ObjectReference } from "@/lib/types";
 import { useChatStore } from "@/lib/store/chatStore";
 import { signInAsGuest, signOutUser, loadPreferredColor } from "@/lib/firebase/auth";
 import { auth } from "@/lib/firebase/config";
@@ -337,8 +337,8 @@ export default function BoardPage() {
   useMultiplayer({ boardId, user, displayName });
 
   const handleSendAICommand = useCallback(
-    (command: string) => {
-      sendAICommand(command);
+    (command: string, refs: ObjectReference[]) => {
+      sendAICommand(command, refs);
     },
     [sendAICommand]
   );

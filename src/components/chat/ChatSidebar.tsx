@@ -14,10 +14,11 @@ import { useChatStore } from '@/lib/store/chatStore';
 import ChatTimeline from './ChatTimeline';
 import ChatInput from './ChatInput';
 import PersonaSelector from './PersonaSelector';
+import type { ObjectReference } from '@/lib/types';
 
 interface ChatSidebarProps {
   boardId: string;
-  onSendAICommand?: (command: string) => void;
+  onSendAICommand?: (command: string, refs: ObjectReference[]) => void;
   isAILoading?: boolean;
 }
 

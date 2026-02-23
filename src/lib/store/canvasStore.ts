@@ -65,6 +65,10 @@ interface CanvasState {
   // Set by the Arrow toolbar button; reset when exiting to pointer mode.
   pendingLineArrow: boolean;
 
+  // Connector direction flag — when true, new connectors are created with endEffect: 'arrow'.
+  // Persists across mode switches so the user's last preference is remembered for the session.
+  pendingConnectorDirected: boolean;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -94,6 +98,7 @@ interface CanvasState {
   setMarqueeMode: (enabled: boolean) => void;
   setMultiSelectMode: (enabled: boolean) => void;
   setPendingLineArrow: (arrow: boolean) => void;
+  setPendingConnectorDirected: (directed: boolean) => void;
 
   // Teleport-to-reference highlight — set after pan animation completes;
   // cleared by TeleportHighlight after the CSS animation finishes (~1.2 s).
@@ -134,6 +139,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   isMarqueeMode: false,
   isMultiSelectMode: false,
   pendingLineArrow: false,
+  pendingConnectorDirected: true,
   teleportHighlightId: null,
 
   setMode: (mode) =>
@@ -249,4 +255,5 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   setTeleportHighlightId: (id) => set({ teleportHighlightId: id }),
 
   setPendingLineArrow: (arrow) => set({ pendingLineArrow: arrow }),
+  setPendingConnectorDirected: (directed) => set({ pendingConnectorDirected: directed }),
 }));

@@ -31,7 +31,7 @@ import { OBJECT_TYPE_ICONS } from '@/components/chat/ObjectRefChip';
 
 interface ChatInputProps {
   boardId: string;
-  onSendAICommand?: (command: string) => void;
+  onSendAICommand?: (command: string, refs: ObjectReference[]) => void;
   isAILoading?: boolean;
 }
 
@@ -209,7 +209,7 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
         command = `${command}\n\nReferenced objects:\n${refContext}`;
       }
 
-      onSendAICommand?.(command);
+      onSendAICommand?.(command, refsToSend);
     } else {
       const messageData: Omit<ChatMessage, 'id' | 'createdAt'> = {
         boardId,

@@ -129,11 +129,13 @@ export default memo(function ConnectorObject({
 
   return (
     <Group id={object.id}>
-      {/* Hit area (wider invisible line for easier clicking) */}
+      {/* Hit area — 20px invisible stroke makes connectors much easier to click
+          on high-DPI screens without changing the visual appearance.
+          listening={true} is the default; the visible line below uses listening={false}. */}
       <Line
         points={points}
         stroke="transparent"
-        strokeWidth={12}
+        strokeWidth={20}
         onClick={handleClick}
         onTap={handleClick}
         onContextMenu={handleContextMenu}

@@ -115,11 +115,12 @@ AI TODOs
 
 ~~~~~~~~~~~~~~~~~~~~~~~
 Current TODOs
-- When selecting multiple items and referencing them in chat, there should be group icon of the group as well as each individual item in the chat reference. Make sure that it actually goes to chat when the message is sent, instead of disappearing.
+- [x] When selecting multiple items and referencing them in chat, there should be group icon of the group as well as each individual item in the chat reference. Make sure that it actually goes to chat when the message is sent, instead of disappearing.
 - [ ] Include directed connedctors for flow charts
 - [ ] Arrows as an option for shapes
   - should be some sort of shape
 - [ ] Fix ordering of tool shorcut numbers, have number next to tool label
+- [] Make AI chat referenceable for the shapes
 
 
 Low priority TODOs
