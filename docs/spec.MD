@@ -42,17 +42,17 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 **Backend**
 - Database (Persistent): Firebase Firestore
 - Database (Ephemeral): Firebase Realtime Database
-- Auth: Firebase Auth (Anonymous + Google + GitHub OAuth)
+- Auth: Firebase Auth (Anonymous + Google OAuth)
 - Deployment: Vercel
 - Functions: Vercel API Routes (Node.js runtime — **not** Edge, required for OpenTelemetry)
 
 **AI Layer**
 - LLM: Anthropic Claude Sonnet 4.6 (`claude-sonnet-4-6`)
-- SDK: `ai` v6 (Vercel AI SDK v4 family) + `@ai-sdk/anthropic`
+- SDK: `ai` v6 (Vercel AI SDK) + `@ai-sdk/anthropic`
   - Tool schema: `inputSchema: zodSchema(z.object({...}))` (**not** `parameters`)
-  - Step limiting: `stopWhen: stepCountIs(15)` (**not** `maxSteps`)
+  - Step limiting: `stopWhen: stepCountIs(30)` (**not** `maxSteps`)
   - Streaming: `toTextStreamResponse()` (**not** `toDataStreamResponse()`)
-- Pattern: Agentic tool-calling with multi-step execution
+- Pattern: Single-tier agentic tool-calling with multi-step execution (Sonnet for all commands)
 
 **Observability**
 - Platform: Langfuse (traces, cost tracking)
@@ -78,7 +78,7 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 │  ├─ Next.js Middleware (/ → /dashboard redirect)            │
 │  ├─ Canvas Renderer (Konva.js)                              │
 │  ├─ State Management (Zustand)                              │
-│  ├─ Auth Context (Firebase Auth: Anon + Google + GitHub)    │
+│  ├─ Auth Context (Firebase Auth: Anon + Google)             │
 │  ├─ Real-time Listeners (Firestore + RTDB)                  │
 │  └─ Observability (Langfuse via OpenTelemetry)              │
 └──────────────────┬──────────────────────────────────────────┘
@@ -116,7 +116,6 @@ CrucibleCanvas is not a passive whiteboard—it's an AI-powered strategic thinki
 
 **Social OAuth**
 - Google Sign-In
-- GitHub Sign-In
 - Standard Firebase Auth flow with redirect
 
 ### 3.2 Next.js Middleware & Routing
@@ -162,11 +161,13 @@ type ObjectType =
   | 'stickyNote'
   | 'rectangle'
   | 'circle'
+  | 'diamond'        // Flowchart decision node (rotated square)
+  | 'roundedRect'    // Flowchart process step (rounded rectangle)
   | 'frame'
   | 'connector'
   | 'colorLegend'
-  | 'line'      // Free-form straight line (start = (x,y), direction = (width, height))
-  | 'text';     // Standalone free-form text element (transparent background)
+  | 'line'           // Free-form straight line (start = (x,y), direction = (width, height))
+  | 'text';          // Standalone free-form text element (transparent background)
 
 type AnalyticalRole = 'critique' | 'assumption' | 'gap_flag' | 'criterion' | 'option' | 'evaluation';
 type ConnectorStyle = 'solid' | 'dashed' | 'dotted';
@@ -243,6 +244,8 @@ interface BoardObject {
 **Collection: `boards/{boardId}/metadata`**
 
 ```typescript
+type AiPersona = 'mason'; // Single persona; no switching
+
 interface BoardMetadata {
   title: string;
   createdAt: Timestamp;
@@ -253,7 +256,7 @@ interface BoardMetadata {
   invitedEmails: string[];
 
   // AI configuration
-  aiPersona: 'mason' | 'neutral' | 'skeptical_investor' | 'opposing_counsel';
+  aiPersona: AiPersona;         // Always 'mason'
 
   // Rate limiting
   aiCommandsToday: number;
@@ -347,6 +350,17 @@ The canvas operates in named modes stored in `canvasStore.mode`:
 - Separate fill color and stroke color
 - Border style: solid, dashed, dotted
 - Resizable via Transformer handles
+- **Intended for geometric/decorative use only** — do not use for content with body text
+
+#### Diamond
+- Flowchart decision node; rendered as a rotated square polygon via Konva `Line`
+- Default: 160×120px; default color: yellow (#FEFF9C)
+- Displays label text
+
+#### RoundedRect
+- Flowchart process step; rendered as Konva `Rect` with `cornerRadius: 20`
+- Default: 160×80px; default color: light blue (#DBEAFE)
+- Displays label text
 
 #### Frames
 - Visual container for grouping objects; title bar (40px height)
@@ -361,6 +375,7 @@ The canvas operates in named modes stored in `canvasStore.mode`:
 - Endpoints update in real-time when objects drag
 - Connector anchor dots shown on hover, scale with zoom
 - Styles: solid, dashed, dotted; start/end effects (arrows, dots)
+- `endEffect: 'arrow'` for directed connectors; `endEffect: 'none'` for undirected
 - Orphan cleanup: Deleted when either endpoint object is deleted
 - Click connector object to select and drag it
 
@@ -368,6 +383,7 @@ The canvas operates in named modes stored in `canvasStore.mode`:
 - Type `line`; start = (x, y), direction vector = (width, height) — both can be negative
 - Wide invisible hit area (12px stroke) for easy clicking on thin lines
 - Thickness and border style configurable
+- Renders as Konva `Arrow` when `endEffect !== 'none'`
 
 #### Text (Standalone)
 - Type `text`; transparent background — text only
@@ -415,6 +431,7 @@ The canvas operates in named modes stored in `canvasStore.mode`:
 - Transformer handles: 8 resize anchors + rotation handle
 - Frame capture glow: Frame glows brand-purple when dragging an object over it (`frameDragHighlightId` in canvasStore)
 - Parent frame indicator: Purple stroke on framed children
+- Teleport highlight: CSS pulse ring (via `teleportHighlightId`) when AI navigates to an object
 
 ### 5.6 Context Menu
 
@@ -454,7 +471,7 @@ return {
 
 #### Multiplayer Cursors
 - Update rate: 30 Hz (33ms throttle); minimum 5px movement to send
-- Display: Circle + name label; color generated from user ID hash
+- Display: Circle + name label; color generated from user ID hash or user-selected preferred color
 - Cleanup: onDisconnect() removes cursor record automatically
 
 #### Object Synchronization
@@ -472,6 +489,7 @@ return {
 - Avatar stack in top-right (overlapping circles, "+N" overflow)
 - Offline threshold: 30 seconds inactivity
 - Anonymous users shown with display name and generated avatar color
+- Users can select a preferred cursor/avatar color (persisted to Firestore `users/{uid}/profile/preferredColor`)
 
 ### 5.8 Offline State Handling
 
@@ -498,10 +516,10 @@ The workspace uses a **two-tier header** layout (BioRender-style) with fixed hei
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ [Guest Session Banner — slim, conditionally shown]                 │
-├──────────────────────────────────────── TopHeader h-12 ────────────┤
+│ [Guest Session Banner — slim, conditionally shown]                  │
+├──────────────────────────────────────── TopHeader h-12 ─────────────┤
 │ [≡] [CrucibleCanvas title (inline, editable)] │ [Presence] [👁] [Share] [Chat] [Dashboard] [Log Off] │
-├─────────────────────────────────────── SubHeader h-11 ─────────────┤
+├─────────────────────────────────────── SubHeader h-11 ──────────────┤
 │ [↩Undo] [↪Redo] │ [↖Pointer] [Lines▾] [Shapes▾] [T Text] [📝Sticky] │ [Align▾] [Arrange▾] │ [⬚Marq] [⊕Multi-sel] [⊞All] [⎘Copy] │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                       │
@@ -534,7 +552,7 @@ Located at `src/components/canvas/` (board page top-level).
 - `PresenceIndicator` — avatar stack
 - `PrivacyToggle` — emoji pill (👀 public / 🥸 private)
 - `ShareButton`
-- Chat toggle (💬 Chat)
+- Chat toggle (💬 Chat) — shows amber pulsing dot when `clarificationPending`
 - Dashboard link
 - Log Off
 
@@ -547,7 +565,7 @@ Located at `src/components/ui/SubHeaderToolbar.tsx`.
 2. **Separator**
 3. **Tool buttons** — each is a vertical `ToolButton` (icon + label + optional `kbd`):
    - Pointer (↖, shortcut `1`)
-   - Lines dropdown (Line `\`, Connector `⌇`)
+   - Lines dropdown (Line `\`, Arrow, Connector)
    - Shapes dropdown (Rectangle `□`, Circle `○`, Frame `⊞`)
    - Text (`T`, shortcut `T`)
    - Sticky Note (📝, shortcut `S`)
@@ -576,7 +594,7 @@ Located at `src/components/properties/`.
 - `TextModule` — font family, font size, text color, text align, opacity
 - `FrameModule` — fill color, stroke color, border style, frame title, opacity
 - `StickyNoteModule` — fill color, font family, font size, text align, opacity
-- `LineModule` — stroke color, line thickness, border type, start/end effects, line type
+- `LineModule` — stroke color, line thickness, border type, start/end effects, line type; directed toggle for connectors
 
 **Common controls:**
 - `ColorRow` — hex color input + color picker popup
@@ -586,7 +604,7 @@ Located at `src/components/properties/`.
 
 **DimensionModule:** Shows and edits `width` × `height` for the selected object.
 
-**PresetsSection:** Color palette presets (6 pastels, expandable to 18).
+**PresetsSection:** Color palette presets — 6 primary colors always visible (Black, White, Red, Yellow, Green, Blue); 12 pastels behind "See more" toggle. Selecting a preset also sets `activeColor` for the next creation tool.
 
 **RecentColorsSection:** Up to 12 most recently used colors across all tool types.
 
@@ -597,17 +615,21 @@ Located at `src/components/chat/`.
 **Position:** Right flex sibling. Collapsible. Pushing canvas (Stage resizes via ResizeObserver).
 
 **Components:**
-- `ChatSidebar` — top-level container
-- `PersonaSelector` — dropdown; Mason listed first as "⚙ The Mason"
+- `ChatSidebar` — top-level container; shows "Waiting for your input..." amber status when `clarificationPending`
+- `MasonBadge` — static indigo pill "⚙ The Mason" (replaces persona selector — no switching)
 - `ChatTimeline` — unified message list (no mode filtering; renders all messages)
 - `ChatMessage` — individual message bubble
-- `AIStreamMessage` — streaming AI response with live text
+- `AIStreamMessage` — streaming AI response with live text; renders `AIRefPopover` after streaming completes when `objectReferences.length > 0`
+- `AIRefPopover` — smart object reference popover:
+  - `SMART_POPOVER_THRESHOLD = 5`: batches > 5 collapse behind "View X items" toggle
+  - `MasterGroupChip`: violet chip that selects ALL refs and teleports viewport to the top-leftmost object
+  - Individual `ObjectRefChip`s for each referenced object; click navigates and pulses the object
 - `ChatInput` — inline toggle button (✨/👥) left of input switches send target between AI and group; send button color reflects target
-- `ObjectRefChip` — clickable chips for referenced canvas objects
+- `ObjectRefChip` — clickable chips for referenced canvas objects; triggers `teleportHighlightId` pulse ring
 - `MessagePreview` — preview of pending message
 
 **Chat modes:**
-- `chatMode: 'ai' | 'group'` — stored in `useChatStore`; per-message send target (not a filter)
+- `chatMode: 'ai' | 'group'` — stored in `useChatStore`; per-message **send target** (not a display filter)
 - Both AI responses and group chat appear in the same unified timeline
 
 **Keyboard shortcut:** `/` opens the sidebar and focuses input (skips if editing text)
@@ -615,22 +637,22 @@ Located at `src/components/chat/`.
 **Clarification pending state:**
 - Amber pulsing dot (animate-ping) on chat toggle button when `clarificationPending`
 - Sidebar header shows "Waiting for your input..." amber status text
+- Turn history (last 6 messages) included in next POST when `wasPendingClarification`
 
 ### 6.7 Share Modal
 
 Triggered by "Share" button in TopHeader.
 
 **Contents:**
-- Public/Private toggle (confirmation dialog on switch)
-- Board URL with "Copy Link" button
-- Invite section (private): email input + "Add"; list of invited emails with remove
-- Contacts quick-invite: past collaborators for one-click invite
+- General Access section (Public/Private indicator + Copy Link button)
+- Invite section (private boards): email input + "Add"; list of invited emails with remove
 
 ### 6.8 Presence Indicators
 
 - **Location:** TopHeader right side
 - **Format:** Overlapping avatar circles (3-4 visible) + "+N" overflow
 - Anonymous users: display name with colored circle
+- Color preference: user can select a preferred color via `UserProfileButton` color swatch grid
 
 ### 6.9 Zoom & Coordinate Controls
 
@@ -652,12 +674,13 @@ Triggered by "Share" button in TopHeader.
 - Board title, last modified date, public/private indicator
 - AI-generated tags (3-5 chips) on explicit "Summarize Board" trigger
 - Hover: 2-3 sentence executive summary
-- Actions: Open, Delete (confirmation), Summarize Board
+- Actions: Open, Delete (confirmation)
+- Delete: calls `deleteBoardCascade` (batch-deletes all objects + metadata) + `deleteBoardRTDB`; creator-only
 
 ### 7.3 Board Creation
 
 - "New Board" button → modal with title input
-- Defaults: public (`isPublic: true`), empty canvas
+- Defaults: public (`isPublic: true`), empty canvas, `aiPersona: 'mason'`
 - Navigates to `/board/[new-random-id]`
 
 ### 7.4 Board Title
@@ -681,75 +704,84 @@ Triggered by "Share" button in TopHeader.
 
 ## 8. AI Agent Capabilities
 
-### 8.1 Personas
+### 8.1 Persona
 
-The AI agent operates in one of four personas, stored in `BoardMetadata.aiPersona`:
+CrucibleCanvas has a single AI persona: **The Mason**.
 
 | Persona | ID | Behavior |
 |---------|-----|----------|
-| The Mason | `mason` | Silent executor — tool calls only, 1-2 sentence summary response, no explanations or suggestions |
-| Neutral Critic | `neutral` | Balanced strategic advisor; Socratic |
-| Skeptical Investor | `skeptical_investor` | VC mindset; unit economics, market validation focus |
-| Opposing Counsel | `opposing_counsel` | Adversarial lawyer; legal exposure, precedent focus |
+| The Mason | `mason` | Silent executor — tool calls only, exactly one-line summary response, no explanations or suggestions |
 
-**Mason is the default persona** (set in `chatStore.ts` persisted initial value).
-
-**Mason-specific behavior:**
-- Always calls `getBoardState` first before executing commands
-- Responds with 1-2 sentence summary only; never explains or suggests
-- Uses `askClarification` tool when intent is ambiguous (other personas don't have this tool)
+**Mason behavior:**
+- Responds with exactly ONE line: "Created \<N\> \<type(s)\> for \<brief summary\>."
+- Uses `askClarification` tool when intent is ambiguous
 - Output: "Clarification needed: {question}" sentinel string, parsed client-side via `/^clarification needed:/i` regex
-- Tools: limited to board manipulation tools; `redTeamThis`, `mapDecision`, `findGaps` are excluded
-- Non-Mason personas: analytical tools enabled; `askClarification` excluded
+- Tools: all spatial + manipulation tools; `redTeamThis`, `mapDecision`, `findGaps` excluded (`MASON_EXCLUDED_TOOLS`)
+- Uses `findAvailableSpace` before batch operations to avoid overlap with existing content
 
 **Turn history for clarification:**
 - When `wasPendingClarification`, last 6 AI messages are included in the `messages[]` array sent to the API route, enabling contextual follow-ups
 
-### 8.2 AI Object Placement
+### 8.2 AI Object Placement & Framing
 
-**Spatial planning (`src/lib/ai/spatialPlanning.ts`) — two-pass algorithm:**
+**Spatial planning (`src/lib/ai/spatialPlanning.ts`):**
 
-*Pass 1 — Viewport fit:*
-- Scans viewport for the first clear anchor point that fits the output cluster
-- Generates a sqrt(N)-column grid cluster with 200×160 cell size + 20px gap
-- Frames are opaque blocks (AABB excluded from scan)
-- Result: `source: 'viewport'`
+*Client-side — `computeSuggestedPositions` (two-pass):*
+- Pass 1: Scans viewport for first clear anchor, generates sqrt(N)-column grid cluster
+- Pass 2: Reflow below lowest object if viewport too full
+- Results injected into system prompt as `SUGGESTED OPEN POSITIONS`
 
-*Pass 2 — Reflow (if viewport too crowded):*
-- Places cluster below the lowest existing object at viewport.x left edge
-- Result: `source: 'reflow'`; prompts.ts appends '[below viewport]' hint
+*Server-side utilities:*
+- `computeOccupiedZones`: frames → exact AABB+20px pad; non-frame objects → proximity-cluster (100px) bounding boxes+20px pad; connectors skipped
+- `findClearRect`: row-major scan from `searchOrigin`, adaptive step sizes, snaps to 20px grid
+- `findContainingFrame`: returns ID of first frame whose bounds contain the object's center point
+- `clampToFrame`: clamps (x, y) so an object fits within a frame's inner bounds (20px margin on all sides, snapped to grid)
 
-All positions snapped to 20px grid.
+**Frame parentage enforcement (`tools.ts`):**
+- All creation tools accept an optional `parentFrameId` parameter
+- When `parentFrameId` is provided: looks up the frame in `boardObjects`, calls `clampToFrame` to validate coordinates, writes `parentFrame` field to Firestore
+- When no explicit ID: falls back to spatial `findContainingFrame` auto-detection
+- `createFlowchart` with `wrapInFrame=true`: frame is created **first** (before any nodes), then all nodes are written with `parentFrame: frameId` — eliminates the ordering race
+
+**Text-body enforcement:**
+- `TEXT_BODY_THRESHOLD = 20` characters
+- Any `rectangle` or `circle` with text longer than the threshold is auto-converted to `stickyNote` at tool execution time
+- Applies in: `createElementsBatch`, `createFlowchart`
 
 ### 8.3 Tool Schema
 
-**Manipulation tools (all personas):**
+**Manipulation tools (Mason-enabled):**
 ```typescript
-createStickyNote(text, x, y, color, fontFamily?, fontSize?)
-createShape(type: 'rectangle' | 'circle', x, y, width, height, color)
-createFrame(title, x, y, width, height)
-createConnector(startObjectId, endObjectId, style, color, label?)
-createLine(x, y, endX, endY, color, thickness?)
-createTextBox(text, x, y, fontSize?, color?)
+createStickyNote(text, x, y, color, parentFrameId?)
+createShape(type: 'rectangle' | 'circle' | 'diamond' | 'roundedRect', x, y, width?, height?, color, parentFrameId?)
+createFrame(title, x, y, width?, height?)
+createConnector(fromObjectId, toObjectId, style?, color?, label?, directed?)
 moveObject(objectId, x, y)
-updateText(objectId, text)
+resizeObject(objectId, width, height)
+updateText(objectId, newText)
 changeColor(objectId, color)
 deleteObject(objectId)
-arrangeObjects(objectIds, layout: 'grid' | 'horizontal' | 'vertical', spacing)
+arrangeInLayout(objectIds, layout: 'grid' | 'horizontal' | 'vertical', columns?, spacing?, originX?, originY?)
 ```
 
-**Analytical tools (non-Mason only):**
+**Spatial planning tools (Mason-enabled):**
 ```typescript
-redTeamThis(targetObjectIds, focusAreas, persona)
-mapDecision(decisionStatement, frameworkType, options?, criteria?)
-findGaps(scope, targetIds?, gapTypes)
+findAvailableSpace(neededWidth, neededHeight, preferX?, preferY?) → { x, y, message }
+createElementsBatch(elements: Array<{ type, text?, x, y, width?, height?, color?, parentFrameId? }>)
+createFlowchart(nodes[], edges[], startX, startY, wrapInFrame?, title?, layoutType?: 'flowchart' | 'grid')
 ```
 
-**Context tools (all personas):**
+**Analytical tools (Mason-excluded):**
+```typescript
+redTeamThis(targetObjectIds, focusAreas, outputX?, outputY?)
+mapDecision(decisionStatement, frameworkType, options?, criteria?, x?, y?)
+findGaps(scope, targetIds?, gapTypes, outputX?, outputY?)
+```
+
+**Context tools (Mason-enabled):**
 ```typescript
 getBoardState() → AIBoardContext
 getObjectsByFrame(frameId) → BoardObject[]
-analyzeBoardSemantics() → { topics, openQuestions, themes }
 ```
 
 **Mason-only tool:**
@@ -760,13 +792,16 @@ askClarification(question: string) → { clarificationSent: true, question: stri
 
 ### 8.4 AI Context Serialization
 
-Viewport-only: only objects currently visible in the user's viewport are sent. Format: nested JSON with frame grouping, integer coordinates, `rel_pos` within frames.
+Viewport-only: only objects currently visible in the user's viewport are sent. Format: nested JSON with frame grouping, integer coordinates, `rel_pos` within frames. `AIBoardContext` fields: `totalObjects`, `visibleObjects`, `frames`, `orphanObjects`, `connectors`, `colorLegend`, `selectedObjectIds`.
+
+The `buildTier2SystemPrompt` injects an `OCCUPIED ZONES` block (≤20 zones) and viewport bounds so Mason can reason about existing content without needing to call `getBoardState`.
 
 ### 8.5 AI Error Handling & Rollback
 
 - If API fails mid-command: all objects from that `aiCommandId` are deleted from Firestore
 - Objects tracked by `aiCommandId` field for batch rollback via `deleteObjectsByAiCommand`
 - Error toast shown; board state guaranteed clean
+- Debounced RTDB writes: 100ms debounce in `useAICommand.ts`; local Zustand updated immediately
 
 ### 8.6 AI Undo
 
@@ -784,10 +819,12 @@ Viewport-only: only objects currently visible in the user's viewport are sent. F
 `src/app/api/ai-command/route.ts`
 
 - **Runtime:** `export const runtime = 'nodejs'` (Node.js, not Edge — required for OTel NodeSDK)
-- **Auth:** Firebase ID token validated via Firebase Admin SDK; 401 on missing/invalid token
-- **Streaming:** `streamText` with `stopWhen: stepCountIs(15)`, `toTextStreamResponse()`
+- **Auth:** Firebase ID token validated via Google JWKS (`jose` library); 401 on missing/invalid token
+- **Flow:** Single path — every command goes to Sonnet `streamText` with full tool set
+- **Prompt:** `buildTier2SystemPrompt` injects occupied zones + viewport + suggested positions
+- **Streaming:** `streamText` with `stopWhen: stepCountIs(30)`, `toTextStreamResponse()`
 - **Telemetry:** `experimental_telemetry: { isEnabled: true }` on `streamText`
-- **Tool filtering:** `MASON_EXCLUDED_TOOLS = {redTeamThis, mapDecision, findGaps}`; `NON_MASON_EXCLUDED_TOOLS = {askClarification}`
+- **Tool filtering:** `MASON_EXCLUDED_TOOLS = {redTeamThis, mapDecision, findGaps}`
 
 ### 8.9 AI Cost Projections
 
@@ -854,6 +891,12 @@ Viewport-only: only objects currently visible in the user's viewport are sent. F
 3. Cursor Layer: Remote cursors, always on top
 4. Selection UI Layer: Transformer handles, selection rectangle
 
+**z-sort tier system (BoardObjects.tsx):**
+- Tier 0: frames
+- Tier 1: shapes (rectangle, circle, diamond, roundedRect)
+- Tier 2: text and sticky notes
+- Tier 3: connectors (always topmost)
+
 ---
 
 ## 10. Keyboard Shortcuts
@@ -904,7 +947,7 @@ Viewport-only: only objects currently visible in the user's viewport are sent. F
 ```
 src/
   app/
-    auth/page.tsx             # Authentication (guest, Google, GitHub)
+    auth/page.tsx             # Authentication (guest, Google)
     dashboard/page.tsx        # Board listing, creation, join
     board/[boardId]/page.tsx  # Main canvas workspace
     api/
@@ -917,12 +960,12 @@ src/
     auth/AuthCard.tsx
     canvas/
       Canvas.tsx              # Konva Stage + all interaction handlers
-      BoardObjects.tsx        # Spatial-culled object renderer
+      BoardObjects.tsx        # Spatial-culled object renderer (z-sort tiers)
       SelectionLayer.tsx      # Transformer + selection rect
       CursorLayer.tsx         # Remote cursor rendering
       TextEditor.tsx          # HTML textarea overlay for text editing
       DotGrid.tsx             # Static dot grid background
-      ShapeObject.tsx
+      ShapeObject.tsx         # rect, circle, diamond, roundedRect
       StickyNote.tsx
       FrameObject.tsx
       ConnectorObject.tsx
@@ -932,13 +975,15 @@ src/
       AnchorPoints.tsx        # Connector drag anchor dots
       GhostPreview.tsx        # Resize ghost preview
       ResizeBorder.tsx
+      TeleportHighlight.tsx   # CSS pulse ring for AI object navigation
     chat/
       ChatSidebar.tsx
       ChatTimeline.tsx
       ChatMessage.tsx
       AIStreamMessage.tsx
       ChatInput.tsx
-      PersonaSelector.tsx
+      MasonBadge.tsx          # Static "⚙ The Mason" indigo pill (replaces persona selector)
+      AIRefPopover.tsx        # Smart object-reference popover (batch collapse at >5 refs)
       ObjectRefChip.tsx
       MessagePreview.tsx
     properties/
@@ -986,24 +1031,31 @@ src/
     useLockSync.ts            # Object lock management
     useFrameNesting.ts        # Frame auto-nesting logic
     useKeyboardShortcuts.ts   # All keyboard event handlers
+    useAICommand.ts           # AI command dispatch + rollback + RTDB debounce
+    useAIStream.ts            # RTDB AI stream reader
+    useChatMessages.ts        # Firestore chat message listener
 
   lib/
     ai/
-      tools.ts                # createAITools factory (Vercel AI SDK v6)
-      spatialPlanning.ts      # Two-pass viewport-fit + reflow algorithm
-      prompts.ts              # MASON_SYSTEM_PROMPT, buildSystemPrompt, PERSONA_PROMPTS
+      tools.ts                # createAITools factory — 19 tools (Vercel AI SDK v6)
+      spatialPlanning.ts      # computeOccupiedZones, findClearRect, clampToFrame, etc.
+      prompts.ts              # MASON_SYSTEM_PROMPT, buildSystemPrompt, buildTier2SystemPrompt
+      context.ts              # AIBoardContext, serializeBoardState
+      layoutAlgorithms.ts     # computeFlowchartLayout, computeGridLayout
+      validation.ts           # snapToGrid, clampSize, validateCoordinates, layout helpers
     firebase/
       config.ts               # Firebase app init
-      auth.ts                 # Authentication functions
-      firestore.ts            # Firestore CRUD helpers
-      rtdb.ts                 # RTDB presence/cursor/lock/privacy helpers
+      auth.ts                 # Authentication functions + preferred color helpers
+      firestore.ts            # Firestore CRUD helpers, deleteBoardCascade
+      rtdb.ts                 # RTDB presence/cursor/lock/privacy/aiStream helpers
       admin.ts                # Firebase Admin SDK (server-only)
+      firestoreRest.ts        # REST API helpers for AI tool writes (no Admin SDK)
     store/
       canvasStore.ts          # UI state (mode, selection, viewport, clipboard, sub-modes)
       objectStore.ts          # Board objects, locks, spatial index, snapshot history
-      authStore.ts            # User authentication state
+      authStore.ts            # User authentication state + preferredColor
       presenceStore.ts        # Remote user presence
-      chatStore.ts            # useChatStore + usePersonaStore
+      chatStore.ts            # useChatStore (messages, clarificationPending, chatMode)
     types.ts                  # All TypeScript interfaces and type aliases
     utils.ts                  # Utility functions (getStrokeDash, etc.)
     resizeState.ts            # borderResizingIds set (memo skip during resize)
@@ -1029,7 +1081,7 @@ tests/
 
 ### 12.1 API Route Protection
 
-- Every request to `/api/ai-command` verified via Firebase Admin SDK ID token
+- Every request to `/api/ai-command` verified via Google JWKS token check (`jose` library)
 - Unauthenticated requests rejected with 401
 - Rate limit checks performed server-side after token validation
 - AI-generated content validated for schema/length before Firestore writes
@@ -1137,7 +1189,7 @@ NEXT_PUBLIC_PERF_BYPASS=true      # Skips auth guard for performance testing
 **Firebase:**
 - Firestore: `(default)` database, `us-central1`
 - Realtime Database: `cruciblecanvas-default-rtdb`, `us-central1`
-- Auth providers: Anonymous, Google, GitHub OAuth
+- Auth providers: Anonymous, Google OAuth
 
 ---
 
@@ -1149,6 +1201,7 @@ NEXT_PUBLIC_PERF_BYPASS=true      # Skips auth guard for performance testing
 4. **Desktop-only:** No mobile touch gestures.
 5. **Board-level rate limit:** 50 AI commands/day (no per-user limit currently enforced).
 6. **LOD at extreme zoom-out:** Objects below 0.15× zoom render as simplified placeholders.
+7. **Single AI persona:** Mason is the only agent; analytical personas (Neutral Critic, Skeptical Investor, Opposing Counsel) are defined in the original vision but not implemented.
 
 ### Not Implemented (Out of Scope)
 - Full multi-level undo/redo for all user actions (only snapshot-based, limited depth)
@@ -1180,9 +1233,9 @@ NEXT_PUBLIC_PERF_BYPASS=true      # Skips auth guard for performance testing
 | 9 | Paste offset | Cascading +20px diagonal (Ctrl+V) | Prevents stacking, shows each paste distinctly |
 | 10 | Coordinate conversion | `getBoundingClientRect()` on canvas element | `stageX/Y` are pan offsets only, not screen position; headers + sidebar offset must be subtracted |
 | 11 | Sub-modes | `isMarqueeMode` + `isMultiSelectMode` boolean flags | Preserves `mode === "pointer"` for drag-move logic; no new mode needed |
-| 12 | Mason persona | Silent executor, first in PersonaSelector | Ops-only agent for direct board manipulation without explanation |
-| 13 | Mason tools | Excludes `redTeamThis`, `mapDecision`, `findGaps` | Mason is operational only; analytical tools for human-facing personas |
-| 14 | `askClarification` | Mason-only tool | Only Mason needs to confirm ambiguous intent; other personas respond verbally |
+| 12 | Mason persona | Silent executor, only persona | Ops-only agent for direct board manipulation without explanation |
+| 13 | Mason tools | Excludes `redTeamThis`, `mapDecision`, `findGaps` | Mason is operational only; analytical tools reserved for future personas |
+| 14 | `askClarification` | Mason-only tool | Only Mason needs to confirm ambiguous intent; not applicable to batch/flowchart tools |
 | 15 | Spatial planning | Two-pass (viewport-fit → reflow) | Maximizes visible placement; degrades gracefully to below-viewport |
 | 16 | Observability | Langfuse via OTel | Traces AI calls, costs, latency without custom instrumentation |
 | 17 | Drag flooding | Removed `onDragMove` from shape/sticky/frame | Prevented per-frame Zustand updates during drag; major FPS improvement |
@@ -1199,3 +1252,9 @@ NEXT_PUBLIC_PERF_BYPASS=true      # Skips auth guard for performance testing
 | 28 | Zoom bounds | 5%–500% | Wide range for massive boards and detail work |
 | 29 | Orphan connectors | Auto-delete when endpoint deleted | Clean board; no broken visuals |
 | 30 | Minimap | Not implemented | "Jump to analysis" toast covers navigation need for MVP |
+| 31 | Single AI persona | Removed Neutral/Skeptical Investor/Opposing Counsel personas | Simplifies UX; Mason covers the primary use case of board manipulation; analytical personas add complexity without clear user demand at MVP stage |
+| 32 | Single-tier AI route | Removed Haiku tier-classifier + Tier 1 direct-write path | Tier 1 added latency from a blocking Haiku call; Sonnet now handles all commands with full spatial tool access; simpler code, better consistency |
+| 33 | `parentFrameId` in tools | Added explicit frame-binding param to createStickyNote, createShape, createElementsBatch | Spatial auto-detection fails for objects near frame edges; explicit ID guarantees correct parentage and enables coord clamping |
+| 34 | Frame-first ordering | createFlowchart creates frame before nodes when wrapInFrame=true | Frame must exist in Firestore before child objects so parentFrame writes are valid; previous order caused orphaned nodes |
+| 35 | Text-body threshold | TEXT_BODY_THRESHOLD=20 chars; rectangle/circle auto-converted to stickyNote above threshold | Shapes have no reliable text renderer for body content; sticky notes are the correct container; threshold allows short geometric labels on shapes |
+| 36 | Auth providers | Removed GitHub OAuth and email/password; kept Google + Anonymous only | Reduces auth surface area; Google covers authenticated use; Anonymous covers frictionless onboarding |
