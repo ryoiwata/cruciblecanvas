@@ -4,7 +4,8 @@
 test-results/
 tests/reports/
 tests/performance/
-
+tests/.auth/
+Untitled
 
 # dependencies
 /node_modules

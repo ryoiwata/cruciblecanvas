@@ -1,11 +1,11 @@
 "use client";
 
 import { useRef, useState, useCallback, memo } from "react";
-import { Group, Rect, Circle, Text } from "react-konva";
+import { Group, Rect, Circle, Line, Text } from "react-konva";
 import ResizeBorder from "./ResizeBorder";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
-import { useObjectStore } from "@/lib/store/objectStore";
+import { useObjectStore, spatialIndex } from "@/lib/store/objectStore";
 import { useAuthStore } from "@/lib/store/authStore";
 import { updateObject } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
@@ -38,7 +38,9 @@ export default memo(function ShapeObject({
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Narrow boolean selector — only re-renders when this object's own selection state changes,
+  // not when any other object is selected/deselected.
+  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
@@ -65,11 +67,20 @@ export default memo(function ShapeObject({
       const curY = node.y();
       const dragBounds = { x: curX, y: curY, width: object.width, height: object.height };
 
+      // O(log N + k) frame detection via spatial index instead of O(N) full scan.
+      // Connectors are excluded from the index so no extra filtering needed for them.
       const allObjects = useObjectStore.getState().objects;
+      const nearby = spatialIndex.search({
+        minX: curX,
+        minY: curY,
+        maxX: curX + object.width,
+        maxY: curY + object.height,
+      });
       let bestId: string | null = null;
       let bestOverlap = 0;
-      for (const candidate of Object.values(allObjects)) {
-        if (candidate.type !== "frame" || candidate.id === object.id) continue;
+      for (const item of nearby) {
+        const candidate = allObjects[item.id];
+        if (!candidate || candidate.type !== "frame" || candidate.id === object.id) continue;
         const frac = overlapFraction(dragBounds, candidate);
         if (frac > 0.5 && frac > bestOverlap) {
           bestOverlap = frac;
@@ -80,25 +91,28 @@ export default memo(function ShapeObject({
     });
   }, [object.id, object.width, object.height]);
 
-  const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked && !isHoveringBorder;
 
   // LOD: simplified render for extreme zoom-out — no text, borders, shadows
   if (isSimpleLod) {
-    return object.type === 'rectangle' ? (
+    if (object.type === 'circle') {
+      return (
+        <Circle
+          x={object.x + object.width / 2}
+          y={object.y + object.height / 2}
+          radius={object.width / 2}
+          fill={object.color}
+          listening={false}
+        />
+      );
+    }
+    // rectangle, roundedRect, diamond all fall back to a simple Rect at LOD
+    return (
       <Rect
         x={object.x}
         y={object.y}
         width={object.width}
         height={object.height}
-        fill={object.color}
-        listening={false}
-      />
-    ) : (
-      <Circle
-        x={object.x + object.width / 2}
-        y={object.y + object.height / 2}
-        radius={object.width / 2}
         fill={object.color}
         listening={false}
       />
@@ -242,34 +256,81 @@ export default memo(function ShapeObject({
         const strokeColor = isSelected ? '#2196F3' : (hasBorder ? (object.strokeColor ?? '#374151') : undefined);
         const strokeWidth = isSelected ? 2 : (hasBorder ? (object.thickness ?? 2) : 0);
         const dash = isSelected ? undefined : getStrokeDash(object.borderType);
-        return object.type === 'rectangle' ? (
+        const shadowProps = {
+          shadowColor: isConnectorTarget ? '#6366f1' : undefined,
+          shadowBlur: isConnectorTarget ? 15 : 0,
+          shadowEnabled: !!isConnectorTarget,
+        };
+
+        if (object.type === 'circle') {
+          return (
+            <Circle
+              x={object.width / 2}
+              y={object.height / 2}
+              radius={object.width / 2}
+              fill={object.color}
+              stroke={strokeColor}
+              strokeWidth={strokeWidth}
+              dash={dash}
+              {...shadowProps}
+            />
+          );
+        }
+
+        if (object.type === 'diamond') {
+          // Rotated-square diamond polygon
+          const pts = [
+            object.width / 2, 0,
+            object.width, object.height / 2,
+            object.width / 2, object.height,
+            0, object.height / 2,
+          ];
+          return (
+            <Line
+              points={pts}
+              closed
+              fill={object.color}
+              stroke={strokeColor}
+              strokeWidth={strokeWidth}
+              dash={dash}
+              {...shadowProps}
+            />
+          );
+        }
+
+        // rectangle and roundedRect
+        return (
           <Rect
             width={object.width}
             height={object.height}
             fill={object.color}
-            cornerRadius={4}
+            cornerRadius={object.type === 'roundedRect' ? 20 : 4}
             stroke={strokeColor}
             strokeWidth={strokeWidth}
             dash={dash}
-            shadowColor={isConnectorTarget ? '#6366f1' : undefined}
-            shadowBlur={isConnectorTarget ? 15 : 0}
-            shadowEnabled={!!isConnectorTarget}
-          />
-        ) : (
-          <Circle
-            x={object.width / 2}
-            y={object.height / 2}
-            radius={object.width / 2}
-            fill={object.color}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-            dash={dash}
-            shadowColor={isConnectorTarget ? '#6366f1' : undefined}
-            shadowBlur={isConnectorTarget ? 15 : 0}
-            shadowEnabled={!!isConnectorTarget}
+            {...shadowProps}
           />
         );
       })()}
+
+      {/* Text label — rendered for shapes that carry textual content (e.g. flowchart
+          nodes, SWOT quadrant labels). Centered horizontally and vertically. */}
+      {object.text ? (
+        <Text
+          text={object.text}
+          x={8}
+          y={object.height / 2 - (object.fontSize ?? 14) * 0.7}
+          width={object.width - 16}
+          height={object.height - 16}
+          align="center"
+          verticalAlign="middle"
+          fontSize={object.fontSize ?? 14}
+          fontFamily="sans-serif"
+          fill={object.textColor ?? '#374151'}
+          wrap="word"
+          listening={false}
+        />
+      ) : null}
 
       {isLocked && lockedByName && (
         <Text

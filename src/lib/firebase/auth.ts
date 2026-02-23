@@ -10,7 +10,7 @@ import {
   AuthProvider,
   UserCredential,
 } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "./config";
 
 async function writeUserProfile(credential: UserCredential): Promise<void> {
@@ -77,4 +77,54 @@ export async function linkAnonymousAccount(
 
 export async function signOutUser(): Promise<void> {
   await signOut(auth);
+}
+
+/**
+ * Updates the current user's display name in both Firebase Auth and Firestore.
+ *
+ * The name is trimmed and capped at 25 characters before persisting. RTDB
+ * presence propagates automatically: `useMultiplayer` re-runs its setPresence
+ * effect whenever `authStore.displayName` changes, which callers must update
+ * via `useAuthStore.getState().setDisplayName(trimmed)` after this resolves.
+ *
+ * @param newDisplayName - The desired display name (trimmed, max 25 chars).
+ */
+export async function updateUserProfile(newDisplayName: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('No authenticated user');
+
+  const trimmed = newDisplayName.trim().slice(0, 25);
+  await updateProfile(user, { displayName: trimmed });
+
+  const profileRef = doc(db, 'users', user.uid, 'profile', 'info');
+  await setDoc(profileRef, { displayName: trimmed }, { merge: true });
+}
+
+/**
+ * Persists the user's preferred cursor/avatar color to their Firestore profile.
+ * This is the source-of-truth for cross-board color persistence — RTDB color
+ * updates are ephemeral and only affect the current board session.
+ *
+ * @param color - A hex color string from the CURSOR_COLORS palette.
+ */
+export async function updatePreferredColor(color: string): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) throw new Error('No authenticated user');
+
+  const profileRef = doc(db, 'users', user.uid, 'profile', 'info');
+  await setDoc(profileRef, { preferredColor: color }, { merge: true });
+}
+
+/**
+ * Reads the user's preferred color from their Firestore profile.
+ * Returns null when no preference has been saved (falls back to UID hash color).
+ */
+export async function loadPreferredColor(): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+
+  const profileRef = doc(db, 'users', user.uid, 'profile', 'info');
+  const snap = await getDoc(profileRef);
+  if (!snap.exists()) return null;
+  return (snap.data().preferredColor as string | undefined) ?? null;
 }

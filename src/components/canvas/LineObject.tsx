@@ -8,7 +8,7 @@
  */
 
 import { useRef, memo } from "react";
-import { Group, Line } from "react-konva";
+import { Group, Line, Arrow } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore } from "@/lib/store/objectStore";
@@ -39,7 +39,8 @@ export default memo(function LineObject({
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Narrow boolean selector — only re-renders when this line's own selection state changes.
+  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
@@ -47,7 +48,6 @@ export default memo(function LineObject({
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
 
-  const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked;
 
   // LOD: simplified single-color line at extreme zoom-out
@@ -132,6 +132,11 @@ export default memo(function LineObject({
   // borderType takes precedence over legacy metadata connectorStyle
   const dash = getStrokeDash(object.borderType ?? object.metadata?.connectorStyle);
 
+  const strokeColor = isSelected ? '#2196F3' : object.color;
+  const strokeWidth = object.thickness ?? LINE_DEFAULTS.thickness;
+  const endEffect = object.endEffect;
+  const hasArrowhead = endEffect != null && endEffect !== 'none';
+
   return (
     <Group
       ref={groupRef}
@@ -153,16 +158,31 @@ export default memo(function LineObject({
         strokeWidth={12}
         lineCap="round"
       />
-      {/* Visible line */}
-      <Line
-        points={[0, 0, object.width, object.height]}
-        stroke={isSelected ? "#2196F3" : object.color}
-        strokeWidth={object.thickness ?? LINE_DEFAULTS.thickness}
-        dash={dash}
-        lineCap="round"
-        lineJoin="round"
-        listening={false}
-      />
+      {/* Visible line — Arrow when arrowhead requested, plain Line otherwise */}
+      {hasArrowhead ? (
+        <Arrow
+          points={[0, 0, object.width, object.height]}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          fill={endEffect === 'open-arrow' ? 'transparent' : strokeColor}
+          dash={dash}
+          pointerLength={12}
+          pointerWidth={10}
+          lineCap="round"
+          lineJoin="round"
+          listening={false}
+        />
+      ) : (
+        <Line
+          points={[0, 0, object.width, object.height]}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          dash={dash}
+          lineCap="round"
+          lineJoin="round"
+          listening={false}
+        />
+      )}
     </Group>
   );
 }, (prevProps, nextProps) => {

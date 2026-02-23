@@ -61,7 +61,9 @@ function getModuleSet(type: BoardObject['type']): ModuleKey[] {
     case 'frame':
       return ['dimension', 'frame'];
     case 'text':
-      return ['dimension', 'text'];
+      // Height is content-driven (word-wrap auto-sizes), width is also opaque to
+      // the user in freeform mode — hide the dimension module entirely.
+      return ['text'];
     default:
       return [];
   }

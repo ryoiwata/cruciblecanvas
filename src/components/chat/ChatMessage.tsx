@@ -6,9 +6,11 @@
 
 'use client';
 
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
 import ObjectRefChip from './ObjectRefChip';
-import type { ChatMessage as ChatMessageType } from '@/lib/types';
+import { useObjectStore } from '@/lib/store/objectStore';
+import { useCanvasStore } from '@/lib/store/canvasStore';
+import type { ChatMessage as ChatMessageType, ObjectReference } from '@/lib/types';
 
 function RobotIcon() {
   return (
@@ -42,34 +44,78 @@ function formatTimestamp(createdAt: ChatMessageType['createdAt']): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-/** Renders message content with inline object reference chips. */
-function MessageContent({ message }: { message: ChatMessageType }) {
-  if (!message.objectReferences || message.objectReferences.length === 0) {
-    return <span className="whitespace-pre-wrap break-words">{message.content}</span>;
-  }
+/**
+ * Violet group chip shown when a message has 2+ object references.
+ * Clicking the body selects all referenced objects on the canvas and pans to fit them.
+ */
+function GroupRefChip({ refs }: { refs: ObjectReference[] }) {
+  const handleClick = useCallback(() => {
+    const allObjects = useObjectStore.getState().objects;
+    const ids = refs.map((r) => r.objectId).filter((id) => !!allObjects[id]);
+    if (ids.length === 0) return;
 
-  // Replace @[Type: Text] patterns with ObjectRefChip components
-  const parts: (string | React.ReactNode)[] = [];
-  let remaining = message.content;
-  let keyIdx = 0;
+    useCanvasStore.getState().setSelectedObjectIds(ids);
 
-  for (const ref of message.objectReferences) {
-    const chipPattern = `@[${ref.objectType}: ${ref.objectText}]`;
-    const idx = remaining.indexOf(chipPattern);
-    if (idx === -1) {
-      // Fallback: append chip at end
-      parts.push(remaining);
-      remaining = '';
-      parts.push(<ObjectRefChip key={keyIdx++} reference={ref} />);
-    } else {
-      parts.push(remaining.slice(0, idx));
-      parts.push(<ObjectRefChip key={keyIdx++} reference={ref} />);
-      remaining = remaining.slice(idx + chipPattern.length);
+    // Pan + zoom to fit all referenced objects in the viewport.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const id of ids) {
+      const o = allObjects[id];
+      if (!o) continue;
+      minX = Math.min(minX, o.x);   minY = Math.min(minY, o.y);
+      maxX = Math.max(maxX, o.x + o.width); maxY = Math.max(maxY, o.y + o.height);
     }
-  }
-  if (remaining) parts.push(remaining);
+    if (!isFinite(minX)) return;
 
-  return <span className="whitespace-pre-wrap break-words">{parts}</span>;
+    const konvaEl = document.querySelector('.konvajs-content');
+    const vpW = konvaEl?.clientWidth  ?? window.innerWidth;
+    const vpH = konvaEl?.clientHeight ?? window.innerHeight;
+    const PADDING = 80;
+    const boxW = maxX - minX;
+    const boxH = maxY - minY;
+    const scale = (boxW > 0 && boxH > 0)
+      ? Math.max(0.1, Math.min(3, Math.min((vpW - PADDING * 2) / boxW, (vpH - PADDING * 2) / boxH)))
+      : 1;
+    const cx = minX + boxW / 2;
+    const cy = minY + boxH / 2;
+    useCanvasStore.getState().setViewport(vpW / 2 - cx * scale, vpH / 2 - cy * scale, scale);
+  }, [refs]);
+
+  return (
+    <button
+      onClick={handleClick}
+      title={`Select all ${refs.length} references on canvas`}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded bg-violet-100 text-violet-700 text-xs hover:bg-violet-200 transition-colors cursor-pointer"
+    >
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <rect x="0.5" y="3.5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1" fill="none" />
+        <rect x="3.5" y="0.5" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.1" fill="currentColor" fillOpacity="0.2" />
+      </svg>
+      <span>{refs.length} items</span>
+    </button>
+  );
+}
+
+/**
+ * Renders message content followed by any object reference chips.
+ * When 2+ references are present a violet Group chip is shown first so the user
+ * can select and pan to all referenced objects in one click.
+ */
+function MessageContent({ message }: { message: ChatMessageType }) {
+  const refs = message.objectReferences ?? [];
+
+  return (
+    <span className="whitespace-pre-wrap break-words">
+      {message.content}
+      {refs.length > 0 && (
+        <span className="inline-flex flex-wrap gap-1 ml-1 align-middle">
+          {refs.length > 1 && <GroupRefChip refs={refs} />}
+          {refs.map((ref) => (
+            <ObjectRefChip key={ref.objectId} reference={ref} />
+          ))}
+        </span>
+      )}
+    </span>
+  );
 }
 
 export default memo(function ChatMessage({

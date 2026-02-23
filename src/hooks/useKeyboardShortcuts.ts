@@ -146,28 +146,40 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
 
       // Tool switching — number keys and letter aliases
       switch (e.key) {
-        // Number shortcuts matching toolbar order (1–6)
+        // Number shortcuts matching toolbar order (1–9, left to right)
         case "1":
           canvasState.setMode("pointer");
           return;
         case "2":
-          canvasState.enterCreateMode("stickyNote");
+          canvasState.setPendingLineArrow(false);
+          canvasState.enterCreateMode("line");
           return;
         case "3":
-          canvasState.enterCreateMode("rectangle");
+          canvasState.setPendingLineArrow(true);
+          canvasState.enterCreateMode("line");
           return;
         case "4":
-          canvasState.enterCreateMode("circle");
+          canvasState.enterCreateMode("connector");
           return;
         case "5":
-          canvasState.enterCreateMode("text");
+          canvasState.enterCreateMode("rectangle");
           return;
         case "6":
+          canvasState.enterCreateMode("circle");
+          return;
+        case "7":
+          canvasState.enterCreateMode("text");
+          return;
+        case "8":
+          canvasState.enterCreateMode("stickyNote");
+          return;
+        case "9":
           canvasState.enterCreateMode("frame");
           return;
-        // Letter shortcuts (matches toolbar badges)
+        // Letter shortcuts (alternate aliases — unchanged)
         case "l":
         case "L":
+          canvasState.setPendingLineArrow(false);
           canvasState.enterCreateMode("line");
           return;
         case "r":
@@ -269,21 +281,10 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
             parentFrame: undefined,
           };
           upsertObject(newObj);
-          createObject(
-            boardId,
-            {
-              type: newObj.type,
-              x: newObj.x,
-              y: newObj.y,
-              width: newObj.width,
-              height: newObj.height,
-              color: newObj.color,
-              text: newObj.text,
-              zIndex: newObj.zIndex,
-              createdBy: user.uid,
-            },
-            newId
-          ).catch(console.error);
+          // Destructure to strip id/createdAt/updatedAt — all other fields (rotation,
+          // fontFamily, fontSize, textColor, strokeColor, opacity, etc.) are preserved.
+          const { id: _id, createdAt: _ca, updatedAt: _ua, ...objectData } = newObj;
+          createObject(boardId, objectData, newId).catch(console.error);
         }
         return;
       }
@@ -364,13 +365,13 @@ export function useKeyboardShortcuts({ boardId }: UseKeyboardShortcutsOptions) {
         return;
       }
 
-      // Type-to-edit: when a single sticky note is selected and the user presses a
-      // printable key (not a modifier combo), enter edit mode and seed the textarea
-      // with that character via pendingEditChar in canvasStore.
+      // Type-to-edit: when a single sticky note or text object is selected and the
+      // user presses a printable key (not a modifier combo), enter edit mode and seed
+      // the textarea with that character via pendingEditChar in canvasStore.
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (ids.length === 1) {
           const selectedObj = useObjectStore.getState().objects[ids[0]];
-          if (selectedObj?.type === 'stickyNote') {
+          if (selectedObj?.type === 'stickyNote' || selectedObj?.type === 'text') {
             e.preventDefault();
             useCanvasStore.getState().setPendingEditChar(e.key);
             useCanvasStore.getState().setEditingObject(selectedObj.id);

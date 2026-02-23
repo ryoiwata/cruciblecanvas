@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuthStore } from "@/lib/store/authStore";
 import { useObjectStore } from "@/lib/store/objectStore";
+import { useCanvasStore } from "@/lib/store/canvasStore";
+import type { BoardObject, CursorData, ObjectReference } from "@/lib/types";
 import { useChatStore } from "@/lib/store/chatStore";
-import { signOutUser } from "@/lib/firebase/auth";
+import { signInAsGuest, signOutUser, loadPreferredColor } from "@/lib/firebase/auth";
+import { auth } from "@/lib/firebase/config";
 import { useFirestoreSync } from "@/hooks/useFirestoreSync";
-import { recordBoardVisit } from "@/lib/firebase/firestore";
+import { recordBoardVisit, createObject, updateObject, generateObjectId } from "@/lib/firebase/firestore";
+import { setCursor, onCursorChildEvents } from "@/lib/firebase/rtdb";
 import { useLockSync } from "@/hooks/useLockSync";
 import { useMultiplayer } from "@/hooks/useMultiplayer";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
@@ -20,13 +24,14 @@ import PropertiesSidebar from "@/components/properties/PropertiesSidebar";
 import ContextMenu from "@/components/ui/ContextMenu";
 import DeleteDialog from "@/components/ui/DeleteDialog";
 import PresenceIndicator from "@/components/ui/PresenceIndicator";
-import PrivacyToggle from "@/components/ui/PrivacyToggle";
 import ShareButton from "@/components/ui/ShareButton";
 import CanvasTitle from "@/components/ui/CanvasTitle";
 import SelectionCounter from "@/components/ui/SelectionCounter";
+import FpsCounter from "@/components/ui/FpsCounter";
 import ChatSidebar from "@/components/chat/ChatSidebar";
 import MessagePreview from "@/components/chat/MessagePreview";
-import SaveToAccountBanner from "@/components/ui/SaveToAccountBanner";
+import GuestAuthTrigger from "@/components/ui/GuestAuthTrigger";
+import UserProfileButton from "@/components/ui/UserProfileButton";
 
 // Dynamic import — Konva requires the DOM, cannot render server-side
 const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
@@ -41,6 +46,31 @@ const Canvas = dynamic(() => import("@/components/canvas/Canvas"), {
 // Skip auth guard and loading checks when running perf benchmarks (dev only).
 const IS_PERF_BYPASS = process.env.NEXT_PUBLIC_PERF_BYPASS === "true";
 
+// Module-level guard: ensures the bypass auto-sign-in useEffect and the
+// __perfSignInAsGuest window helper never call signInAsGuest() concurrently.
+// Concurrent calls cause writeUserProfile (setDoc) to hang indefinitely because
+// both callers race on the same Firestore document write. By sharing a single
+// in-flight promise, the second caller simply awaits the first.
+let _perfBypassSignInGuard: Promise<void> | null = null;
+
+function getPerfBypassSignIn(): Promise<void> {
+  // If a sign-in is already in progress, return the same promise so both
+  // callers resolve together instead of issuing parallel Firestore writes.
+  if (_perfBypassSignInGuard) return _perfBypassSignInGuard;
+  // If Firebase already has a current user (restored from IndexedDB or from a
+  // previous sign-in in this context), there is nothing to do.
+  if (auth.currentUser) return Promise.resolve();
+  _perfBypassSignInGuard = signInAsGuest()
+    .then(() => {
+      _perfBypassSignInGuard = null;
+    })
+    .catch((err: Error) => {
+      _perfBypassSignInGuard = null;
+      console.warn("[PerfBypass] Anonymous sign-in failed:", err.message);
+    });
+  return _perfBypassSignInGuard;
+}
+
 export default function BoardPage() {
   const params = useParams<{ boardId: string }>();
   const router = useRouter();
@@ -49,6 +79,7 @@ export default function BoardPage() {
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
   const isLoading = useAuthStore((s) => s.isLoading);
+  const setPreferredColor = useAuthStore((s) => s.setPreferredColor);
   const isObjectsLoaded = useObjectStore((s) => s.isLoaded);
 
   const toggleSidebar = useChatStore((s) => s.toggleSidebar);
@@ -67,7 +98,7 @@ export default function BoardPage() {
   useAIStream(user ? boardId : undefined);
 
   // AI command hook
-  const { sendAICommand, isAILoading } = useAICommand(boardId);
+  const { sendAICommand, cancelAICommand, isAILoading } = useAICommand(boardId);
 
   // Auth guard — pass redirect so guests return here after sign-in.
   // Bypassed in perf test mode (NEXT_PUBLIC_PERF_BYPASS=true) to allow
@@ -79,12 +110,222 @@ export default function BoardPage() {
     }
   }, [user, isLoading, router, boardId]);
 
+  // In perf bypass mode the auth guard is skipped, but Firestore security rules
+  // still require a valid auth token for board reads. Signing in anonymously
+  // satisfies the rules (public boards allow any authenticated user) and lets
+  // useFirestoreSync stream objects without a manual login step.
+  // Uses getPerfBypassSignIn() so this useEffect and __perfSignInAsGuest share
+  // the same in-flight promise and never issue concurrent Firestore writes.
+  useEffect(() => {
+    if (!IS_PERF_BYPASS || user) return;
+    getPerfBypassSignIn();
+  }, [user]);
+
+  // Expose getPerfBypassSignIn on window so the Playwright bypassAuth() helper
+  // can trigger anonymous sign-in directly via page.evaluate. Uses the same
+  // module-level guard as the bypass useEffect above, so calling this while a
+  // sign-in is already in progress awaits the existing promise rather than
+  // issuing a second concurrent signInAsGuest() call.
+  // Scoped strictly to bypass mode — never active in production builds.
+  useEffect(() => {
+    if (!IS_PERF_BYPASS) return;
+    const w = window as Window & { __perfSignInAsGuest?: () => Promise<void> };
+    w.__perfSignInAsGuest = getPerfBypassSignIn;
+    return () => {
+      delete w.__perfSignInAsGuest;
+    };
+  }, []);
+
+  // Expose Playwright helpers for performance and sync tests.
+  // All helpers are active only in bypass mode — never in production.
+  useEffect(() => {
+    if (!IS_PERF_BYPASS) return;
+
+    const w = window as Window & {
+      // ── Capacity test helpers ──────────────────────────────────────────────
+      // Injects objects directly into the Zustand store, bypassing Firestore.
+      __perfSeedObjects?: (objects: Record<string, unknown>[]) => number;
+      // Reads the live object count from the Zustand store (not from Konva,
+      // which only holds spatially-visible Groups due to R-tree culling).
+      __perfGetObjectCount?: () => number;
+      // Updates the canvas viewport (x, y, scale) via canvasStore so the
+      // Konva stage and the R-tree culling logic stay in sync.
+      __perfSetViewport?: (x: number, y: number, scale: number) => void;
+
+      // ── Two-browser sync test helpers ─────────────────────────────────────
+      // Generate a Firestore document ID without writing (for pre-coordination).
+      __perfGenerateObjectId?: (boardId: string) => string;
+      // Write a new object to Firestore and return Date.now() at write time.
+      __perfCreateObject?: (
+        boardId: string,
+        id: string,
+        data: Record<string, unknown>,
+      ) => Promise<number>;
+      // Update an existing Firestore object and return Date.now() at write time.
+      __perfUpdateObject?: (
+        boardId: string,
+        id: string,
+        updates: Record<string, unknown>,
+      ) => Promise<number>;
+      // Poll the Zustand store until objectId appears. Returns Date.now() when
+      // found, or -1 after timeoutMs.
+      __perfWaitForObjectId?: (id: string, timeoutMs: number) => Promise<number>;
+      // Poll until objects[id][field] === expected. Returns Date.now() or -1.
+      __perfWaitForObjectField?: (
+        id: string,
+        field: string,
+        expected: unknown,
+        timeoutMs: number,
+      ) => Promise<number>;
+      // Return the current user's Firebase UID (null when not yet signed in).
+      __perfGetUserId?: () => string | null;
+      // Write a cursor to RTDB and return Date.now() as the write timestamp.
+      __perfWriteCursor?: (
+        boardId: string,
+        uid: string,
+        x: number,
+        y: number,
+        name: string,
+      ) => number;
+      // Subscribe to RTDB cursor events and resolve with Date.now() when a
+      // cursor from targetUid arrives with timestamp ≥ minTimestamp.
+      __perfWaitForCursor?: (
+        boardId: string,
+        targetUid: string,
+        minTimestamp: number,
+        timeoutMs: number,
+      ) => Promise<number>;
+    };
+
+    // ── Capacity helpers ─────────────────────────────────────────────────────
+    w.__perfSeedObjects = (objects) => {
+      useObjectStore.getState().batchUpsert(objects as unknown as BoardObject[]);
+      return objects.length;
+    };
+
+    w.__perfGetObjectCount = () =>
+      Object.keys(useObjectStore.getState().objects).length;
+
+    w.__perfSetViewport = (x, y, scale) =>
+      useCanvasStore.getState().setViewport(x, y, scale);
+
+    // ── Two-browser sync helpers ─────────────────────────────────────────────
+    w.__perfGenerateObjectId = (boardId) => generateObjectId(boardId);
+
+    w.__perfCreateObject = async (boardId, id, data) => {
+      const t0 = Date.now();
+      await createObject(
+        boardId,
+        data as Omit<BoardObject, 'id' | 'createdAt' | 'updatedAt'>,
+        id,
+      );
+      return t0;
+    };
+
+    w.__perfUpdateObject = async (boardId, id, updates) => {
+      const t0 = Date.now();
+      await updateObject(boardId, id, updates as Partial<BoardObject>);
+      return t0;
+    };
+
+    w.__perfWaitForObjectId = (id, timeoutMs) =>
+      new Promise<number>((resolve) => {
+        const deadline = Date.now() + timeoutMs;
+        function poll() {
+          if (useObjectStore.getState().objects[id]) {
+            resolve(Date.now());
+          } else if (Date.now() >= deadline) {
+            resolve(-1);
+          } else {
+            setTimeout(poll, 20);
+          }
+        }
+        poll();
+      });
+
+    w.__perfWaitForObjectField = (id, field, expected, timeoutMs) =>
+      new Promise<number>((resolve) => {
+        const deadline = Date.now() + timeoutMs;
+        function poll() {
+          const obj = useObjectStore.getState().objects[id];
+          if (obj && (obj as unknown as Record<string, unknown>)[field] === expected) {
+            resolve(Date.now());
+          } else if (Date.now() >= deadline) {
+            resolve(-1);
+          } else {
+            setTimeout(poll, 20);
+          }
+        }
+        poll();
+      });
+
+    w.__perfGetUserId = () => useAuthStore.getState().user?.uid ?? null;
+
+    w.__perfWriteCursor = (boardId, uid, x, y, name) => {
+      const t0 = Date.now();
+      setCursor(boardId, uid, { x, y, name, color: '#6366f1', timestamp: t0 });
+      return t0;
+    };
+
+    w.__perfWaitForCursor = (boardId, targetUid, minTimestamp, timeoutMs) =>
+      new Promise<number>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error(`Cursor for ${targetUid} not received within ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+        const unsub = onCursorChildEvents(boardId, {
+          onAdd: (uid, data: CursorData) => {
+            if (uid === targetUid && data.timestamp >= minTimestamp) {
+              clearTimeout(timer);
+              unsub();
+              resolve(Date.now());
+            }
+          },
+          onChange: (uid, data: CursorData) => {
+            if (uid === targetUid && data.timestamp >= minTimestamp) {
+              clearTimeout(timer);
+              unsub();
+              resolve(Date.now());
+            }
+          },
+          onRemove: () => {},
+        });
+      });
+
+    return () => {
+      delete w.__perfSeedObjects;
+      delete w.__perfGetObjectCount;
+      delete w.__perfSetViewport;
+      delete w.__perfGenerateObjectId;
+      delete w.__perfCreateObject;
+      delete w.__perfUpdateObject;
+      delete w.__perfWaitForObjectId;
+      delete w.__perfWaitForObjectField;
+      delete w.__perfGetUserId;
+      delete w.__perfWriteCursor;
+      delete w.__perfWaitForCursor;
+    };
+  }, []);
+
   // Record board visit for dashboard (all authenticated users)
   useEffect(() => {
     if (user) {
       recordBoardVisit(user.uid, boardId).catch(console.error);
     }
   }, [user, boardId]);
+
+  // Load the user's preferred cursor color from Firestore once after auth resolves.
+  // This seeds authStore.preferredColor so useMultiplayer broadcasts the correct
+  // color on the initial presence write, without waiting for the color picker to open.
+  const userId = user?.uid;
+  useEffect(() => {
+    if (!userId) return;
+    loadPreferredColor().then((color) => {
+      if (color) setPreferredColor(color);
+    }).catch(() => {
+      // Non-critical — falls back to deterministic UID hash color.
+    });
+  }, [userId, setPreferredColor]);
 
   // Firestore object sync — only after auth resolves
   useFirestoreSync(user ? boardId : undefined);
@@ -96,11 +337,47 @@ export default function BoardPage() {
   useMultiplayer({ boardId, user, displayName });
 
   const handleSendAICommand = useCallback(
-    (command: string) => {
-      sendAICommand(command);
+    (command: string, refs: ObjectReference[]) => {
+      sendAICommand(command, refs);
     },
     [sendAICommand]
   );
+
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Calculates the bounding box of all board objects and adjusts the viewport
+   * so the entire workspace fits within the visible canvas area.
+   */
+  const handleZoomToFit = useCallback(() => {
+    const allObjects = Object.values(useObjectStore.getState().objects);
+    if (allObjects.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const obj of allObjects) {
+      minX = Math.min(minX, obj.x);
+      minY = Math.min(minY, obj.y);
+      maxX = Math.max(maxX, obj.x + (obj.width ?? 0));
+      maxY = Math.max(maxY, obj.y + (obj.height ?? 0));
+    }
+
+    const boxW = maxX - minX;
+    const boxH = maxY - minY;
+    if (boxW === 0 || boxH === 0) return;
+
+    const container = canvasContainerRef.current;
+    const vpW = container ? container.clientWidth : window.innerWidth;
+    const vpH = container ? container.clientHeight : window.innerHeight;
+
+    // 90% fill — leaves a comfortable margin around the content
+    const scale = Math.min((vpW / boxW) * 0.9, (vpH / boxH) * 0.9, 3);
+
+    // Center the bounding box within the viewport
+    const stageX = (vpW - boxW * scale) / 2 - minX * scale;
+    const stageY = (vpH - boxH * scale) / 2 - minY * scale;
+
+    useCanvasStore.getState().setViewport(stageX, stageY, scale);
+  }, []);
 
   // Loading states — skipped in perf bypass mode to render canvas immediately
   if (!IS_PERF_BYPASS && isLoading) {
@@ -128,8 +405,6 @@ export default function BoardPage() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
-      {/* Anonymous-user banner — prompts linking to a permanent account */}
-      <SaveToAccountBanner />
 
       {/* ── Tier 1: Top Header ─────────────────────────────────────────────── */}
       <header className="flex h-12 w-full shrink-0 items-center border-b border-gray-200 bg-white px-4 z-40">
@@ -144,9 +419,11 @@ export default function BoardPage() {
 
         {/* Right: Controls */}
         <div className="ml-auto flex items-center gap-2">
+          <GuestAuthTrigger boardId={boardId} />
+          <UserProfileButton boardId={boardId} />
+          <FpsCounter />
           <PresenceIndicator />
           <div className="h-5 w-px bg-gray-200" />
-          <PrivacyToggle boardId={boardId} />
           <ShareButton boardId={boardId} />
           <div className="h-5 w-px bg-gray-200" />
 
@@ -206,7 +483,7 @@ export default function BoardPage() {
         <PropertiesSidebar boardId={boardId} />
 
         {/* CENTER: Canvas */}
-        <div className="flex-1 relative min-w-0 overflow-hidden">
+        <div ref={canvasContainerRef} className="flex-1 relative min-w-0 overflow-hidden">
           <Canvas boardId={boardId} />
           <ContextMenu boardId={boardId} />
 
@@ -222,6 +499,18 @@ export default function BoardPage() {
               <SelectionCounter />
             </div>
           </div>
+
+          {/* Zoom to Fit — bottom-right corner */}
+          <button
+            onClick={handleZoomToFit}
+            title="Zoom to fit all objects"
+            className="absolute bottom-4 right-4 z-40 flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900"
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M1 6V1h5M10 1h5v5M15 10v5h-5M6 15H1v-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Fit
+          </button>
 
           {/* Floating message preview when sidebar is closed */}
           <MessagePreview onOpenSidebar={() => setSidebarOpen(true)} />
@@ -242,9 +531,11 @@ export default function BoardPage() {
         <ChatSidebar
           boardId={boardId}
           onSendAICommand={handleSendAICommand}
+          onCancelAICommand={cancelAICommand}
           isAILoading={isAILoading}
         />
       </div>
+
     </div>
   );
 }

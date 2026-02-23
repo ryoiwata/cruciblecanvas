@@ -1,12 +1,12 @@
 "use client";
 
 import { memo } from "react";
-import { Line, Text, Group } from "react-konva";
+import { Arrow, Line, Text, Group } from "react-konva";
 import type Konva from "konva";
 import { useObjectStore } from "@/lib/store/objectStore";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { nearestEdgePoint } from "@/lib/utils";
-import type { BoardObject, ConnectorStyle } from "@/lib/types";
+import type { BoardObject, ConnectorStyle, LineEffect } from "@/lib/types";
 import { CONNECTOR_DEFAULTS } from "@/lib/types";
 
 interface ConnectorObjectProps {
@@ -25,6 +25,14 @@ function getDash(style: ConnectorStyle): number[] {
   }
 }
 
+/**
+ * Determines the arrowhead fill color for a given effect type.
+ * Open arrows use transparent fill; all others use the stroke color for a solid tip.
+ */
+function getArrowFill(effect: LineEffect, strokeColor: string): string {
+  return effect === 'open-arrow' ? 'transparent' : strokeColor;
+}
+
 export default memo(function ConnectorObject({
   object,
 }: ConnectorObjectProps) {
@@ -36,7 +44,8 @@ export default memo(function ConnectorObject({
   const endObj = useObjectStore((s) => (endpointId1 ? s.objects[endpointId1] : null) ?? null);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Narrow boolean selector — only re-renders when this connector's own selection state changes.
+  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const mode = useCanvasStore((s) => s.mode);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
 
@@ -63,7 +72,31 @@ export default memo(function ConnectorObject({
       | undefined;
   const effectiveStyle = (object.borderType as ConnectorStyle | undefined) ?? legacyStyle ?? 'solid';
   const dash = getDash(effectiveStyle);
-  const isSelected = selectedObjectIds.includes(object.id);
+
+  const strokeColor = isSelected ? '#2196F3' : (object.color ?? '#374151');
+  const strokeWidth = isSelected
+    ? (object.thickness ?? CONNECTOR_DEFAULTS.strokeWidth) + 1
+    : (object.thickness ?? CONNECTOR_DEFAULTS.strokeWidth);
+
+  // Arrow effect settings — defaults to 'none' (plain line) for backward compatibility
+  // with connectors created before the endEffect field was introduced.
+  // New directed connectors always have endEffect: 'arrow' explicitly stored.
+  const endEffect: LineEffect = object.endEffect ?? 'none';
+  const startEffect: LineEffect = object.startEffect ?? 'none';
+  const hasEndArrow   = endEffect   !== 'none';
+  const hasStartArrow = startEffect !== 'none';
+
+  // Konva Arrow uses a single pointerLength/pointerWidth for both ends.
+  // Prefer end-effect size when the end has an arrowhead, otherwise use start-effect size.
+  // When neither end has an arrowhead, use 0 so the Arrow renders as a plain line
+  // without switching component types (avoids Konva layer-cache ghosting on toggle).
+  const effectSizePct = hasEndArrow
+    ? (object.endEffectSize ?? 100)
+    : hasStartArrow
+      ? (object.startEffectSize ?? 100)
+      : 0;
+  const pointerLen = effectSizePct > 0 ? Math.round(effectSizePct / 100 * 12) : 0;
+  const pointerW   = effectSizePct > 0 ? Math.round(effectSizePct / 100 * 10) : 0;
 
   const handleClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     // Only handle left-click; right-click fires contextmenu and should not change selection
@@ -99,24 +132,36 @@ export default memo(function ConnectorObject({
     });
   };
 
+  const points = [startPt.x, startPt.y, endPt.x, endPt.y];
+
   return (
     <Group id={object.id}>
-      {/* Hit area (wider invisible line for easier clicking) */}
+      {/* Hit area — 20px invisible stroke makes connectors much easier to click
+          on high-DPI screens without changing the visual appearance.
+          listening={true} is the default; the visible line below uses listening={false}. */}
       <Line
-        points={[startPt.x, startPt.y, endPt.x, endPt.y]}
+        points={points}
         stroke="transparent"
-        strokeWidth={12}
+        strokeWidth={20}
         onClick={handleClick}
         onTap={handleClick}
         onContextMenu={handleContextMenu}
       />
 
-      {/* Visible line */}
-      <Line
-        points={[startPt.x, startPt.y, endPt.x, endPt.y]}
-        stroke={isSelected ? "#2196F3" : object.color}
-        strokeWidth={isSelected ? (object.thickness ?? CONNECTOR_DEFAULTS.strokeWidth) + 1 : (object.thickness ?? CONNECTOR_DEFAULTS.strokeWidth)}
+      {/* Visible line — always an Arrow component to avoid Konva layer-cache ghosting
+          when toggling between directed and undirected. When neither end has an
+          arrowhead, pointerLength/pointerWidth are 0 and pointerAt* are false,
+          so Konva renders a plain line with no pointer geometry at all. */}
+      <Arrow
+        points={points}
+        stroke={strokeColor}
+        strokeWidth={strokeWidth}
+        fill={hasEndArrow ? getArrowFill(endEffect, strokeColor) : 'transparent'}
         dash={dash}
+        pointerLength={pointerLen}
+        pointerWidth={pointerW}
+        pointerAtEnding={hasEndArrow}
+        pointerAtBeginning={hasStartArrow}
         listening={false}
       />
 

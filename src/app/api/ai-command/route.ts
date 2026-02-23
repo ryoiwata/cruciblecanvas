@@ -1,19 +1,15 @@
 /**
  * /api/ai-command — AI board agent endpoint.
- * Accepts @ai commands from authenticated users, streams Claude's response
- * with tool calling for board manipulation.
+ * Accepts @ai commands from authenticated users and streams the response via
+ * Sonnet with full tool-calling support (findAvailableSpace, createFlowchart,
+ * createElementsBatch, etc.).
  *
  * Runs on the Node.js runtime so that the OpenTelemetry NodeSDK (initialised in
  * src/instrumentation.ts) is available. Authentication uses jose (lightweight JWT
  * verification against Google's public JWKS) — no firebase-admin dependency needed.
  *
- * Langfuse observability is provided via OpenTelemetry. The NodeSDK (with
- * LangfuseSpanProcessor) is started in src/instrumentation.ts at server startup.
- * Passing `experimental_telemetry: { isEnabled: true }` to streamText causes the
- * Vercel AI SDK to emit OTel spans that LangfuseSpanProcessor forwards to Langfuse.
- *
  * Request: POST with Authorization: Bearer <Firebase ID Token>
- * Body: { message, boardId, boardState, selectedObjectIds, persona, aiCommandId }
+ * Body: { message, boardId, boardState, selectedObjectIds, aiCommandId, suggestedPositions?, viewportBounds? }
  * Response: SSE stream (text/event-stream via Vercel AI SDK)
  */
 
@@ -29,11 +25,12 @@ const anthropic = createAnthropic({
   baseURL: 'https://api.anthropic.com/v1',
 });
 
-import { buildSystemPrompt } from '@/lib/ai/prompts';
+import { buildTier2SystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
+import { computeOccupiedZones } from '@/lib/ai/spatialPlanning';
 import type { AIBoardContext } from '@/lib/ai/context';
 import type { SuggestedPosition } from '@/lib/ai/spatialPlanning';
-import type { AiPersona } from '@/lib/types';
+import type { BoardObject, ObjectType } from '@/lib/types';
 
 // Firebase publishes its token-signing keys at this JWKS endpoint.
 // jose caches the key set and re-fetches when keys rotate.
@@ -84,9 +81,35 @@ interface AICommandRequestBody {
   boardId: string;
   boardState: AIBoardContext;
   selectedObjectIds: string[];
-  persona: AiPersona;
   aiCommandId: string;
   suggestedPositions?: SuggestedPosition[];
+  viewportBounds?: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Reconstructs a minimal BoardObject map from AIBoardContext for server-side spatial computation.
+ * AIObjectSummary has all spatial fields needed (x, y, width, height, type, id).
+ */
+function buildBoardObjectsFromContext(boardState: AIBoardContext): Record<string, BoardObject> {
+  const result: Record<string, BoardObject> = {};
+
+  for (const obj of boardState.visibleObjects) {
+    result[obj.id] = {
+      id: obj.id,
+      type: obj.type as ObjectType,
+      x: obj.x,
+      y: obj.y,
+      width: obj.width,
+      height: obj.height,
+      color: obj.color,
+      createdBy: '',
+      createdAt: 0,
+      updatedAt: 0,
+      ...(obj.parentFrame ? { parentFrame: obj.parentFrame } : {}),
+    };
+  }
+
+  return result;
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -129,7 +152,16 @@ export async function POST(req: Request): Promise<Response> {
     });
   }
 
-  const { message, messages: turnHistory, boardId, boardState, selectedObjectIds, persona, aiCommandId, suggestedPositions } = body;
+  const {
+    message,
+    messages: turnHistory,
+    boardId,
+    boardState,
+    selectedObjectIds,
+    aiCommandId,
+    suggestedPositions,
+    viewportBounds,
+  } = body;
 
   if (!message || !boardId || !aiCommandId) {
     return new Response(
@@ -146,50 +178,49 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Build system prompt
+  // 3. Build spatial context and system prompt
   // ---------------------------------------------------------------------------
+  const boardObjects = buildBoardObjectsFromContext(boardState);
+  const occupiedZones = computeOccupiedZones(boardObjects);
+
   const selectedObjects =
     boardState?.visibleObjects?.filter((o) => selectedObjectIds?.includes(o.id)) ?? [];
 
-  const systemPrompt = buildSystemPrompt(
-    {
-      objectCount: boardState?.totalObjects ?? 0,
-      visibleCount: boardState?.visibleObjects?.length ?? 0,
-      selectedCount: selectedObjectIds?.length ?? 0,
-      frameCount: boardState?.frames?.length ?? 0,
-      topics: [],
-      colorLegend: boardState?.colorLegend ?? [],
-      selectedObjects: selectedObjects.map((o) => ({
-        id: o.id,
-        type: o.type,
-        text: o.text,
-        x: o.x,
-        y: o.y,
-      })),
-      suggestedPositions: suggestedPositions ?? [],
-    },
-    persona ?? 'mason'
-  );
+  const systemPrompt = buildTier2SystemPrompt({
+    objectCount: boardState?.totalObjects ?? 0,
+    visibleCount: boardState?.visibleObjects?.length ?? 0,
+    selectedCount: selectedObjectIds?.length ?? 0,
+    frameCount: boardState?.frames?.length ?? 0,
+    topics: [],
+    colorLegend: boardState?.colorLegend ?? [],
+    selectedObjects: selectedObjects.map((o) => ({
+      id: o.id,
+      type: o.type,
+      text: o.text,
+      x: o.x,
+      y: o.y,
+    })),
+    suggestedPositions: suggestedPositions ?? [],
+    occupiedZones,
+    viewportBounds,
+  });
 
-  // ---------------------------------------------------------------------------
-  // 4. Stream Claude response with tool calling
-  // Tools authenticate with the user's ID token (BaaS pattern: user writes
-  // through Security Rules rather than bypassing them with admin credentials).
-  // Mason persona only gets operational tools — analytical tools are stripped.
-  // ---------------------------------------------------------------------------
-  const allTools = createAITools({ boardId, userId, aiCommandId, userToken: idToken });
+  // Provide boardObjects and viewportBounds to spatial tools so they can call
+  // findClearRect without additional Firestore reads.
+  const allTools = createAITools({
+    boardId,
+    userId,
+    aiCommandId,
+    userToken: idToken,
+    boardObjects,
+    viewportBounds,
+  });
 
-  // Mason: strip analytical tools (they're operational-only).
-  // Non-Mason: strip askClarification (other personas express ambiguity in prose).
+  // Mason is the only persona — strip analytical tools (operational-only).
   const MASON_EXCLUDED_TOOLS = new Set(['redTeamThis', 'mapDecision', 'findGaps']);
-  const NON_MASON_EXCLUDED_TOOLS = new Set(['askClarification']);
-  const tools = (persona ?? 'mason') === 'mason'
-    ? (Object.fromEntries(
-        Object.entries(allTools).filter(([name]) => !MASON_EXCLUDED_TOOLS.has(name))
-      ) as typeof allTools)
-    : (Object.fromEntries(
-        Object.entries(allTools).filter(([name]) => !NON_MASON_EXCLUDED_TOOLS.has(name))
-      ) as typeof allTools);
+  const tools = Object.fromEntries(
+    Object.entries(allTools).filter(([name]) => !MASON_EXCLUDED_TOOLS.has(name))
+  ) as typeof allTools;
 
   // When the client supplies turn history (clarification reply), use the full
   // conversation so Mason can see its own question and the user's answer.
@@ -199,13 +230,16 @@ export async function POST(req: Request): Promise<Response> {
       ? turnHistory
       : [{ role: 'user', content: message }];
 
+  // ---------------------------------------------------------------------------
+  // 4. Stream response via Sonnet with full tool-calling support
+  // ---------------------------------------------------------------------------
   try {
     const result = streamText({
       model: anthropic('claude-sonnet-4-6'),
       system: systemPrompt,
       messages: chatMessages,
       tools,
-      stopWhen: stepCountIs(15),
+      stopWhen: stepCountIs(30),
       // OTel spans are emitted by the AI SDK and captured by LangfuseSpanProcessor
       // (initialised in src/instrumentation.ts) for Langfuse observability.
       experimental_telemetry: { isEnabled: true },
@@ -217,7 +251,6 @@ export async function POST(req: Request): Promise<Response> {
 
     return result.toTextStreamResponse({
       headers: {
-        // Inform the client whether this is an anonymous session (affects rate-limit UI)
         'X-Is-Anonymous': isAnonymous ? '1' : '0',
       },
     });

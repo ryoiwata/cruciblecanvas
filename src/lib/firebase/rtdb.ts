@@ -9,7 +9,6 @@ import {
   onChildChanged,
   onChildRemoved,
   onDisconnect,
-  serverTimestamp,
   type Unsubscribe,
 } from "firebase/database";
 import { rtdb } from "./config";
@@ -206,6 +205,11 @@ export function setPresence(
  * Registers onDisconnect cleanup for this user's presence.
  * Call once on board entry (and again after reconnect).
  * Separated from setPresence() to avoid re-registering on every heartbeat.
+ *
+ * Uses remove() rather than update({ online: false }) so the node is fully
+ * deleted from RTDB when the WebSocket drops — covering both tab close/crash
+ * and explicit sign-out (which closes the WebSocket). The onChildRemoved
+ * listener in useMultiplayer then removes the user from all clients' stores.
  */
 export function setupPresenceDisconnect(
   boardId: string,
@@ -213,10 +217,7 @@ export function setupPresenceDisconnect(
 ): void {
   const presenceRef = ref(rtdb, `boards/${boardId}/presence/${userId}`);
   onDisconnect(presenceRef)
-    .update({
-      online: false,
-      lastSeen: serverTimestamp(),
-    })
+    .remove()
     .catch((err) => {
       presenceLogger.writeError("setupPresenceDisconnect", err);
     });
@@ -334,6 +335,27 @@ export function removePresence(boardId: string, userId: string): void {
   const presenceRef = ref(rtdb, `boards/${boardId}/presence/${userId}`);
   remove(presenceRef).catch((err) => {
     presenceLogger.writeError("removePresence", err);
+  });
+}
+
+/**
+ * Atomically updates the user's color in both presence and cursor nodes via
+ * a single multi-path RTDB write. Called immediately when the user selects a
+ * new color so other clients see the change without waiting for a full
+ * presence re-broadcast.
+ */
+export function updatePresenceColor(
+  boardId: string,
+  userId: string,
+  color: string
+): void {
+  const boardRef = ref(rtdb, `boards/${boardId}`);
+  update(boardRef, {
+    [`presence/${userId}/color`]: color,
+    [`cursors/${userId}/color`]: color,
+  }).catch((err) => {
+    console.error("[RTDB] updatePresenceColor failed:", err.message);
+    presenceLogger.writeError("updatePresenceColor", err);
   });
 }
 
@@ -558,4 +580,12 @@ export function onAIStreamChildEvents(
     unsubChange();
     unsubRemove();
   };
+}
+
+/**
+ * Removes all RTDB data for a board node (cursors, presence, locks, AI streams).
+ * Called as part of cascading board deletion from the dashboard.
+ */
+export async function deleteBoardRTDB(boardId: string): Promise<void> {
+  await remove(ref(rtdb, `boards/${boardId}`));
 }

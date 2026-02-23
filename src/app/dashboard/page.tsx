@@ -8,7 +8,9 @@ import {
   createBoardMetadata,
   getUserBoards,
   getVisitedBoards,
+  deleteBoardCascade,
 } from "@/lib/firebase/firestore";
+import { deleteBoardRTDB } from "@/lib/firebase/rtdb";
 import type { BoardMetadata } from "@/lib/types";
 import type { Timestamp } from "firebase/firestore";
 
@@ -46,6 +48,8 @@ export default function DashboardPage() {
   const [boardsLoading, setBoardsLoading] = useState(true);
   const [joinInput, setJoinInput] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [deletingBoardId, setDeletingBoardId] = useState<string | null>(null);
 
   // Fetch user's boards on mount
   useEffect(() => {
@@ -104,6 +108,25 @@ export default function DashboardPage() {
   const handleSignOut = async () => {
     await signOutUser();
     router.replace("/auth");
+  };
+
+  const handleDeleteBoard = async (boardId: string) => {
+    if (!user) return;
+    setDeletingBoardId(boardId);
+    // Optimistic UI — remove immediately so the user sees instant feedback.
+    setBoards((prev) => prev.filter((b) => b.boardId !== boardId));
+    setConfirmDeleteId(null);
+    try {
+      // Run Firestore + RTDB deletions in parallel for faster cleanup.
+      await Promise.all([
+        deleteBoardCascade(boardId, user.uid),
+        deleteBoardRTDB(boardId),
+      ]);
+    } catch (err) {
+      console.error("Failed to delete board:", err);
+    } finally {
+      setDeletingBoardId(null);
+    }
   };
 
   const handleJoinBoard = () => {
@@ -189,23 +212,58 @@ export default function DashboardPage() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {boards.map((board) => (
-              <button
+              <div
                 key={board.boardId}
-                onClick={() => router.push(`/board/${board.boardId}`)}
-                className="flex flex-col rounded-lg border border-gray-200 bg-white p-5 text-left transition-shadow hover:shadow-md"
+                className="relative flex flex-col rounded-lg border border-gray-200 bg-white transition-shadow hover:shadow-md"
               >
-                <div className="mb-2 flex items-center gap-2">
-                  <span className="text-base font-medium text-gray-900 truncate">
-                    {board.title || "Untitled Board"}
+                {/* Main clickable area */}
+                <button
+                  onClick={() => router.push(`/board/${board.boardId}`)}
+                  className="flex flex-col p-5 text-left flex-1"
+                >
+                  <div className="mb-2 flex items-center gap-2 pr-6">
+                    <span className="text-base font-medium text-gray-900 truncate">
+                      {board.title || "Untitled Board"}
+                    </span>
+                    <span className="text-xs shrink-0" title={board.isPublic ? "Public" : "Private"}>
+                      {board.isPublic ? "👀" : "🥸"}
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {board.createdAt ? timeAgo(board.createdAt) : ""}
                   </span>
-                  <span className="text-xs" title={board.isPublic ? "Public" : "Private"}>
-                    {board.isPublic ? "👀" : "🥸"}
-                  </span>
-                </div>
-                <span className="text-xs text-gray-400">
-                  {board.createdAt ? timeAgo(board.createdAt) : ""}
-                </span>
-              </button>
+                </button>
+
+                {/* Delete button / confirm overlay */}
+                {confirmDeleteId === board.boardId ? (
+                  <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-lg bg-white/95 backdrop-blur-sm border border-red-200">
+                    <span className="text-xs text-gray-600 mr-1">Delete board?</span>
+                    <button
+                      onClick={() => handleDeleteBoard(board.boardId)}
+                      disabled={deletingBoardId === board.boardId}
+                      className="rounded px-2 py-1 text-xs font-medium bg-red-500 text-white hover:bg-red-600 disabled:opacity-50"
+                    >
+                      {deletingBoardId === board.boardId ? "Deleting…" : "Delete"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDeleteId(null)}
+                      className="rounded px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(board.boardId); }}
+                    title="Delete board"
+                    className="absolute top-2 right-2 flex h-6 w-6 items-center justify-center rounded text-gray-300 opacity-0 group-hover:opacity-100 hover:bg-red-50 hover:text-red-400 transition-all [.relative:hover_&]:opacity-100"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                      <path d="M1 3h10M4 3V2h4v1M2 3l.7 7.3A1 1 0 003.7 11h4.6a1 1 0 001-.7L10 3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         )}

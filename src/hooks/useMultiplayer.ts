@@ -13,6 +13,7 @@ import {
   onConnectionStateChange,
 } from "@/lib/firebase/rtdb";
 import { usePresenceStore } from "@/lib/store/presenceStore";
+import { useAuthStore } from "@/lib/store/authStore";
 import { getUserColor } from "@/lib/utils";
 import { presenceLogger } from "@/lib/debug/presenceLogger";
 import type { PresenceData } from "@/lib/types";
@@ -55,6 +56,9 @@ export function useMultiplayer({
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
 
+  // Prefer the user's chosen color; fall back to the deterministic UID hash.
+  const preferredColor = useAuthStore((s) => s.preferredColor);
+
   // Build presence data (stable across renders for same inputs)
   const buildPresenceData = useCallback(
     (): Omit<PresenceData, "online" | "lastSeen"> | null => {
@@ -63,11 +67,11 @@ export function useMultiplayer({
         name: displayName || "Guest",
         email: user.email || undefined,
         photoURL: user.photoURL || undefined,
-        color: getUserColor(user.uid),
+        color: preferredColor ?? getUserColor(user.uid),
         isAnonymous: user.isAnonymous,
       };
     },
-    [user, displayName]
+    [user, displayName, preferredColor]
   );
 
   // Retry helper with exponential backoff

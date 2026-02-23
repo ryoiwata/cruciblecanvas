@@ -2,107 +2,35 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { doc, setDoc } from "firebase/firestore";
-import { db } from "@/lib/firebase/config";
 import { createBoardMetadata } from "@/lib/firebase/firestore";
-import {
-  signInAsGuest,
-  signInWithGoogle,
-  signInWithEmail,
-  signUpWithEmail,
-} from "@/lib/firebase/auth";
-import { useAuthStore } from "@/lib/store/authStore";
-import { FirebaseError } from "firebase/app";
+import { signInAsGuest, signInWithGoogle } from "@/lib/firebase/auth";
 
 interface AuthCardProps {
   redirectUrl?: string | null;
 }
 
 export default function AuthCard({ redirectUrl }: AuthCardProps) {
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const setStoreName = useAuthStore((s) => s.setDisplayName);
-
-  function friendlyError(err: unknown): string {
-    if (err instanceof FirebaseError) {
-      switch (err.code) {
-        case "auth/user-not-found":
-          return "No account found with that email.";
-        case "auth/wrong-password":
-        case "auth/invalid-credential":
-          return "Incorrect password. Please try again.";
-        case "auth/invalid-email":
-          return "Please enter a valid email address.";
-        case "auth/email-already-in-use":
-          return "An account with that email already exists.";
-        case "auth/weak-password":
-          return "Password must be at least 6 characters.";
-        case "auth/too-many-requests":
-          return "Too many attempts. Please try again later.";
-      }
-    }
-    return "Sign-in failed. Please try again.";
-  }
 
   const handleGuest = async () => {
-    const trimmed = displayName.trim();
-    if (!trimmed) {
-      setError("Please enter a display name.");
-      return;
-    }
-
     setError(null);
     setLoading(true);
     try {
       const credential = await signInAsGuest();
-      const profileRef = doc(db, "users", credential.user.uid, "profile", "info");
-      await setDoc(profileRef, { displayName: trimmed }, { merge: true });
-      setStoreName(trimmed);
-
       if (redirectUrl) {
         // Guest is joining a shared board link — navigate there directly
         router.push(redirectUrl);
       } else {
         // Auto-create a board and redirect guest directly to it
         const boardId = crypto.randomUUID();
-        await createBoardMetadata(boardId, credential.user.uid, "Untitled Board");
-        router.push("/board/" + boardId);
+        await createBoardMetadata(boardId, credential.user.uid, 'Untitled Board');
+        router.push('/board/' + boardId);
       }
     } catch (err) {
-      console.error("Guest sign-in failed:", err);
-      setError(friendlyError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEmailSubmit = async () => {
-    if (!email.trim() || !password) {
-      setError("Please enter both email and password.");
-      return;
-    }
-    if (isSignUp && !displayName.trim()) {
-      setError("Please enter a display name to create an account.");
-      return;
-    }
-
-    setError(null);
-    setLoading(true);
-    try {
-      if (isSignUp) {
-        await signUpWithEmail(email.trim(), password, displayName.trim());
-      } else {
-        await signInWithEmail(email.trim(), password);
-      }
-      router.push(redirectUrl || "/dashboard");
-    } catch (err) {
-      console.error("Email sign-in failed:", err);
-      setError(friendlyError(err));
+      console.error('Guest sign-in failed:', err);
+      setError('Sign-in failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -113,10 +41,10 @@ export default function AuthCard({ redirectUrl }: AuthCardProps) {
     setLoading(true);
     try {
       await signInWithGoogle();
-      router.push(redirectUrl || "/dashboard");
+      router.push(redirectUrl || '/dashboard');
     } catch (err) {
-      console.error("Google sign-in failed:", err);
-      setError("Sign-in failed. Please allow popups for this site.");
+      console.error('Google sign-in failed:', err);
+      setError('Sign-in failed. Please allow popups for this site.');
     } finally {
       setLoading(false);
     }
@@ -132,99 +60,7 @@ export default function AuthCard({ redirectUrl }: AuthCardProps) {
         Strategic Thinking Canvas
       </p>
 
-      {/* Display name input */}
-      <div className="mb-4">
-        <label
-          htmlFor="displayName"
-          className="mb-1 block text-sm font-medium text-gray-700"
-        >
-          Display Name
-        </label>
-        <input
-          id="displayName"
-          type="text"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleGuest();
-          }}
-          placeholder="Enter your name"
-          disabled={loading}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-        />
-      </div>
-
-      {/* Continue as Guest */}
-      <button
-        onClick={handleGuest}
-        disabled={loading}
-        className="mb-6 w-full rounded-md bg-[#6366f1] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4f46e5] disabled:opacity-50"
-      >
-        {loading ? "Signing in..." : "Continue as Guest"}
-      </button>
-
-      {/* Divider */}
-      <div className="mb-6 flex items-center gap-3">
-        <div className="h-px flex-1 bg-gray-200" />
-        <span className="text-xs text-gray-400">or sign in with</span>
-        <div className="h-px flex-1 bg-gray-200" />
-      </div>
-
-      {/* Email/Password form */}
-      <div className="mb-4 flex flex-col gap-3">
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Email"
-          disabled={loading}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleEmailSubmit();
-          }}
-          placeholder="Password"
-          disabled={loading}
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
-        />
-        <button
-          onClick={handleEmailSubmit}
-          disabled={loading}
-          className="w-full rounded-md bg-[#6366f1] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4f46e5] disabled:opacity-50"
-        >
-          {loading
-            ? "Signing in..."
-            : isSignUp
-              ? "Create Account"
-              : "Sign In"}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setIsSignUp(!isSignUp);
-            setError(null);
-          }}
-          disabled={loading}
-          className="text-sm text-[#6366f1] hover:underline disabled:opacity-50"
-        >
-          {isSignUp
-            ? "Already have an account? Sign in"
-            : "Need an account? Create one"}
-        </button>
-      </div>
-
-      {/* Divider */}
-      <div className="mb-4 flex items-center gap-3">
-        <div className="h-px flex-1 bg-gray-200" />
-        <span className="text-xs text-gray-400">or</span>
-        <div className="h-px flex-1 bg-gray-200" />
-      </div>
-
-      {/* Google button */}
+      {/* Google sign-in — primary action */}
       <button
         onClick={handleGoogle}
         disabled={loading}
@@ -249,6 +85,22 @@ export default function AuthCard({ redirectUrl }: AuthCardProps) {
           />
         </svg>
         Sign in with Google
+      </button>
+
+      {/* Divider */}
+      <div className="my-6 flex items-center gap-3">
+        <div className="h-px flex-1 bg-gray-200" />
+        <span className="text-xs text-gray-400">or</span>
+        <div className="h-px flex-1 bg-gray-200" />
+      </div>
+
+      {/* Continue as Guest — secondary action */}
+      <button
+        onClick={handleGuest}
+        disabled={loading}
+        className="w-full rounded-md border border-gray-200 bg-gray-50 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50"
+      >
+        {loading ? 'Signing in...' : 'Continue as Guest'}
       </button>
 
       {/* Error message */}

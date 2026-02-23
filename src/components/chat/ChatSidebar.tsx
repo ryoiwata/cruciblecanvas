@@ -13,18 +13,20 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useChatStore } from '@/lib/store/chatStore';
 import ChatTimeline from './ChatTimeline';
 import ChatInput from './ChatInput';
-import PersonaSelector from './PersonaSelector';
+import MasonBadge from './MasonBadge';
+import type { ObjectReference } from '@/lib/types';
 
 interface ChatSidebarProps {
   boardId: string;
-  onSendAICommand?: (command: string) => void;
+  onSendAICommand?: (command: string, refs: ObjectReference[]) => void;
+  onCancelAICommand?: () => void;
   isAILoading?: boolean;
 }
 
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 600;
 
-export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: ChatSidebarProps) {
+export default function ChatSidebar({ boardId, onSendAICommand, onCancelAICommand, isAILoading }: ChatSidebarProps) {
   const sidebarOpen = useChatStore((s) => s.sidebarOpen);
   const sidebarWidth = useChatStore((s) => s.sidebarWidth);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
@@ -130,8 +132,8 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
               )}
             </div>
             <div className="flex items-center gap-3">
-              {/* Persona selector — shown when send target is AI */}
-              {chatMode === 'ai' && <PersonaSelector />}
+              {/* Active AI indicator — always Mason */}
+              {chatMode === 'ai' && <MasonBadge />}
               <button
                 onClick={() => setSidebarOpen(false)}
                 className="text-gray-400 hover:text-gray-700 transition-colors"
@@ -149,6 +151,7 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
           <ChatInput
             boardId={boardId}
             onSendAICommand={onSendAICommand}
+            onCancelAICommand={onCancelAICommand}
             isAILoading={isAILoading}
           />
         </>

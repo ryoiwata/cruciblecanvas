@@ -11,6 +11,7 @@ import { useState, useCallback } from 'react';
 import { useChatStore } from '@/lib/store/chatStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import { deleteObjectsByAiCommand, updateChatMessage } from '@/lib/firebase/firestore';
+import AIRefPopover from './AIRefPopover';
 import type { ChatMessage } from '@/lib/types';
 
 function RobotIcon() {
@@ -94,6 +95,15 @@ export default function AIStreamMessage({ message, boardId }: AIStreamMessagePro
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:150ms]" />
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:300ms]" />
             </span>
+          )}
+
+          {/* AI-generated object references — shown after streaming completes.
+              Uses Smart Popover: MasterGroupChip always visible, individual chips
+              collapse behind "View X items" toggle when batch exceeds 5 items. */}
+          {!isStreaming && (message.objectReferences?.length ?? 0) > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              <AIRefPopover refs={message.objectReferences!} />
+            </div>
           )}
 
           {/* Error / undo state */}

@@ -10,7 +10,7 @@
  * Supports: drag, rotation, Ctrl/Shift+click multi-select, context menu.
  */
 
-import { useRef, useCallback, memo } from 'react';
+import { useRef, useCallback, useEffect, memo } from 'react';
 import { Group, Rect, Text } from 'react-konva';
 import type Konva from 'konva';
 import { useCanvasStore } from '@/lib/store/canvasStore';
@@ -36,6 +36,8 @@ export default memo(function TextObject({
   isSimpleLod,
 }: TextObjectProps) {
   const preDragPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  // Ref to the Konva Text node — used to read the actual rendered height after layout.
+  const textRef = useRef<Konva.Text>(null);
 
   const mode = useCanvasStore((s) => s.mode);
   const selectObject = useCanvasStore((s) => s.selectObject);
@@ -123,6 +125,21 @@ export default memo(function TextObject({
     [boardId, object.id, object.parentFrame, updateObjectLocal, user]
   );
 
+  // ---- Sync rendered text height back to the store ----------------------------
+  // Konva Text with wrap="word" auto-computes its height from content. We read
+  // the actual height after each layout-affecting change and persist it so the
+  // transparent hit Rect and the Transformer bounding box stay accurate.
+  // object.height is intentionally excluded from deps to prevent a sync loop.
+  useEffect(() => {
+    if (!textRef.current) return;
+    const renderedHeight = Math.ceil(textRef.current.height());
+    if (renderedHeight > 0 && renderedHeight !== Math.round(object.height)) {
+      updateObjectLocal(object.id, { height: renderedHeight });
+      updateObject(boardId, object.id, { height: renderedHeight }).catch(console.error);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [object.text, object.fontSize, object.width, object.fontFamily, object.id, boardId, updateObjectLocal]);
+
   // ---- LOD guard (after all hooks) ----------------------------------------
   if (isSimpleLod) {
     return (
@@ -147,6 +164,11 @@ export default memo(function TextObject({
       id={object.id}
       x={object.x}
       y={object.y}
+      // Explicit width/height on the Group ensures node.width()/node.height() return
+      // correct values in SelectionLayer.handleTransformEnd during rotation — without
+      // these, Konva returns 0 for Group dimensions and the stored dims get corrupted.
+      width={object.width}
+      height={object.height}
       rotation={object.rotation ?? 0}
       draggable={mode === 'pointer' && !isLocked}
       onDragStart={handleDragStart}
@@ -158,7 +180,12 @@ export default memo(function TextObject({
       onContextMenu={handleContextMenu}
       opacity={object.opacity ?? 1}
     >
-      {/* Transparent hit area covering the full bounding box */}
+      {/* Transparent hit area covering the full bounding box.
+          Height is kept in sync with the actual rendered text height via the
+          useEffect above, so the entire text region is draggable.
+          No selection stroke here — the Transformer in SelectionLayer renders
+          its own borderStroke="#2196F3" when selected, so a second Rect stroke
+          would produce a visible double-border on text objects. */}
       <Rect
         width={object.width}
         height={object.height}
@@ -168,6 +195,7 @@ export default memo(function TextObject({
       {/* Text content — hidden while the HTML textarea overlay is active to prevent double-text.
           textColor overrides the legacy color field when set. */}
       <Text
+        ref={textRef}
         text={object.text ?? ''}
         width={object.width}
         fontSize={fontSize}

@@ -6,8 +6,11 @@ interface AuthState {
   displayName: string | null;
   isAnonymous: boolean;
   isLoading: boolean;
+  /** User-selected cursor/avatar color. Null = use deterministic hash from UID. */
+  preferredColor: string | null;
   setUser: (user: User | null) => void;
   setDisplayName: (name: string) => void;
+  setPreferredColor: (color: string | null) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -15,6 +18,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   displayName: null,
   isAnonymous: false,
   isLoading: true,
+  preferredColor: null,
   setUser: (user) =>
     set({
       user,
@@ -23,4 +27,5 @@ export const useAuthStore = create<AuthState>((set) => ({
       isLoading: false,
     }),
   setDisplayName: (name) => set({ displayName: name }),
+  setPreferredColor: (color) => set({ preferredColor: color }),
 }));

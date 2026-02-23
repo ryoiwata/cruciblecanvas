@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCanvasStore } from '@/lib/store/canvasStore';
 import { useObjectStore } from '@/lib/store/objectStore';
-import { useChatStore, usePersonaStore } from '@/lib/store/chatStore';
+import { useChatStore } from '@/lib/store/chatStore';
 import {
   sendChatMessage,
   confirmAIPendingObjects,
@@ -25,10 +25,11 @@ import {
 import { setAIStream, updateAIStream, removeAIStream } from '@/lib/firebase/rtdb';
 import { serializeBoardState } from '@/lib/ai/context';
 import { computeSuggestedPositions } from '@/lib/ai/spatialPlanning';
-import type { ChatMessage } from '@/lib/types';
+import type { ChatMessage, ObjectReference } from '@/lib/types';
 
 interface UseAICommandReturn {
-  sendAICommand: (command: string) => void;
+  sendAICommand: (command: string, refs?: ObjectReference[]) => void;
+  cancelAICommand: () => void;
   isAILoading: boolean;
 }
 
@@ -53,10 +54,8 @@ export function useAICommand(boardId: string): UseAICommandReturn {
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
   const setClarificationPending = useChatStore((s) => s.setClarificationPending);
 
-  const persona = usePersonaStore((s) => s.persona);
-
   const sendAICommand = useCallback(
-    async (command: string) => {
+    async (command: string, refs?: ObjectReference[]) => {
       if (!user || isAILoading) return;
 
       // Open sidebar so user can see the response streaming
@@ -106,7 +105,8 @@ export function useAICommand(boardId: string): UseAICommandReturn {
       const boardState = serializeBoardState(objects, viewportBounds, selectedObjectIds);
       const suggestedPositions = computeSuggestedPositions(objects, viewportBounds, 5);
 
-      // Build optimistic ai_command message
+      // Build optimistic ai_command message — include any object references so
+      // the chat timeline can render clickable chips immediately on send.
       const commandMsgId = `optimistic-cmd-${aiCommandId}`;
       const commandMsg: ChatMessage = {
         id: commandMsgId,
@@ -117,9 +117,10 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         type: 'ai_command',
         content: command,
         aiCommandId,
-        aiPersona: persona,
+        aiPersona: 'mason',
         aiStatus: 'streaming',
         createdAt: Date.now(),
+        ...(refs && refs.length > 0 ? { objectReferences: refs } : {}),
       };
       addMessage(commandMsg);
 
@@ -135,7 +136,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         type: 'ai_response',
         content: '',
         aiCommandId,
-        aiPersona: persona,
+        aiPersona: 'mason',
         aiStatus: 'streaming',
         createdAt: Date.now(),
       };
@@ -159,7 +160,8 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         timestamp: Date.now(),
       });
 
-      // Persist the ai_command message to Firestore
+      // Persist the ai_command message to Firestore — objectReferences gives
+      // other collaborators' chat timelines the same clickable chips.
       sendChatMessage(boardId, {
         boardId,
         senderId: user.uid,
@@ -168,8 +170,9 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         type: 'ai_command',
         content: command,
         aiCommandId,
-        aiPersona: persona,
+        aiPersona: 'mason',
         aiStatus: 'completed',
+        ...(refs && refs.length > 0 ? { objectReferences: refs } : {}),
       }).catch(console.error);
 
       // Get Firebase ID token for API authorization
@@ -208,7 +211,6 @@ export function useAICommand(boardId: string): UseAICommandReturn {
             boardId,
             boardState,
             selectedObjectIds,
-            persona,
             aiCommandId,
             suggestedPositions,
           }),
@@ -258,6 +260,21 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         // Success: confirm pending objects and write final response to Firestore
         await confirmAIPendingObjects(boardId, aiCommandId).catch(console.error);
 
+        // Collect all objects created during this AI command so they can be
+        // rendered as clickable reference chips in the AI response message.
+        // Objects are already in the local store from tool execute() calls;
+        // we filter by aiCommandId which is set on every AI-created object.
+        // Skip this when the response is a clarification (no objects were created).
+        const aiCreatedRefs: ObjectReference[] = isClarification
+          ? []
+          : Object.values(useObjectStore.getState().objects)
+              .filter((obj) => obj.aiCommandId === aiCommandId)
+              .map((obj) => ({
+                objectId: obj.id,
+                objectText: obj.text ?? '',
+                objectType: obj.type,
+              }));
+
         // Write the final ai_response message to Firestore
         const finalMsgId = await sendChatMessage(boardId, {
           boardId,
@@ -266,15 +283,18 @@ export function useAICommand(boardId: string): UseAICommandReturn {
           type: 'ai_response',
           content: accumulatedContent,
           aiCommandId,
-          aiPersona: persona,
+          aiPersona: 'mason',
           aiStatus: 'completed',
+          ...(aiCreatedRefs.length > 0 ? { objectReferences: aiCreatedRefs } : {}),
         }).catch(console.error);
 
-        // Update local state to completed
+        // Update local state to completed — include reference chips so they appear
+        // immediately without waiting for the Firestore listener round-trip.
         updateMessage(responseMsgId, {
           id: finalMsgId ?? responseMsgId,
           aiStatus: 'completed',
           content: accumulatedContent,
+          ...(aiCreatedRefs.length > 0 ? { objectReferences: aiCreatedRefs } : {}),
         });
 
         // Clean up RTDB stream
@@ -282,7 +302,16 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         removeStream(aiCommandId);
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
-          return; // User navigated away, silent exit
+          // User cancelled (or navigated away) — roll back any pending objects
+          await deleteObjectsByAiCommand(boardId, aiCommandId).catch(console.error);
+          updateMessage(responseMsgId, {
+            aiStatus: 'failed',
+            content: accumulatedContent,
+            aiError: 'Cancelled.',
+          });
+          await removeAIStream(boardId, aiCommandId).catch(console.error);
+          removeStream(aiCommandId);
+          return;
         }
 
         hasFailed = true;
@@ -309,7 +338,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
           type: 'ai_response',
           content: accumulatedContent,
           aiCommandId,
-          aiPersona: persona,
+          aiPersona: 'mason',
           aiStatus: 'failed',
           aiError: `Command failed. All changes rolled back. (${errorMessage})`,
         }).catch(console.error);
@@ -340,7 +369,6 @@ export function useAICommand(boardId: string): UseAICommandReturn {
       stageY,
       stageScale,
       selectedObjectIds,
-      persona,
       addMessage,
       updateMessage,
       setStream,
@@ -350,5 +378,9 @@ export function useAICommand(boardId: string): UseAICommandReturn {
     ]
   );
 
-  return { sendAICommand, isAILoading };
+  const cancelAICommand = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
+  return { sendAICommand, cancelAICommand, isAILoading };
 }

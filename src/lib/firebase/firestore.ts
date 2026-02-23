@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  addDoc,
   setDoc,
   getDoc,
   getDocs,
@@ -100,6 +101,31 @@ export async function deleteObject(
 ): Promise<void> {
   const docRef = doc(db, "boards", boardId, "objects", objectId);
   await deleteDoc(docRef);
+}
+
+/**
+ * Cascading delete of a board: removes all objects, the metadata/config document,
+ * and the owning user's ownedBoards registry entry.
+ * Objects are deleted in batches of 499 to stay within Firestore's 500-op batch limit.
+ */
+export async function deleteBoardCascade(boardId: string, userId: string): Promise<void> {
+  const objectsRef = collection(db, 'boards', boardId, 'objects');
+  const objectsSnap = await getDocs(objectsRef);
+
+  const CHUNK_SIZE = 499;
+  for (let i = 0; i < objectsSnap.docs.length; i += CHUNK_SIZE) {
+    const batch = writeBatch(db);
+    for (const docSnap of objectsSnap.docs.slice(i, i + CHUNK_SIZE)) {
+      batch.delete(docSnap.ref);
+    }
+    await batch.commit();
+  }
+
+  // Remove metadata and ownedBoards entry in a single batch
+  const finalBatch = writeBatch(db);
+  finalBatch.delete(doc(db, 'boards', boardId, 'metadata', 'config'));
+  finalBatch.delete(doc(db, 'users', userId, 'ownedBoards', boardId));
+  await finalBatch.commit();
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +231,7 @@ export async function createBoardMetadata(
     createdAt: serverTimestamp(),
     isPublic: true,
     invitedEmails: [],
-    aiPersona: "neutral",
+    aiPersona: "mason",
     aiCommandsToday: 0,
     aiCommandsResetAt: serverTimestamp(),
     analysisHistory: [],
@@ -489,6 +515,39 @@ export async function checkRateLimit(
   }
 
   return { allowed: true, remaining: userLimit - userCount };
+}
+
+/**
+ * Queues an invitation email via the Firebase Trigger Email extension.
+ * The extension listens to the `mail` collection and dispatches messages
+ * using the configured SMTP provider. This is a fire-and-forget write;
+ * the extension handles delivery and retries.
+ */
+export async function sendBoardInviteEmail({
+  toEmail,
+  boardTitle,
+  fromName,
+  boardUrl,
+}: {
+  toEmail: string;
+  boardTitle: string;
+  fromName: string;
+  boardUrl: string;
+}): Promise<void> {
+  const mailCol = collection(db, 'mail');
+  await addDoc(mailCol, {
+    to: [toEmail],
+    message: {
+      subject: `${fromName} invited you to collaborate on "${boardTitle}"`,
+      html: `
+        <p>Hi,</p>
+        <p><strong>${fromName}</strong> has invited you to collaborate on the board
+        <strong>${boardTitle}</strong>.</p>
+        <p><a href="${boardUrl}" style="background:#6366f1;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block">Open board</a></p>
+        <p>If you did not expect this invitation, you can safely ignore this email.</p>
+      `,
+    },
+  });
 }
 
 /**

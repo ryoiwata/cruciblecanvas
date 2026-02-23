@@ -8,6 +8,8 @@ export type ObjectType =
   | "stickyNote"
   | "rectangle"
   | "circle"
+  | "diamond"
+  | "roundedRect"
   | "frame"
   | "connector"
   | "colorLegend"
@@ -124,7 +126,7 @@ export interface BoardObject {
 // Board Metadata (Firestore: boards/{boardId}/metadata/config)
 // ---------------------------------------------------------------------------
 
-export type AiPersona = "mason" | "neutral" | "skeptical_investor" | "opposing_counsel";
+export type AiPersona = "mason";
 
 export interface AnalysisRecord {
   timestamp: number;
@@ -255,6 +257,29 @@ export const STICKY_NOTE_COLORS = [
   "#98FF98", // Mint
   "#DDA0DD", // Plum
   "#FFAB91", // Coral
+] as const;
+
+/**
+ * 15 saturated, high-contrast colors for user cursors and presence avatars.
+ * Chosen to stand out on the white dot-grid canvas and remain visually distinct
+ * even at small cursor sizes. Restricted set prevents cursor collisions.
+ */
+export const CURSOR_COLORS = [
+  "#6366F1", // Indigo
+  "#EC4899", // Pink
+  "#14B8A6", // Teal
+  "#F59E0B", // Amber
+  "#10B981", // Emerald
+  "#3B82F6", // Blue
+  "#EF4444", // Red
+  "#8B5CF6", // Violet
+  "#F97316", // Orange
+  "#06B6D4", // Cyan
+  "#84CC16", // Lime
+  "#E11D48", // Rose
+  "#7C3AED", // Purple
+  "#0EA5E9", // Sky
+  "#D97706", // Yellow-Orange
 ] as const;
 
 export const STICKY_NOTE_DEFAULT = {
@@ -408,26 +433,26 @@ export interface StylePreset {
 }
 
 export const STYLE_PRESETS: StylePreset[] = [
-  // Dark
-  { id: 'jet-black', label: 'Jet Black', color: '#111827', strokeColor: '#000000', textColor: '#FFFFFF', previewBg: '#111827', previewBorder: '#000000' },
-  // Neutrals
-  { id: 'soft-white',      label: 'Soft White',      color: '#FFFFFF', strokeColor: '#D1D5DB', textColor: '#374151', previewBg: '#FFFFFF', previewBorder: '#D1D5DB' },
+  // --- First 6: always-visible solid primaries ---
+  { id: 'black',  label: 'Black',  color: '#111827', strokeColor: '#000000', textColor: '#FFFFFF', previewBg: '#111827', previewBorder: '#000000' },
+  { id: 'white',  label: 'White',  color: '#FFFFFF', strokeColor: '#D1D5DB', textColor: '#374151', previewBg: '#FFFFFF', previewBorder: '#D1D5DB' },
+  { id: 'red',    label: 'Red',    color: '#DB4437', strokeColor: '#C1351D', textColor: '#FFFFFF', previewBg: '#DB4437', previewBorder: '#C1351D' },
+  { id: 'yellow', label: 'Yellow', color: '#FBBC05', strokeColor: '#E5A800', textColor: '#1a1a1a', previewBg: '#FBBC05', previewBorder: '#E5A800' },
+  { id: 'green',  label: 'Green',  color: '#0F9D58', strokeColor: '#0B7B44', textColor: '#FFFFFF', previewBg: '#0F9D58', previewBorder: '#0B7B44' },
+  { id: 'blue',   label: 'Blue',   color: '#4285F4', strokeColor: '#1A73E8', textColor: '#FFFFFF', previewBg: '#4285F4', previewBorder: '#1A73E8' },
+  // --- Next 12: pastels shown behind "See more" ---
   { id: 'pale-cloud',      label: 'Pale Cloud',      color: '#F3F4F6', strokeColor: '#CBD5E1', textColor: '#374151', previewBg: '#F3F4F6', previewBorder: '#CBD5E1' },
-  // Pinks & Reds
   { id: 'pastel-pink',     label: 'Pastel Pink',     color: '#FFD6E8', strokeColor: '#F9A8D4', textColor: '#9D174D', previewBg: '#FFD6E8', previewBorder: '#F9A8D4' },
   { id: 'pastel-rose',     label: 'Pastel Rose',     color: '#FFE4E6', strokeColor: '#FCA5A5', textColor: '#9F1239', previewBg: '#FFE4E6', previewBorder: '#FCA5A5' },
-  // Oranges & Yellows
   { id: 'pastel-peach',    label: 'Pastel Peach',    color: '#FFECD2', strokeColor: '#FDBA74', textColor: '#9A3412', previewBg: '#FFECD2', previewBorder: '#FDBA74' },
   { id: 'pastel-yellow',   label: 'Pastel Yellow',   color: '#FEF9C3', strokeColor: '#FDE047', textColor: '#713F12', previewBg: '#FEF9C3', previewBorder: '#FDE047' },
-  // Greens
   { id: 'pastel-mint',     label: 'Pastel Mint',     color: '#D1FAE5', strokeColor: '#6EE7B7', textColor: '#065F46', previewBg: '#D1FAE5', previewBorder: '#6EE7B7' },
   { id: 'pastel-sage',     label: 'Pastel Sage',     color: '#DCFCE7', strokeColor: '#86EFAC', textColor: '#14532D', previewBg: '#DCFCE7', previewBorder: '#86EFAC' },
-  // Blues
   { id: 'pastel-sky',      label: 'Pastel Sky',      color: '#E0F2FE', strokeColor: '#7DD3FC', textColor: '#0C4A6E', previewBg: '#E0F2FE', previewBorder: '#7DD3FC' },
   { id: 'pastel-blue',     label: 'Pastel Blue',     color: '#DBEAFE', strokeColor: '#93C5FD', textColor: '#1E3A8A', previewBg: '#DBEAFE', previewBorder: '#93C5FD' },
-  // Purples
   { id: 'pastel-lavender', label: 'Pastel Lavender', color: '#EDE9FE', strokeColor: '#C4B5FD', textColor: '#4C1D95', previewBg: '#EDE9FE', previewBorder: '#C4B5FD' },
   { id: 'pastel-lilac',    label: 'Pastel Lilac',    color: '#FAE8FF', strokeColor: '#E879F9', textColor: '#701A75', previewBg: '#FAE8FF', previewBorder: '#E879F9' },
+  { id: 'jet-black',       label: 'Jet Black',       color: '#1F2937', strokeColor: '#111827', textColor: '#FFFFFF', previewBg: '#1F2937', previewBorder: '#111827' },
 ] as const;
 
 // ---------------------------------------------------------------------------

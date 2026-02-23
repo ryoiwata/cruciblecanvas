@@ -74,25 +74,44 @@ function getColorForTool(
 }
 
 // --- Helper: get default dimensions for a tool ---
-function getDefaultsForTool(tool: ObjectType): { width: number; height: number } {
+/**
+ * Clamps stageScale for default-size calculations.
+ * Prevents extreme zoom values from generating absurdly large (zoom=0.05)
+ * or tiny (zoom=5.0) objects when a user clicks to create.
+ * Range [0.25, 4.0] keeps defaults within 4× of their zoom-1 size.
+ */
+function effectiveScaleForDefaults(stageScale: number): number {
+  return Math.max(0.25, Math.min(4.0, stageScale));
+}
+
+/**
+ * Returns canvas-space default dimensions for a newly-placed object,
+ * scaled inversely with the current zoom so the object always appears
+ * at a consistent screen size (≈ the zoom-1 pixel dimensions).
+ *
+ * E.g. a rectangle at zoom=2.0 gets 50×50 canvas units → 100×100 px on screen.
+ *      At zoom=0.5 it gets 200×200 canvas units → still 100×100 px on screen.
+ */
+function getDefaultsForTool(tool: ObjectType, stageScale: number): { width: number; height: number } {
+  const s = effectiveScaleForDefaults(stageScale);
   switch (tool) {
     case "stickyNote":
-      return { width: STICKY_NOTE_DEFAULT.width, height: STICKY_NOTE_DEFAULT.height };
+      return { width: Math.round(STICKY_NOTE_DEFAULT.width / s), height: Math.round(STICKY_NOTE_DEFAULT.height / s) };
     case "rectangle":
-      return { width: SHAPE_DEFAULTS.rectangle.width, height: SHAPE_DEFAULTS.rectangle.height };
+      return { width: Math.round(SHAPE_DEFAULTS.rectangle.width / s), height: Math.round(SHAPE_DEFAULTS.rectangle.height / s) };
     case "circle":
-      return { width: SHAPE_DEFAULTS.circle.width, height: SHAPE_DEFAULTS.circle.height };
+      return { width: Math.round(SHAPE_DEFAULTS.circle.width / s), height: Math.round(SHAPE_DEFAULTS.circle.height / s) };
     case "frame":
-      return { width: FRAME_DEFAULTS.width, height: FRAME_DEFAULTS.height };
+      return { width: Math.round(FRAME_DEFAULTS.width / s), height: Math.round(FRAME_DEFAULTS.height / s) };
     case "colorLegend":
-      return { width: COLOR_LEGEND_DEFAULTS.width, height: COLOR_LEGEND_DEFAULTS.height };
-    // Line: default is a 120px horizontal line (width = length, height = 0)
+      return { width: Math.round(COLOR_LEGEND_DEFAULTS.width / s), height: Math.round(COLOR_LEGEND_DEFAULTS.height / s) };
+    // Line: width encodes length, height is always 0 (it's a point-to-point vector)
     case "line":
-      return { width: 120, height: 0 };
+      return { width: Math.round(120 / s), height: 0 };
     case "text":
-      return { width: TEXT_DEFAULTS.width, height: TEXT_DEFAULTS.height };
+      return { width: Math.round(TEXT_DEFAULTS.width / s), height: Math.round(TEXT_DEFAULTS.height / s) };
     default:
-      return { width: 100, height: 100 };
+      return { width: Math.round(100 / s), height: Math.round(100 / s) };
   }
 }
 
@@ -285,6 +304,10 @@ export default function Canvas({ boardId }: CanvasProps) {
   const selRectRef = useRef({ startX: 0, startY: 0, currentX: 0, currentY: 0 });
   const selRectRafRef = useRef(0);
   const selRectNodeRef = useRef<Konva.Rect>(null);
+  // Konva fires a synthetic click on the Stage after every mousedown+mouseup on
+  // the same element — including after a significant marquee drag. Without this
+  // guard, handleClick's clearSelection() would wipe the selection we just made.
+  const selRectJustCompletedRef = useRef(false);
 
   // Minimal state for cursor display during pan
   const [isPanActive, setIsPanActive] = useState(false);
@@ -297,6 +320,11 @@ export default function Canvas({ boardId }: CanvasProps) {
 
   // Connector drag ref — tracks the startObjectId during a drag-based connector creation
   const connectorDragRef = useRef<string | null>(null);
+  // Tracks whether actual mouse movement occurred after an anchor mousedown.
+  // Distinguishes a plain click (false → let onClick handle it) from a real drag
+  // (true → finalize via mouseup). Prevents mouseup from clearing connectorStart
+  // before the anchor's onClick fires.
+  const connectorDragMovedRef = useRef(false);
 
   // Hovered object for anchor points
   const [hoveredObjectId, setHoveredObjectId] = useState<string | null>(null);
@@ -440,12 +468,17 @@ export default function Canvas({ boardId }: CanvasProps) {
   const handleAnchorClick = useCallback(
     (objectId: string) => {
       if (!user) return;
-      if (!connectorStart) {
+      // Read connectorStart imperatively — the reactive closure value is stale
+      // because mousedown+mouseup state changes in Zustand cause React to re-render
+      // BEFORE the subsequent onClick fires, giving us a fresh store value here.
+      const currentConnectorStart = useCanvasStore.getState().connectorStart;
+      if (!currentConnectorStart) {
         // Start connector
         setConnectorStart(objectId);
+        setConnectorEndpoint(null);
       } else {
         // Complete connector
-        if (connectorStart === objectId) {
+        if (currentConnectorStart === objectId) {
           // Self-connection — cancel
           setConnectorStart(null);
           setConnectorEndpoint(null);
@@ -458,10 +491,10 @@ export default function Canvas({ boardId }: CanvasProps) {
           (o) =>
             o.type === "connector" &&
             o.connectedTo &&
-            ((o.connectedTo[0] === connectorStart &&
+            ((o.connectedTo[0] === currentConnectorStart &&
               o.connectedTo[1] === objectId) ||
               (o.connectedTo[0] === objectId &&
-                o.connectedTo[1] === connectorStart))
+                o.connectedTo[1] === currentConnectorStart))
         );
 
         if (isDuplicate) {
@@ -473,6 +506,8 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Snapshot before connector creation so it is undoable
         useObjectStore.getState().snapshot();
         const newId = generateObjectId(boardId);
+        // Read direction preference imperatively to avoid adding it to the dep array.
+        const isDirected = useCanvasStore.getState().pendingConnectorDirected;
         const newConnector = {
           id: newId,
           type: "connector" as const,
@@ -481,11 +516,12 @@ export default function Canvas({ boardId }: CanvasProps) {
           width: 0,
           height: 0,
           color: CONNECTOR_DEFAULTS.color,
-          connectedTo: [connectorStart, objectId],
+          connectedTo: [currentConnectorStart, objectId],
           createdBy: user.uid,
           createdAt: Date.now(),
           updatedAt: Date.now(),
           metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+          endEffect: isDirected ? 'arrow' as const : 'none' as const,
         };
 
         upsertObject(newConnector);
@@ -498,9 +534,10 @@ export default function Canvas({ boardId }: CanvasProps) {
             width: 0,
             height: 0,
             color: CONNECTOR_DEFAULTS.color,
-            connectedTo: [connectorStart, objectId],
+            connectedTo: [currentConnectorStart, objectId],
             createdBy: user.uid,
             metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+            endEffect: isDirected ? 'arrow' as const : 'none' as const,
           },
           newId
         ).catch(console.error);
@@ -509,19 +546,22 @@ export default function Canvas({ boardId }: CanvasProps) {
         setConnectorEndpoint(null);
       }
     },
-    [connectorStart, user, boardId, upsertObject, setConnectorStart]
+    // connectorStart intentionally omitted — read via getState() to avoid stale closures
+    // caused by React re-renders between mousedown/mouseup and the subsequent onClick.
+    [user, boardId, upsertObject, setConnectorStart]
   );
 
   // --- Anchor drag start for drag-based connector creation ---
   const handleAnchorDragStart = useCallback(
     (objectId: string) => {
       if (!user) return;
+      // Only record the source anchor. Drag UI state (connectorStart, connectorDragging)
+      // is initialized lazily on first mousemove so a plain click on the anchor doesn't
+      // trigger the drag-finalization path in mouseup and clobber connectorStart.
       connectorDragRef.current = objectId;
-      setConnectorStart(objectId);
-      setConnectorDragging(true);
-      setConnectorHoverTarget(null);
+      connectorDragMovedRef.current = false;
     },
-    [user, setConnectorStart, setConnectorDragging, setConnectorHoverTarget]
+    [user]
   );
 
   // --- Click (connector cancel / select clear only) ---
@@ -537,6 +577,14 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Cancel connector start on empty canvas click
         setConnectorStart(null);
         setConnectorEndpoint(null);
+        return;
+      }
+
+      // A non-trivial marquee drag (w > 5 && h > 5) just completed. Konva fires
+      // a synthetic click after the mouseup — skip the deselect logic so the
+      // freshly-made selection is preserved. Reset the guard for subsequent clicks.
+      if (selRectJustCompletedRef.current) {
+        selRectJustCompletedRef.current = false;
         return;
       }
 
@@ -714,6 +762,10 @@ export default function Canvas({ boardId }: CanvasProps) {
               createdBy: user.uid,
               createdAt: Date.now(),
               updatedAt: Date.now(),
+              // Arrow tool: inject arrowhead so the preview matches the final object
+              ...(creationTool === 'line' && useCanvasStore.getState().pendingLineArrow
+                ? { endEffect: 'arrow' as const }
+                : {}),
             };
             upsertObject(newObject);
             drawingRef.current.created = true;
@@ -797,6 +849,17 @@ export default function Canvas({ boardId }: CanvasProps) {
           setHoveredObjectId(null);
         }
 
+        // Lazy drag initialization — initialize connector drag UI state on the first
+        // actual mouse movement after an anchor mousedown. This ensures a plain click
+        // on an anchor doesn't trigger the drag-finalization path in mouseup, which
+        // would clear connectorStart before the anchor's onClick fires.
+        if (connectorDragRef.current && !connectorDragMovedRef.current) {
+          connectorDragMovedRef.current = true;
+          setConnectorStart(connectorDragRef.current);
+          setConnectorDragging(true);
+          setConnectorHoverTarget(null);
+        }
+
         // During connector drag: update hover target for glow highlighting.
         // Use getState() to avoid a reactive subscription on the full objects map.
         if (connectorDragRef.current) {
@@ -810,8 +873,9 @@ export default function Canvas({ boardId }: CanvasProps) {
           setConnectorHoverTarget(validTarget);
         }
 
-        // Update temp connector endpoint
-        if (connectorStart) {
+        // Update temp connector endpoint. Read store directly (getState) so the check
+        // reflects the value just set in the lazy init above without waiting for a re-render.
+        if (useCanvasStore.getState().connectorStart) {
           const canvasPoint = getCanvasPoint(
             stage.x(),
             stage.y(),
@@ -915,6 +979,8 @@ export default function Canvas({ boardId }: CanvasProps) {
       lastUsedColors,
       upsertObject,
       updateObjectLocal,
+      setConnectorStart,
+      setConnectorDragging,
       setConnectorHoverTarget,
     ]
   );
@@ -973,11 +1039,20 @@ export default function Canvas({ boardId }: CanvasProps) {
 
     // --- Connector drag finalization ---
     if (connectorDragRef.current && user) {
+      if (!connectorDragMovedRef.current) {
+        // Plain click on anchor — no actual drag occurred. Clear the drag ref and let
+        // the anchor's onClick handler (handleAnchorClick) manage connectorStart via getState().
+        connectorDragRef.current = null;
+        return;
+      }
+
+      // Real drag — mouse moved after mousedown. Finalize the connector.
       const startObjectId = connectorDragRef.current;
       const hoverTarget = useCanvasStore.getState().connectorHoverTarget;
 
       // Reset all drag state
       connectorDragRef.current = null;
+      connectorDragMovedRef.current = false;
       setConnectorStart(null);
       setConnectorDragging(false);
       setConnectorHoverTarget(null);
@@ -998,6 +1073,8 @@ export default function Canvas({ boardId }: CanvasProps) {
 
         if (!isDuplicate) {
           const newId = generateObjectId(boardId);
+          // Read direction preference imperatively; avoids dep array churn.
+          const isDragDirected = useCanvasStore.getState().pendingConnectorDirected;
           const newConnector = {
             id: newId,
             type: "connector" as const,
@@ -1011,6 +1088,7 @@ export default function Canvas({ boardId }: CanvasProps) {
             createdAt: Date.now(),
             updatedAt: Date.now(),
             metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+            endEffect: isDragDirected ? 'arrow' as const : 'none' as const,
           };
 
           upsertObject(newConnector);
@@ -1026,6 +1104,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               connectedTo: [startObjectId, hoverTarget],
               createdBy: user.uid,
               metadata: { connectorStyle: CONNECTOR_DEFAULTS.style },
+              endEffect: isDragDirected ? 'arrow' as const : 'none' as const,
             },
             newId
           ).catch(console.error);
@@ -1043,6 +1122,11 @@ export default function Canvas({ boardId }: CanvasProps) {
         // Dragged past threshold — persist to Firestore
         const obj = useObjectStore.getState().objects[drawing.objectId];
         if (obj) {
+          // Scale fontSize for text objects so text is legible at the current zoom.
+          const { stageScale: currentScale } = useCanvasStore.getState();
+          const dragScaledFontSize = obj.type === 'text'
+            ? Math.max(8, Math.min(72, Math.round(TEXT_DEFAULTS.fontSize / effectiveScaleForDefaults(currentScale))))
+            : undefined;
           createObject(
             boardId,
             {
@@ -1055,7 +1139,9 @@ export default function Canvas({ boardId }: CanvasProps) {
               text: obj.text ?? "",
               zIndex: obj.zIndex,
               createdBy: user.uid,
-              ...(obj.type === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
+              ...(obj.type === 'text' ? { fontSize: dragScaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
+              // Propagate arrowhead already set on the in-memory object during drag start
+              ...(obj.endEffect ? { endEffect: obj.endEffect } : {}),
             },
             drawing.objectId
           ).catch((err) => {
@@ -1071,9 +1157,22 @@ export default function Canvas({ boardId }: CanvasProps) {
       } else {
         // Click (no drag) — create at default size; snapshot so creation is undoable
         useObjectStore.getState().snapshot();
-        const defaults = getDefaultsForTool(creationTool);
+        // stageScale is intentionally absent from handleMouseUp's dep array (it would
+        // cause excessive re-creation). Read imperatively so defaults reflect the zoom
+        // level at the moment the user clicks, not a potentially stale closure value.
+        const { stageScale: currentScale } = useCanvasStore.getState();
+        const defaults = getDefaultsForTool(creationTool, currentScale);
         const color = getColorForTool(creationTool, lastUsedColors, activeColor);
         const maxZ = getMaxZIndexForTool(creationTool);
+        // Scale fontSize so text appears at a consistent screen size regardless of zoom.
+        const scaledFontSize = creationTool === 'text'
+          ? Math.max(8, Math.min(72, Math.round(TEXT_DEFAULTS.fontSize / effectiveScaleForDefaults(currentScale))))
+          : undefined;
+
+        // Arrow tool: arrow lines get endEffect injected at creation time
+        const lineArrowEffect = creationTool === 'line' && useCanvasStore.getState().pendingLineArrow
+          ? { endEffect: 'arrow' as const }
+          : {};
 
         const newObject = {
           id: drawing.objectId,
@@ -1088,7 +1187,8 @@ export default function Canvas({ boardId }: CanvasProps) {
           createdBy: user.uid,
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
+          ...(creationTool === 'text' ? { fontSize: scaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
+          ...lineArrowEffect,
         };
 
         upsertObject(newObject);
@@ -1105,7 +1205,8 @@ export default function Canvas({ boardId }: CanvasProps) {
             text: "",
             zIndex: maxZ,
             createdBy: user.uid,
-            ...(creationTool === 'text' ? { fontSize: TEXT_DEFAULTS.fontSize, textColor: TEXT_DEFAULTS.color } : {}),
+            ...(creationTool === 'text' ? { fontSize: scaledFontSize, textColor: TEXT_DEFAULTS.color } : {}),
+            ...lineArrowEffect,
           },
           drawing.objectId
         ).catch((err) => {
@@ -1164,6 +1265,12 @@ export default function Canvas({ boardId }: CanvasProps) {
               useCanvasStore.setState({ selectedObjectIds: matchingIds });
             }
           }
+
+          // Prevent the trailing synthetic Konva click event (which fires on every
+          // mousedown+mouseup on the same stage element) from calling clearSelection()
+          // and wiping the selection we just built. Applies even when no objects were
+          // captured — the user intended to drag, not to click-to-deselect.
+          selRectJustCompletedRef.current = true;
         }
 
         // Hide selection rect node
@@ -1301,6 +1408,31 @@ export default function Canvas({ boardId }: CanvasProps) {
     setIsPanActive(false);
   }, [mode]);
 
+  // --- Window-level mouseup: clean up if the drag ends outside the Stage ---
+  // Without this, dragging out of the canvas and releasing the mouse leaves the
+  // selRect Konva node visible and pointerInteractionRef in a stale state.
+  // The Stage's onMouseUp only fires when the release happens inside the canvas,
+  // so we attach a window listener as a fallback.
+  useEffect(() => {
+    function handleWindowMouseUp() {
+      if (!pointerInteractionRef.current) return;
+      if (pointerInteractionRef.current.type === 'selRect') {
+        cancelAnimationFrame(selRectRafRef.current);
+        selRectRafRef.current = 0;
+        const node = selRectNodeRef.current;
+        if (node) {
+          node.visible(false);
+          node.getLayer()?.batchDraw();
+        }
+      } else if (pointerInteractionRef.current.type === 'pan') {
+        setIsPanActive(false);
+      }
+      pointerInteractionRef.current = null;
+    }
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => window.removeEventListener('mouseup', handleWindowMouseUp);
+  }, []);
+
   // --- Cursor style per mode ---
   const getCursorStyle = () => {
     if (cursorOverride) return cursorOverride;
@@ -1387,6 +1519,7 @@ export default function Canvas({ boardId }: CanvasProps) {
               x={ghostPos!.x}
               y={ghostPos!.y}
               color={getColorForTool(creationTool!, lastUsedColors, activeColor)}
+              stageScale={stageScale}
             />
           )}
 

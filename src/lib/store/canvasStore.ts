@@ -61,6 +61,14 @@ interface CanvasState {
   isMarqueeMode: boolean;
   isMultiSelectMode: boolean;
 
+  // Arrow tool flag — when true, next 'line' creation will have endEffect: 'arrow'.
+  // Set by the Arrow toolbar button; reset when exiting to pointer mode.
+  pendingLineArrow: boolean;
+
+  // Connector direction flag — when true, new connectors are created with endEffect: 'arrow'.
+  // Persists across mode switches so the user's last preference is remembered for the session.
+  pendingConnectorDirected: boolean;
+
   // Actions
   setMode: (mode: CanvasMode) => void;
   enterCreateMode: (tool: ObjectType) => void;
@@ -89,6 +97,13 @@ interface CanvasState {
   setPendingEditChar: (char: string | null) => void;
   setMarqueeMode: (enabled: boolean) => void;
   setMultiSelectMode: (enabled: boolean) => void;
+  setPendingLineArrow: (arrow: boolean) => void;
+  setPendingConnectorDirected: (directed: boolean) => void;
+
+  // Teleport-to-reference highlight — set after pan animation completes;
+  // cleared by TeleportHighlight after the CSS animation finishes (~1.2 s).
+  teleportHighlightId: string | null;
+  setTeleportHighlightId: (id: string | null) => void;
 }
 
 const INITIAL_CONTEXT_MENU: ContextMenuState = {
@@ -123,6 +138,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   pendingEditChar: null,
   isMarqueeMode: false,
   isMultiSelectMode: false,
+  pendingLineArrow: false,
+  pendingConnectorDirected: true,
+  teleportHighlightId: null,
 
   setMode: (mode) =>
     set({
@@ -146,6 +164,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({
       mode: "pointer",
       creationTool: null,
+      pendingLineArrow: false,
       selectedObjectIds: [],
       connectorStart: null,
       connectorDragging: false,
@@ -232,4 +251,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({ isMarqueeMode: enabled, isMultiSelectMode: enabled ? false : get().isMultiSelectMode }),
   setMultiSelectMode: (enabled) =>
     set({ isMultiSelectMode: enabled, isMarqueeMode: enabled ? false : get().isMarqueeMode }),
+
+  setTeleportHighlightId: (id) => set({ teleportHighlightId: id }),
+
+  setPendingLineArrow: (arrow) => set({ pendingLineArrow: arrow }),
+  setPendingConnectorDirected: (directed) => set({ pendingConnectorDirected: directed }),
 }));

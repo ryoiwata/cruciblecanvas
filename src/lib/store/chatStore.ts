@@ -4,9 +4,8 @@
  */
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { RefObject } from 'react';
-import type { ChatMessage, AIStream, AiPersona } from '@/lib/types';
+import type { ChatMessage, AIStream } from '@/lib/types';
 
 /** Controls which message list and input behaviour the chat sidebar presents. */
 export type ChatMode = 'ai' | 'group';
@@ -52,12 +51,6 @@ interface ChatState {
   // Cleared automatically when the user sends their next message.
   clarificationPending: boolean;
   setClarificationPending: (pending: boolean) => void;
-}
-
-interface PersistedChatState {
-  // Per-user persona preference persisted to localStorage
-  persona: AiPersona;
-  setPersona: (p: AiPersona) => void;
 }
 
 // Non-persisted chat state
@@ -110,14 +103,3 @@ export const useChatStore = create<ChatState>()((set) => ({
   clarificationPending: false,
   setClarificationPending: (pending) => set({ clarificationPending: pending }),
 }));
-
-// Persisted slice for persona — stored in localStorage
-export const usePersonaStore = create<PersistedChatState>()(
-  persist(
-    (set) => ({
-      persona: 'mason' as AiPersona,
-      setPersona: (p) => set({ persona: p }),
-    }),
-    { name: 'cruciblecanvas-persona' }
-  )
-);

@@ -2,65 +2,73 @@
 
 **An AI-native whiteboard platform for high-stakes strategic planning.**
 
-CrucibleCanvas combines an infinite canvas with real-time multiplayer collaboration, persistent boards, and intelligent UI affordances — built for teams that think visually and decide critically.
+CrucibleCanvas combines an infinite canvas with real-time multiplayer collaboration and an embedded AI agent — **The Mason** — that builds structured diagrams, flowcharts, and content directly on the board from plain-language commands.
 
 ---
 
 ## Features
 
 ### Infinite Multiplayer Canvas
-- Real-time presence with synchronized cursors and name labels
-- "Online Users" presence indicator with avatar colors
-- Soft object locking to prevent edit conflicts
+- Real-time presence with synchronized cursors, name labels, and user-selectable avatar colors
+- Soft object locking via Firebase RTDB with automatic `onDisconnect` cleanup
 - Automatic heartbeat and reconnection handling
 
-### Strategic UI/UX
-- Bottom-positioned floating toolbar with backdrop-blur aesthetics
-- Context-aware menus for Align, Arrange, and Layer operations
-- Multi-select marquee via **Ctrl + Drag** with additive **Shift + Click** selection
-- Right-click context menus for move-to-frame, delete, and object management
-- Grid snapping (20px) for precise object placement
-
-### Persistence & Dashboard
-- Boards save automatically to Firebase in real-time
-- Personal Dashboard with recently visited boards and quick-join
-- Rich board titles with inline editing
-- Guest access routing with optional account linking
+### Two-Tier Header Layout
+- **Top header:** board title (inline editable), presence avatars, privacy toggle, share, AI chat, dashboard
+- **Sub-header toolbar:** Undo/Redo, tool picker (Pointer, Lines, Shapes, Text, Sticky), Align, Arrange, Marquee mode, Multi-select mode
 
 ### Visual Elements
-- **Sticky Notes** with lined texture, multiple font families (sans-serif, handwritten, monospace), and 6 preset colors
-- **Shapes** — rectangles and circles with custom colors and transparency
-- **Frames** — grouping containers with title bars and auto-nesting
-- **Connectors** — dynamic lines linking strategic items (solid, dashed, dotted styles)
-- **Color Legends** — visual key overlays for board semantics
-- Custom color picker powered by `react-colorful`
+- **Sticky Notes** — lined texture, multiple font families, 6 preset colors; primary container for text content
+- **Shapes** — Rectangle, Circle (geometric/decorative), Diamond (decision node), RoundedRect (process step)
+- **Frames** — grouping containers with title bars, auto-nesting on drag, "move-with-frame" children
+- **Connectors** — dynamic arrows between objects (directed/undirected, solid/dashed/dotted)
+- **Lines** — free-form straight lines with optional arrowheads
+- **Text** — standalone transparent text objects
+- **Color Legends** — shared color-to-meaning overlays, AI-referenceable
 
-### Privacy & Control
-- Creator-only Public/Private toggle with emoji-based UI
-- Email-based board invitations via share dialog
-- Firebase Security Rules enforcing per-board access control
+### Properties Sidebar
+- Context-sensitive controls for every object type (fill, stroke, font, opacity, line effects)
+- 18-swatch color preset palette with "See more" expansion
+- Recent colors history
+
+### AI Agent — The Mason
+- Type `@` in the chat sidebar (or press `/`) to send commands
+- Builds sticky notes, shapes, frames, connectors, flowcharts, and batch element grids
+- Automatic spatial planning: finds clear space before placing objects, never overlaps existing content
+- Frame parentage: items created inside a frame are bound to it and move with it
+- Text-body guard: shapes with substantial text are auto-promoted to sticky notes
+- Clarification flow: asks follow-up questions when a command is ambiguous
+- Full rollback on error — board state stays clean
+
+### Privacy & Access Control
+- Creator-only Public/Private toggle (👀 / 🥸)
+- Email-based board invitations
+- Firebase Security Rules enforcing per-board access
 
 ---
 
-## Architecture Overview
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      Next.js App Router                 │
-│  /auth  →  /dashboard  →  /board/[boardId]              │
+│                    Next.js App Router                   │
+│       /auth  →  /dashboard  →  /board/[boardId]         │
 ├─────────────────────────────────────────────────────────┤
-│                     React + Konva.js                    │
-│  Canvas.tsx │ SelectionLayer │ BoardObjects │ CursorLayer│
+│                   React 18 + Konva.js                   │
+│  Canvas │ BoardObjects │ SelectionLayer │ CursorLayer   │
+│  PropertiesSidebar │ ChatSidebar (AI + Group)           │
 ├─────────────────────────────────────────────────────────┤
-│                   Zustand State Stores                  │
-│  canvasStore │ objectStore │ authStore │ presenceStore   │
+│                  Zustand State Stores                   │
+│  canvasStore │ objectStore │ authStore │ chatStore       │
 ├──────────────────────┬──────────────────────────────────┤
-│   Firestore (CRUD)   │   Realtime Database (Ephemeral)  │
-│  Objects, Metadata,  │   Cursors, Presence, Locks       │
-│  User Profiles       │   onDisconnect Cleanup           │
+│   Firestore (CRUD)   │  Realtime Database (Ephemeral)   │
+│  Objects, Metadata,  │  Cursors, Presence, Locks,       │
+│  User Profiles       │  AI Stream text                  │
 ├──────────────────────┴──────────────────────────────────┤
-│                    Firebase Auth                        │
-│         Anonymous │ Google OAuth │ Email/Password       │
+│              Firebase Auth (Anon + Google)               │
+├─────────────────────────────────────────────────────────┤
+│         Vercel API Route — /api/ai-command              │
+│   Claude Sonnet 4.6 · Vercel AI SDK v6 · Langfuse OTel  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -73,11 +81,13 @@ CrucibleCanvas combines an infinite canvas with real-time multiplayer collaborat
 | Framework | [Next.js 14](https://nextjs.org/) (App Router) |
 | UI | [React 18](https://react.dev/), [Tailwind CSS](https://tailwindcss.com/) |
 | Canvas | [Konva.js](https://konvajs.org/) + [React-Konva](https://konvajs.org/docs/react/) |
-| State | [Zustand](https://zustand-demo.pmnd.rs/) |
-| Auth | [Firebase Auth](https://firebase.google.com/docs/auth) (Anonymous, Google, Email) |
-| Database | [Cloud Firestore](https://firebase.google.com/docs/firestore) (persistent) + [Firebase RTDB](https://firebase.google.com/docs/database) (ephemeral) |
-| Color Picker | [react-colorful](https://github.com/omgovich/react-colorful) |
-| Language | TypeScript |
+| State | [Zustand](https://zustand-demo.pmnd.rs/) v5 |
+| Auth | [Firebase Auth](https://firebase.google.com/docs/auth) (Anonymous, Google OAuth) |
+| Database | [Cloud Firestore](https://firebase.google.com/docs/firestore) + [Firebase RTDB](https://firebase.google.com/docs/database) |
+| AI Model | [Anthropic Claude Sonnet 4.6](https://www.anthropic.com/) |
+| AI SDK | [Vercel AI SDK](https://sdk.vercel.ai/) v6 (`ai` + `@ai-sdk/anthropic`) |
+| Observability | [Langfuse](https://langfuse.com/) via OpenTelemetry |
+| Language | TypeScript (strict mode) |
 
 ---
 
@@ -88,6 +98,7 @@ CrucibleCanvas combines an infinite canvas with real-time multiplayer collaborat
 - **Node.js** >= 18
 - **npm** >= 9
 - A [Firebase project](https://console.firebase.google.com/) with Firestore, Realtime Database, and Authentication enabled
+- An [Anthropic API key](https://console.anthropic.com/)
 - [Firebase CLI](https://firebase.google.com/docs/cli) (`npm install -g firebase-tools`)
 
 ### Setup
@@ -110,6 +121,7 @@ CrucibleCanvas combines an infinite canvas with real-time multiplayer collaborat
    Create a `.env.local` file in the project root:
 
    ```env
+   # Firebase client config (public)
    NEXT_PUBLIC_FIREBASE_API_KEY=your-api-key
    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
    NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
@@ -117,6 +129,19 @@ CrucibleCanvas combines an infinite canvas with real-time multiplayer collaborat
    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
    NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id
    NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://your-project-default-rtdb.firebaseio.com
+
+   # AI (server-only)
+   ANTHROPIC_API_KEY=your-anthropic-key
+
+   # Firebase Admin — pick one pattern:
+   FIREBASE_ADMIN_SERVICE_ACCOUNT={"type":"service_account",...}  # full JSON string
+   # OR:
+   FIREBASE_ADMIN_CLIENT_EMAIL=your-service-account@project.iam.gserviceaccount.com
+   FIREBASE_ADMIN_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n..."
+
+   # Observability (optional)
+   LANGFUSE_PUBLIC_KEY=pk-lf-...
+   LANGFUSE_SECRET_KEY=sk-lf-...
    ```
 
 4. **Authenticate with Firebase CLI**
@@ -144,29 +169,51 @@ CrucibleCanvas combines an infinite canvas with real-time multiplayer collaborat
 
 ## Usage
 
-### Shortcut Legend
+### Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
-| **Ctrl + Drag** | Marquee multi-select |
-| **Shift + Click** | Add/remove from selection |
-| **Space + Drag** | Pan the canvas |
-| **Scroll Wheel** | Zoom in/out |
-| **Delete / Backspace** | Delete selected objects |
-| **Double-click** (sticky note) | Edit text inline |
-| **Right-click** | Context menu (move to frame, delete) |
+| `/` | Open AI chat and focus input |
+| `1` | Pointer mode |
+| `S` | Sticky Note tool |
+| `T` | Text tool |
+| `Escape` | Return to pointer / deselect |
+| `Space + Drag` | Pan canvas |
+| `Scroll Wheel` | Zoom in/out |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo |
+| `Ctrl+C` / `Ctrl+V` | Copy / Paste (cascading +20px offset) |
+| `Ctrl+D` | Duplicate selected |
+| `Delete` / `Backspace` | Delete selected (with confirmation) |
+| `Ctrl+Delete` | Delete selected (bypass confirmation) |
+| `Ctrl+A` | Select all |
+| `Ctrl+]` / `Ctrl+[` | Bring forward / Send backward |
 
 ### Creating Objects
 
-Select a tool from the bottom toolbar (Sticky Note, Rectangle, Circle, Frame, Connector) and click-drag on the canvas to place it. Use the color picker to customize colors before or after creation.
+Pick a tool from the sub-header toolbar and click on the canvas to place an object. All objects snap to a 20px grid; hold **Cmd/Ctrl** to bypass snapping.
+
+**Right-click** any object for context options: copy, duplicate, deframe, layer order, delete.
+
+### The Mason AI Agent
+
+Press `/` or click the 💬 Chat button to open the AI sidebar. Type any plain-English command:
+
+```
+Create a SWOT analysis for our new product launch
+Build a flowchart for the user onboarding process
+Add three sticky notes summarizing the key risks
+Put a decision diamond inside the "Planning" frame
+```
+
+The Mason places objects on the board directly — no copy-pasting required. If the command is ambiguous it will ask a follow-up question before acting.
 
 ### Multiplayer
 
-Share your board URL or use the Share button to invite collaborators by email. All participants see live cursors, name labels, and real-time object updates. The presence indicator in the toolbar shows who's currently online.
+Share your board URL. All participants see live cursors and real-time object updates. The presence stack in the top header shows who's online; click your avatar to pick a cursor color.
 
 ### Board Management
 
-The Dashboard at `/dashboard` lists your created and recently visited boards. Create new boards, set titles, and toggle visibility between public and private.
+The Dashboard at `/dashboard` lists all your boards. Create new boards, set titles inline, and toggle visibility between public (👀) and private (🥸).
 
 ---
 
@@ -174,107 +221,88 @@ The Dashboard at `/dashboard` lists your created and recently visited boards. Cr
 
 ### Vercel (Recommended)
 
-The project includes a `vercel.json` configuration for seamless deployment:
-
 ```bash
-# Install Vercel CLI
 npm install -g vercel
-
-# Deploy
 vercel
 ```
 
-Set the environment variables in the Vercel Dashboard under **Settings > Environment Variables** using the same keys from `.env.local`.
+Add all `.env.local` keys in **Vercel Dashboard → Settings → Environment Variables**.
+
+> The AI route uses `runtime = 'nodejs'` (not Edge) — required for the OpenTelemetry NodeSDK.
 
 ### Firebase Security Rules
 
-After any changes to `firestore.rules` or `database.rules.json`, deploy them:
+After changing `firestore.rules` or `database.rules.json`:
 
 ```bash
-firebase deploy --only firestore:rules    # Firestore rules
-firebase deploy --only database           # Realtime Database rules
-firebase deploy --only firestore:rules,database  # Both
+firebase deploy --only firestore:rules,database
 ```
-
----
-
-## Testing
-
-### Resize Ghosting Test
-
-A Puppeteer-based regression test simulates high-speed resize drags to detect bounding-box ghosting:
-
-```bash
-npx ts-node tests/resize-ghosting-test.ts
-```
-
-### Manual Multi-User Testing
-
-1. Start the dev server (`npm run dev`)
-2. Open the same board URL in two browser windows (or use incognito for a second user)
-3. Verify cursor synchronization, presence updates, and object locking
 
 ---
 
 ## Project Structure
 
 ```
-cruciblecanvas/
-├── src/
-│   ├── app/                    # Next.js App Router pages
-│   │   ├── auth/               # Authentication page
-│   │   ├── dashboard/          # Board management
-│   │   ├── board/[boardId]/    # Canvas workspace
-│   │   └── api/boards/new/     # Board creation API
-│   ├── components/
-│   │   ├── canvas/             # Konva canvas components
-│   │   └── ui/                 # Toolbar, menus, dialogs
-│   ├── hooks/                  # Custom React hooks
-│   ├── lib/
-│   │   ├── store/              # Zustand state stores
-│   │   └── firebase/           # Firebase client modules
-│   └── providers/              # Auth context provider
-├── docs/                       # Design specs & planning docs
-├── tests/                      # Regression tests
-├── firestore.rules             # Firestore security rules
-├── database.rules.json         # RTDB security rules
-└── vercel.json                 # Deployment config
+src/
+├── app/
+│   ├── auth/               # Authentication (Guest, Google)
+│   ├── dashboard/          # Board listing and creation
+│   ├── board/[boardId]/    # Canvas workspace
+│   └── api/
+│       ├── boards/new/     # Board creation endpoint
+│       └── ai-command/     # AI streaming endpoint (Node.js runtime)
+├── components/
+│   ├── canvas/             # Konva stage, objects, selection, cursors
+│   ├── chat/               # AI + group chat sidebar, MasonBadge, AIRefPopover
+│   ├── properties/         # Properties sidebar + per-type modules
+│   └── ui/                 # SubHeaderToolbar, menus, dialogs
+├── hooks/                  # useFirestoreSync, useAICommand, useMultiplayer, ...
+├── lib/
+│   ├── ai/                 # tools.ts, prompts.ts, spatialPlanning.ts, layoutAlgorithms.ts
+│   ├── firebase/           # config, auth, firestore, rtdb, admin, firestoreRest
+│   └── store/              # canvasStore, objectStore, authStore, chatStore
+└── instrumentation.ts      # OpenTelemetry init (Langfuse)
 ```
 
 ---
 
 ## Data Model
 
-### Board Objects
-
-Each object on the canvas is a `BoardObject` with spatial, visual, and ownership properties:
+### Object Types
 
 ```typescript
-interface BoardObject {
-  id: string;
-  type: "stickyNote" | "rectangle" | "circle" | "frame" | "connector" | "colorLegend";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  color: string;
-  text?: string;
-  zIndex: number;
-  creatorId: string;
-  parentFrameId?: string;
-  // ...additional metadata
-}
+type ObjectType =
+  | 'stickyNote'   // Primary text container
+  | 'rectangle'    // Geometric/decorative shape
+  | 'circle'       // Geometric/decorative shape
+  | 'diamond'      // Flowchart decision node
+  | 'roundedRect'  // Flowchart process step
+  | 'frame'        // Grouping container
+  | 'connector'    // Arrow between objects
+  | 'line'         // Free-form line
+  | 'text'         // Standalone text
+  | 'colorLegend'; // Shared color key
 ```
 
 ### Real-time Channels
 
 | Channel | Database | Purpose |
 |---------|----------|---------|
-| `/boards/{id}/objects` | Firestore | Persistent board objects |
-| `/boards/{id}/metadata` | Firestore | Title, visibility, config |
-| `/boards/{id}/cursors` | RTDB | Live cursor positions |
-| `/boards/{id}/presence` | RTDB | User online status |
-| `/boards/{id}/locks` | RTDB | Object edit locks |
+| `boards/{id}/objects/{objectId}` | Firestore | Persistent board objects |
+| `boards/{id}/metadata/config` | Firestore | Title, visibility, AI persona |
+| `boards/{id}/cursors/{userId}` | RTDB | Live cursor positions |
+| `boards/{id}/presence/{userId}` | RTDB | User online status |
+| `boards/{id}/locks/{objectId}` | RTDB | Soft edit locks |
+| `boards/{id}/aiStreams/{commandId}` | RTDB | Live AI response text |
+
+---
+
+## Performance
+
+- **R-tree spatial index** (`rbush`) — O(log N + k) viewport culling for 500+ objects
+- **LOD rendering** — simplified shapes below 15% zoom
+- **RAF-throttled viewport** — culling runs at most once per animation frame
+- **Debounced RTDB writes** — AI stream updates batched at 100ms
 
 ---
 

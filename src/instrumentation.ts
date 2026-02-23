@@ -15,14 +15,10 @@
  * intercepts those spans and forwards them to Langfuse.
  */
 export async function register() {
-  // Instrumentation is observability-only and must never block local startup.
-  // Skip in dev to avoid compiling heavy Node-only telemetry dependencies
-  // during the first request/hydration path.
-  if (process.env.NODE_ENV !== "production") {
-    return;
-  }
-
-  // NodeSDK is Node.js-only; skip in Edge or browser environments.
+  // NodeSDK is Node.js-only. Next.js calls register() for each runtime
+  // (nodejs + edge); only proceed when we're explicitly in the Node.js runtime.
+  // This check also covers local dev — when LANGFUSE_* keys are absent the
+  // guard below will return early, so there's no startup cost without keys.
   if (process.env.NEXT_RUNTIME !== "nodejs") {
     return;
   }

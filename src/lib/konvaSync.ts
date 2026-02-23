@@ -5,6 +5,7 @@ import type Konva from "konva";
  * Handles type-specific child layouts:
  *   - frame: title bar Rect height stays at 40px, background/border Rects get full w/h
  *   - stickyNote: word-wrap Text width adjusted for padding
+ *   - text: Rects updated to w/h; Text node width updated so word-wrap re-flows correctly
  *   - circle: Circle center + radius recalculated
  *   - rectangle (default): all Rects get full w/h
  *
@@ -70,6 +71,21 @@ export function syncKonvaChildren(
             line.visible(false);
           }
           lineIndex++;
+        }
+      }
+      break;
+    }
+    case "text": {
+      // Update all Rects (hit area + selection border + parentFrame indicator) to new
+      // dimensions. Also update the Text node's width so word-wrap re-flows immediately,
+      // allowing the TextObject useEffect to read the correct new height after resize.
+      for (const child of children) {
+        const cls = child.getClassName();
+        if (cls === "Rect") {
+          (child as unknown as Konva.Rect).width(w);
+          (child as unknown as Konva.Rect).height(h);
+        } else if (cls === "Text") {
+          (child as unknown as Konva.Text).width(w);
         }
       }
       break;

@@ -19,8 +19,9 @@
  * z-index is above canvas content (z-30) but below global overlays (z-50).
  */
 
-import { useCallback } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import { Cable } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { useCanvasStore } from '@/lib/store/canvasStore';
 import { useObjectStore } from '@/lib/store/objectStore';
 import { useAuthStore } from '@/lib/store/authStore';
@@ -32,7 +33,6 @@ import {
 } from '@/lib/firebase/firestore';
 import type { BoardObject } from '@/lib/types';
 import AlignMenu from './AlignMenu';
-import ArrangeMenu from './ArrangeMenu';
 
 // ---- Shortcut chip icons (inline, matching ShortcutLegend visual language) ---
 
@@ -124,6 +124,15 @@ function LineToolIcon() {
       <line x1="2" y1="13" x2="13" y2="2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
       <circle cx="2" cy="13" r="1.5" fill="currentColor" />
       <circle cx="13" cy="2" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+
+function ArrowToolIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+      <line x1="2.5" y1="12.5" x2="11" y2="4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M11 4L7.5 4.8L10.2 7.5L11 4Z" fill="currentColor" />
     </svg>
   );
 }
@@ -257,6 +266,125 @@ function ToolButton({ label, icon, isActive, disabled, shortcut, onClick }: Tool
 }
 
 
+// ---- Connector split button --------------------------------------------------
+
+interface ConnectorSplitButtonProps {
+  isActive: boolean;
+  isDirected: boolean;
+  onActivate: () => void;
+  onSetDirected: (directed: boolean) => void;
+}
+
+/**
+ * Split button for the Connector tool. The main area activates the connector
+ * tool with the current direction setting. The small chevron opens a portal
+ * dropdown to switch between Directed (arrow) and Undirected (plain) styles.
+ * The last-used setting is remembered for the session via canvasStore.
+ */
+function ConnectorSplitButton({ isActive, isDirected, onActivate, onSetDirected }: ConnectorSplitButtonProps) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const chevronRef = useRef<HTMLButtonElement>(null);
+  // Portal dropdown is rendered to document.body (outside wrapperRef), so we track
+  // it with a separate ref. Without this, mousedown on a portal item triggers the
+  // outside-click handler, React 18 flushes setOpen(false) as a microtask, removes
+  // the dropdown from DOM, and the item's onClick never fires.
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click — must exclude the portal div from "outside"
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        !wrapperRef.current?.contains(e.target as Node) &&
+        !dropdownRef.current?.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const getDropdownStyle = (): React.CSSProperties => {
+    if (!chevronRef.current) return { display: 'none' };
+    const rect = chevronRef.current.getBoundingClientRect();
+    return { position: 'fixed', top: rect.bottom + 4, left: rect.left, zIndex: 200, minWidth: 140 };
+  };
+
+  const baseBtn = `flex flex-col items-center justify-center gap-0.5 rounded-md transition-colors ${
+    isActive ? 'bg-indigo-50 text-indigo-600' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+  }`;
+
+  return (
+    <div ref={wrapperRef} className="flex items-stretch">
+      {/* Main tool activation button */}
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onActivate}
+        title={`Connector — ${isDirected ? 'Directed' : 'Undirected'} (4)`}
+        className={`${baseBtn} h-14 w-11 pl-1`}
+      >
+        <Cable size={14} />
+        <span className="text-[10px] font-medium leading-none">
+          {isDirected ? 'Connect→' : 'Connect'}
+        </span>
+        <span className="text-[9px] leading-none font-mono text-gray-400 bg-gray-100 rounded px-0.5 mt-0.5">4</span>
+      </button>
+
+      {/* Chevron opens the dropdown */}
+      <button
+        ref={chevronRef}
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen((v) => !v)}
+        title="Change connector type"
+        className={`flex items-end pb-1.5 pr-0.5 rounded-r-md transition-colors ${
+          isActive ? 'text-indigo-400 hover:text-indigo-600' : 'text-gray-300 hover:text-gray-500 hover:bg-gray-100'
+        }`}
+        style={{ width: 12 }}
+      >
+        <svg width="8" height="5" viewBox="0 0 8 5" fill="none" aria-hidden="true">
+          <path d="M1 1L4 4L7 1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {/* Portal dropdown */}
+      {open && createPortal(
+        <div
+          ref={dropdownRef}
+          style={getDropdownStyle()}
+          className="rounded-lg border border-white/20 bg-white/90 py-1 shadow-xl backdrop-blur-lg"
+        >
+          {[
+            { directed: true,  label: 'Directed',   desc: 'Arrow at end' },
+            { directed: false, label: 'Undirected',  desc: 'Plain line'  },
+          ].map(({ directed, label, desc }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => { onSetDirected(directed); setOpen(false); }}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                isDirected === directed
+                  ? 'bg-indigo-50 text-indigo-700'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <span className="text-base leading-none">{directed ? '→' : '—'}</span>
+              <span>
+                <span className="block font-medium leading-tight">{label}</span>
+                <span className="block text-xs text-gray-400 leading-tight">{desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 // ---- Undo/Redo logic ---------------------------------------------------------
 
 /**
@@ -302,6 +430,10 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   const isMultiSelectMode = useCanvasStore((s) => s.isMultiSelectMode);
   const setMarqueeMode = useCanvasStore((s) => s.setMarqueeMode);
   const setMultiSelectMode = useCanvasStore((s) => s.setMultiSelectMode);
+  const pendingLineArrow = useCanvasStore((s) => s.pendingLineArrow);
+  const setPendingLineArrow = useCanvasStore((s) => s.setPendingLineArrow);
+  const pendingConnectorDirected = useCanvasStore((s) => s.pendingConnectorDirected);
+  const setPendingConnectorDirected = useCanvasStore((s) => s.setPendingConnectorDirected);
 
   const clipboard = useCanvasStore((s) => s.clipboard);
   const past = useObjectStore((s) => s.past);
@@ -376,7 +508,9 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
   }, [boardId, user]);
 
   const isPointerActive = mode === 'pointer';
-  const isLineActive = mode === 'create' && creationTool === 'line';
+  // Line vs Arrow share the 'line' creationTool; pendingLineArrow distinguishes them
+  const isLineActive = mode === 'create' && creationTool === 'line' && !pendingLineArrow;
+  const isArrowActive = mode === 'create' && creationTool === 'line' && pendingLineArrow;
   const isConnectorActive = mode === 'create' && creationTool === 'connector';
   const isRectActive = mode === 'create' && creationTool === 'rectangle';
   const isCircleActive = mode === 'create' && creationTool === 'circle';
@@ -434,17 +568,36 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Line"
         icon={<LineToolIcon />}
         isActive={isLineActive}
-        shortcut="L"
-        onClick={() => enterCreateMode('line')}
+        shortcut="2"
+        onClick={() => {
+          setPendingLineArrow(false);
+          enterCreateMode('line');
+        }}
       />
 
-      {/* Connector */}
+      {/* Arrow — line with a directional arrowhead at the end */}
       <ToolButton
-        label="Connector"
-        icon={<Cable size={14} />}
+        label="Arrow"
+        icon={<ArrowToolIcon />}
+        isActive={isArrowActive}
+        shortcut="3"
+        onClick={() => {
+          setPendingLineArrow(true);
+          enterCreateMode('line');
+        }}
+      />
+
+      {/* Connector — split button: main area activates tool, chevron opens dropdown.
+          Both main click and dropdown selection always enter connector mode so the
+          user can immediately start drawing without an extra click. */}
+      <ConnectorSplitButton
         isActive={isConnectorActive}
-        shortcut="C"
-        onClick={() => enterCreateMode('connector')}
+        isDirected={pendingConnectorDirected}
+        onActivate={() => enterCreateMode('connector')}
+        onSetDirected={(directed) => {
+          setPendingConnectorDirected(directed);
+          enterCreateMode('connector');
+        }}
       />
 
       <Divider />
@@ -454,7 +607,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Rect"
         icon={<RectIcon />}
         isActive={isRectActive}
-        shortcut="3"
+        shortcut="5"
         onClick={() => enterCreateMode('rectangle')}
       />
 
@@ -463,7 +616,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Circle"
         icon={<CircleIcon />}
         isActive={isCircleActive}
-        shortcut="4"
+        shortcut="6"
         onClick={() => enterCreateMode('circle')}
       />
 
@@ -472,7 +625,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Text"
         icon={<span className="font-bold text-sm leading-none" aria-hidden="true">T</span>}
         isActive={isTextActive}
-        shortcut="5"
+        shortcut="7"
         onClick={() => enterCreateMode('text')}
       />
 
@@ -481,7 +634,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Sticky"
         icon={<StickyIcon />}
         isActive={isStickyActive}
-        shortcut="2"
+        shortcut="8"
         onClick={() => enterCreateMode('stickyNote')}
       />
 
@@ -490,7 +643,7 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         label="Frame"
         icon={<FrameIcon />}
         isActive={isFrameActive}
-        shortcut="6"
+        shortcut="9"
         onClick={() => enterCreateMode('frame')}
       />
 
@@ -498,9 +651,6 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
 
       {/* Align — uses showLabel to match vertical icon+label style */}
       <AlignMenu boardId={boardId} showLabel />
-
-      {/* Layer — uses showLabel to match vertical icon+label style */}
-      <ArrangeMenu boardId={boardId} showLabel />
 
       {/* Flexible spacer pushes shortcut legend to the far right */}
       <div className="flex-1" />

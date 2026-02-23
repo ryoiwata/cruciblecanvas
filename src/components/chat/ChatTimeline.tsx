@@ -126,7 +126,7 @@ export default function ChatTimeline({ boardId }: ChatTimelineProps) {
         <div className="flex flex-col items-center justify-center h-32 text-center px-4">
           <p className="text-2xl mb-1">💬</p>
           <p className="text-sm text-gray-400">No messages yet</p>
-          <p className="text-xs text-gray-300 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             Toggle ✨ to ask the AI, or 👥 to message the group
           </p>
         </div>

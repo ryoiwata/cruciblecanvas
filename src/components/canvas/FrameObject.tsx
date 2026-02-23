@@ -49,7 +49,8 @@ export default memo(function FrameObject({
   const stageScale = useCanvasStore((s) => s.stageScale);
   const selectObject = useCanvasStore((s) => s.selectObject);
   const toggleSelection = useCanvasStore((s) => s.toggleSelection);
-  const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
+  // Narrow boolean selector — only re-renders when this frame's own selection state changes.
+  const isSelected = useCanvasStore((s) => s.selectedObjectIds.includes(object.id));
   const setEditingObject = useCanvasStore((s) => s.setEditingObject);
   const showContextMenu = useCanvasStore((s) => s.showContextMenu);
   const setLastUsedColor = useCanvasStore((s) => s.setLastUsedColor);
@@ -59,7 +60,6 @@ export default memo(function FrameObject({
   const user = useAuthStore((s) => s.user);
   const displayName = useAuthStore((s) => s.displayName);
 
-  const isSelected = selectedObjectIds.includes(object.id);
   const isDraggable = mode === "pointer" && !isLocked;
 
   // RAF-throttled drag-move handler — updates child positions locally for live preview.

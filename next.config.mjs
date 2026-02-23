@@ -1,10 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    // Disable instrumentation in dev to avoid loading OTel/Langfuse and causing
-    // startup hang on cold start (rm -rf .next && npm run dev). OTel is only
-    // needed for production observability.
-    instrumentationHook: process.env.NODE_ENV === "production",
+    // Always enable the instrumentation hook so Langfuse traces are captured
+    // in both local dev (when LANGFUSE_* keys are in .env.local) and production.
+    instrumentationHook: true,
     // Externalize heavy server-only packages from webpack bundling.
     // This prevents Next.js from compiling firebase-admin, OTel, and Langfuse
     // into the server bundle, reducing first-compile time for API routes.

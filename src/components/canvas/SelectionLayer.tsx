@@ -5,7 +5,7 @@ import { Transformer } from "react-konva";
 import type Konva from "konva";
 import { useCanvasStore } from "@/lib/store/canvasStore";
 import { useObjectStore, rebuildSpatialIndex } from "@/lib/store/objectStore";
-import { updateObject } from "@/lib/firebase/firestore";
+import { updateObjects } from "@/lib/firebase/firestore";
 import { acquireLock, releaseLock } from "@/lib/firebase/rtdb";
 import { useAuthStore } from "@/lib/store/authStore";
 import { setTransforming, borderResizingIds } from "@/lib/resizeState";
@@ -15,6 +15,7 @@ import {
   SHAPE_SIZE_LIMITS,
   FRAME_SIZE_LIMITS,
   STICKY_NOTE_SIZE_LIMITS,
+  type BoardObject,
 } from "@/lib/types";
 
 function getLimitsForType(type: string) {
@@ -58,6 +59,18 @@ function getFixedEdges(anchor: string | null): { xFixed: boolean | null; yFixed:
   };
 }
 
+// Corner anchors trigger diagonal scaling — both width and fontSize change together.
+// Mid-edge anchors (middle-left, middle-right, top-center, bottom-center) only
+// change one dimension, so fontSize is intentionally left unchanged.
+function isCornerAnchor(anchor: string | null): boolean {
+  return (
+    anchor === 'top-left' ||
+    anchor === 'top-right' ||
+    anchor === 'bottom-left' ||
+    anchor === 'bottom-right'
+  );
+}
+
 interface SelectionLayerProps {
   stageRef: React.RefObject<Konva.Stage | null>;
 }
@@ -70,12 +83,11 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
   const borderResizeGeneration = useCanvasStore((s) => s.borderResizeGeneration);
   const updateObjectLocal = useObjectStore((s) => s.updateObjectLocal);
 
-  // Determine transformer config based on selected objects
-  // Subscribe to objects for rendering config only (not used in effect/callbacks)
-  const objects = useObjectStore((s) => s.objects);
-  const selectedObjects = selectedObjectIds
-    .map((id) => objects[id])
-    .filter(Boolean);
+  // Narrow selector — only subscribes to the specific objects that are selected.
+  // Avoids re-rendering SelectionLayer on any unrelated object change in the board.
+  const selectedObjects = useObjectStore((s) =>
+    selectedObjectIds.map((id) => s.objects[id]).filter((o): o is NonNullable<typeof o> => !!o)
+  );
 
   const hasMixedTypes =
     new Set(selectedObjects.map((o) => o.type)).size > 1;
@@ -120,6 +132,12 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       case "connector":
         enabledAnchors = [];
         break;
+      case "text":
+        // All 8 handles: horizontal drag changes wrapping width, vertical drag sets
+        // explicit height, diagonal drag changes both. Height auto-adjusts to content
+        // after a width-only resize via the useEffect in TextObject.
+        enabledAnchors = ALL_ANCHORS;
+        break;
     }
   }
 
@@ -136,17 +154,47 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       // with direct Konva manipulation during border resize
       if (borderResizingIds.has(id)) continue;
       const node = stage.findOne(`#${id}`);
-      if (node) nodes.push(node);
+      // Guard: skip nodes already destroyed (e.g., deleted by AI command or remote sync
+      // before this effect fired). A destroyed node has no parent and its canvas element
+      // is torn down — passing it to Transformer causes _proxyDrag to crash with
+      // "can't access property dragStatus, elem is undefined".
+      if (node && node.getParent() != null) nodes.push(node);
     }
 
     transformer.nodes(nodes);
     transformer.getLayer()?.batchDraw();
+
+    // Guard: when a node is destroyed mid-drag (Firestore remote delete or AI command
+    // removes a selected object while the user is actively transforming), Konva's
+    // Transformer._proxyDrag still holds a reference to it and will crash on the next
+    // mousemove trying to access the now-null canvas element.
+    // Listening for 'remove' on each attached node lets us prune the transformer's
+    // list immediately, before the next drag event fires.
+    // Note: Konva sets node.parent = null *before* firing 'remove', so getParent()
+    // reliably identifies which nodes are no longer valid at handler time.
+    const pruneDestroyedNodes = () => {
+      const tr = transformerRef.current;
+      if (!tr) return;
+      const alive = (tr.nodes() as Konva.Node[]).filter((n) => n.getParent() != null);
+      if (alive.length < tr.nodes().length) {
+        tr.nodes(alive);
+        tr.getLayer()?.batchDraw();
+      }
+    };
+
+    for (const node of nodes) {
+      node.on('remove.trGuard', pruneDestroyedNodes);
+    }
 
     // Cleanup: if selection changes mid-transform, reset any accumulated scale
     // on outgoing nodes to prevent stale scale on next interaction
     return () => {
       const cleanupObjects = useObjectStore.getState().objects;
       for (const node of nodes) {
+        // Skip nodes already destroyed — their properties are torn down and
+        // calling scaleX() / width() on them is a no-op at best, crash at worst.
+        if (node.getParent() == null) continue;
+        node.off('remove.trGuard');
         if (node.scaleX() !== 1 || node.scaleY() !== 1) {
           const id = node.id();
           const obj = cleanupObjects[id];
@@ -193,11 +241,17 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       const transformer = transformerRef.current;
       if (!transformer) return;
 
+      // Save anchor BEFORE clearing — needed for fontSize scale decision below.
+      const savedAnchor = activeAnchorRef.current;
       activeAnchorRef.current = null;
       setTransforming(false);
 
       const currentObjects = useObjectStore.getState().objects;
       const { endLocalEdit } = useObjectStore.getState();
+      const boardId = getBoardIdFromUrl();
+
+      // Collect all updates to dispatch as a single Firestore batch write (N objects → 1 round-trip).
+      const batchUpdates: { id: string; changes: Partial<BoardObject> }[] = [];
 
       for (const node of transformer.nodes()) {
         const id = node.id();
@@ -208,12 +262,16 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         const limits = getLimitsForType(obj.type);
         const isCircle = obj.type === "circle";
 
+        // Capture raw scale values BEFORE resetting them — needed for fontSize scaling below.
+        const rawScaleX = Math.abs(node.scaleX());
+        const rawScaleY = Math.abs(node.scaleY());
+
         // Use node.width()/height() — these are kept in sync by applyResizeToKonvaNode
         // during border resize and by react-konva reconciliation otherwise.
         // Avoids getClientRect which can return stale child bounding boxes after
         // direct Konva manipulation, causing anchor instability on subsequent resizes.
-        let newWidth = Math.round(node.width() * Math.abs(node.scaleX()));
-        let newHeight = Math.round(node.height() * Math.abs(node.scaleY()));
+        let newWidth = Math.round(node.width() * rawScaleX);
+        let newHeight = Math.round(node.height() * rawScaleY);
 
         // CRUCIAL: Reset scale immediately to clear Konva's transform matrix
         // before any downstream state updates
@@ -249,8 +307,7 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
         // Bake the post-transform rotation (in degrees, rounded to nearest integer)
         const newRotation = Math.round(node.rotation());
 
-        // Persist to local store and Firestore
-        const updates = {
+        const updates: Partial<BoardObject> = {
           x: newX,
           y: newY,
           width: newWidth,
@@ -258,15 +315,31 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
           rotation: newRotation,
         };
 
-        updateObjectLocal(id, updates);
-        updateObject(getBoardIdFromUrl(), id, updates).catch(console.error);
+        // Diagonal corner drag on text objects: scale fontSize proportionally so the
+        // text "grows" visually, matching BioRender-style text scaling. The geometric
+        // mean of scaleX/scaleY handles non-uniform corner drags gracefully.
+        // Horizontal/vertical-only drags (middle-left, top-center, etc.) leave fontSize
+        // unchanged so the user can adjust wrapping width or explicit height independently.
+        if (obj.type === 'text' && isCornerAnchor(savedAnchor) && (rawScaleX !== 1 || rawScaleY !== 1)) {
+          const scaleFactor = Math.sqrt(rawScaleX * rawScaleY);
+          const currentFontSize = obj.fontSize ?? 16;
+          updates.fontSize = Math.max(8, Math.min(144, Math.round(currentFontSize * scaleFactor)));
+        }
 
-        // Release local edit guard and soft lock after persisting
+        // Apply to local store immediately for responsive UI
+        updateObjectLocal(id, updates);
+        batchUpdates.push({ id, changes: updates });
+
+        // Release local edit guard and soft lock
         endLocalEdit(id);
-        const boardId = getBoardIdFromUrl();
         if (boardId) {
           releaseLock(boardId, id);
         }
+      }
+
+      // Single Firestore batch write for all transformed objects (replaces N individual calls).
+      if (batchUpdates.length > 0 && boardId) {
+        updateObjects(boardId, batchUpdates).catch(console.error);
       }
 
       // Force a synchronous draw of the objects layer to paint correct dimensions
@@ -296,6 +369,10 @@ export default function SelectionLayer({ stageRef }: SelectionLayerProps) {
       anchorStroke="#2196F3"
       anchorSize={8}
       anchorCornerRadius={2}
+      // Snap rotation to cardinal angles when the handle is within 5° of them.
+      // Konva handles the visual snap animation and snaps the committed angle automatically.
+      rotationSnaps={[0, 90, 180, 270]}
+      rotationSnapTolerance={5}
       onTransformStart={handleTransformStart}
       onTransformEnd={handleTransformEnd}
       boundBoxFunc={(oldBox, newBox) => {
