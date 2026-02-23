@@ -1,14 +1,8 @@
 /**
  * /api/ai-command — AI board agent endpoint.
- * Accepts @ai commands from authenticated users. Implements a two-tier strategy:
- *
- * Tier 1 (simple, ≤3 objects): Single Haiku generateObject call classifies +
- * extracts the creation spec. Server computes clear positions via findClearRect.
- * Objects are written immediately (isAIPending: false). ~500ms wall-clock.
- *
- * Tier 2 (complex, diagrams, 4+ objects): Sonnet streamText with tool calling.
- * Compact occupied-zones block injected into prompt. Enhanced tools:
- * findAvailableSpace, createFlowchart, createElementsBatch.
+ * Accepts @ai commands from authenticated users and streams the response via
+ * Sonnet with full tool-calling support (findAvailableSpace, createFlowchart,
+ * createElementsBatch, etc.).
  *
  * Runs on the Node.js runtime so that the OpenTelemetry NodeSDK (initialised in
  * src/instrumentation.ts) is available. Authentication uses jose (lightweight JWT
@@ -16,7 +10,7 @@
  *
  * Request: POST with Authorization: Bearer <Firebase ID Token>
  * Body: { message, boardId, boardState, selectedObjectIds, aiCommandId, suggestedPositions?, viewportBounds? }
- * Response: SSE stream (text/event-stream via Vercel AI SDK) or plain text for Tier 1
+ * Response: SSE stream (text/event-stream via Vercel AI SDK)
  */
 
 export const runtime = 'nodejs';
@@ -24,7 +18,6 @@ export const runtime = 'nodejs';
 import { streamText, stepCountIs } from 'ai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
-import { v4 as uuidv4 } from 'uuid';
 
 // Explicitly target Anthropic's API, bypassing the ANTHROPIC_BASE_URL env var
 // which may be set to Vercel's AI Gateway (requires separate AI_GATEWAY_API_KEY).
@@ -34,17 +27,10 @@ const anthropic = createAnthropic({
 
 import { buildTier2SystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
-import { classifyAndExtract } from '@/lib/ai/tierClassifier';
-import {
-  computeOccupiedZones,
-  findClearRect,
-  findContainingFrame,
-} from '@/lib/ai/spatialPlanning';
-import { restCreateObject } from '@/lib/firebase/firestoreRest';
+import { computeOccupiedZones } from '@/lib/ai/spatialPlanning';
 import type { AIBoardContext } from '@/lib/ai/context';
 import type { SuggestedPosition } from '@/lib/ai/spatialPlanning';
 import type { BoardObject, ObjectType } from '@/lib/types';
-import { STICKY_NOTE_DEFAULT } from '@/lib/types';
 
 // Firebase publishes its token-signing keys at this JWKS endpoint.
 // jose caches the key set and re-fetches when keys rotate.
@@ -126,11 +112,6 @@ function buildBoardObjectsFromContext(boardState: AIBoardContext): Record<string
   return result;
 }
 
-const GRID_SNAP = 20;
-function snapToGrid(value: number): number {
-  return Math.round(value / GRID_SNAP) * GRID_SNAP;
-}
-
 export async function POST(req: Request): Promise<Response> {
   // ---------------------------------------------------------------------------
   // 1. Authenticate the request
@@ -197,132 +178,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Classify the command (Haiku, fast, non-streaming)
-  // ---------------------------------------------------------------------------
-  let classification: Awaited<ReturnType<typeof classifyAndExtract>> | null = null;
-  try {
-    classification = await classifyAndExtract(message);
-  } catch (err) {
-    // Non-fatal: fall through to Tier 2 (Sonnet) as a safe fallback
-    console.warn('[AI] Classifier failed, falling back to Tier 2:', err instanceof Error ? err.message : err);
-  }
-
-  // ---------------------------------------------------------------------------
-  // 4a. Tier 1 — Direct structured write (simple commands, ≤3 objects)
-  // ---------------------------------------------------------------------------
-  if (classification?.tier === 'simple') {
-    const boardObjects = buildBoardObjectsFromContext(boardState);
-    const occupied = computeOccupiedZones(boardObjects);
-    const searchOrigin = {
-      x: viewportBounds?.x ?? 0,
-      y: viewportBounds?.y ?? 0,
-    };
-
-    // Default dimensions by type for clear-rect sizing
-    const createdIds: string[] = [];
-
-    try {
-      // Compute positions sequentially so each placed object is considered for the next
-      const placedZones = [...occupied];
-
-      await Promise.all(
-        classification.objects.map(async (spec, idx) => {
-          // Convert rectangle/circle with text to stickyNote — shapes cannot display text
-          const rawType = spec.type;
-          const effectiveType: ObjectType =
-            (rawType === 'rectangle' || rawType === 'circle') && spec.text?.trim()
-              ? 'stickyNote'
-              : (rawType as ObjectType);
-
-          const isSticky = effectiveType === 'stickyNote';
-          const objW = isSticky ? STICKY_NOTE_DEFAULT.width : 160;
-          const objH = isSticky ? STICKY_NOTE_DEFAULT.height : 80;
-
-          // Offset origin slightly for each object to avoid re-scanning from the same point
-          const origin = {
-            x: searchOrigin.x + idx * 20,
-            y: searchOrigin.y,
-          };
-
-          const pos = findClearRect(placedZones, objW, objH, origin);
-          const snappedX = snapToGrid(pos.x);
-          const snappedY = snapToGrid(pos.y);
-          const snappedW = snapToGrid(objW);
-          const snappedH = snapToGrid(objH);
-
-          // Add the placed object as an occupied zone so subsequent placements avoid it
-          placedZones.push({
-            x: snappedX - 20,
-            y: snappedY - 20,
-            width: snappedW + 40,
-            height: snappedH + 40,
-            label: `tier1:${effectiveType}`,
-          });
-
-          const id = uuidv4();
-          createdIds.push(id);
-
-          const defaultColor =
-            effectiveType === 'stickyNote'
-              ? '#FEFF9C'
-              : effectiveType === 'circle'
-              ? '#7AFCFF'
-              : '#F3F4F6';
-
-          // Auto-frame: if the object's center falls inside a frame, set parentFrame
-          const parentFrame = findContainingFrame(boardObjects, snappedX, snappedY, snappedW, snappedH);
-
-          await restCreateObject(
-            boardId,
-            {
-              id,
-              type: effectiveType,
-              text: spec.text ?? '',
-              x: snappedX,
-              y: snappedY,
-              width: snappedW,
-              height: snappedH,
-              color: spec.color ?? defaultColor,
-              createdBy: userId,
-              isAIGenerated: true,
-              isAIPending: false, // Tier 1: confirmed immediately (no streaming rollback)
-              aiCommandId,
-              ...(parentFrame ? { parentFrame } : {}),
-            },
-            idToken
-          );
-        })
-      );
-    } catch (err) {
-      console.error('[AI] Tier 1 write failed:', err);
-      return new Response(
-        JSON.stringify({ error: 'Failed to create objects. Please try again.' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Stream the summary text so the client's useAIStream reader works unchanged
-    const summaryText = classification.summaryText;
-    const encoder = new TextEncoder();
-    const stream = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(summaryText));
-        controller.close();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'X-Is-Anonymous': isAnonymous ? '1' : '0',
-        'X-Tier': '1',
-        'X-Created-Ids': createdIds.join(','),
-      },
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  // 4b. Tier 2 — Plan-then-batch (Sonnet with spatial tools)
+  // 3. Build spatial context and system prompt
   // ---------------------------------------------------------------------------
   const boardObjects = buildBoardObjectsFromContext(boardState);
   const occupiedZones = computeOccupiedZones(boardObjects);
@@ -374,6 +230,9 @@ export async function POST(req: Request): Promise<Response> {
       ? turnHistory
       : [{ role: 'user', content: message }];
 
+  // ---------------------------------------------------------------------------
+  // 4. Stream response via Sonnet with full tool-calling support
+  // ---------------------------------------------------------------------------
   try {
     const result = streamText({
       model: anthropic('claude-sonnet-4-6'),
@@ -392,9 +251,7 @@ export async function POST(req: Request): Promise<Response> {
 
     return result.toTextStreamResponse({
       headers: {
-        // Inform the client whether this is an anonymous session (affects rate-limit UI)
         'X-Is-Anonymous': isAnonymous ? '1' : '0',
-        'X-Tier': '2',
       },
     });
   } catch (err) {
