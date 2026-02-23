@@ -578,14 +578,18 @@ export default function SubHeaderToolbar({ boardId }: SubHeaderToolbarProps) {
         }}
       />
 
-      {/* Connector — split button: main area activates tool, chevron opens dropdown */}
+      {/* Connector — split button: main area activates tool, chevron opens dropdown.
+          If already in connector mode, the dropdown updates direction without
+          re-triggering enterCreateMode (which would reset connectorStart state). */}
       <ConnectorSplitButton
         isActive={isConnectorActive}
         isDirected={pendingConnectorDirected}
         onActivate={() => enterCreateMode('connector')}
         onSetDirected={(directed) => {
           setPendingConnectorDirected(directed);
-          enterCreateMode('connector');
+          if (!isConnectorActive) {
+            enterCreateMode('connector');
+          }
         }}
       />
 

@@ -262,6 +262,21 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         // Success: confirm pending objects and write final response to Firestore
         await confirmAIPendingObjects(boardId, aiCommandId).catch(console.error);
 
+        // Collect all objects created during this AI command so they can be
+        // rendered as clickable reference chips in the AI response message.
+        // Objects are already in the local store from tool execute() calls;
+        // we filter by aiCommandId which is set on every AI-created object.
+        // Skip this when the response is a clarification (no objects were created).
+        const aiCreatedRefs: ObjectReference[] = isClarification
+          ? []
+          : Object.values(useObjectStore.getState().objects)
+              .filter((obj) => obj.aiCommandId === aiCommandId)
+              .map((obj) => ({
+                objectId: obj.id,
+                objectText: obj.text ?? '',
+                objectType: obj.type,
+              }));
+
         // Write the final ai_response message to Firestore
         const finalMsgId = await sendChatMessage(boardId, {
           boardId,
@@ -272,13 +287,16 @@ export function useAICommand(boardId: string): UseAICommandReturn {
           aiCommandId,
           aiPersona: persona,
           aiStatus: 'completed',
+          ...(aiCreatedRefs.length > 0 ? { objectReferences: aiCreatedRefs } : {}),
         }).catch(console.error);
 
-        // Update local state to completed
+        // Update local state to completed — include reference chips so they appear
+        // immediately without waiting for the Firestore listener round-trip.
         updateMessage(responseMsgId, {
           id: finalMsgId ?? responseMsgId,
           aiStatus: 'completed',
           content: accumulatedContent,
+          ...(aiCreatedRefs.length > 0 ? { objectReferences: aiCreatedRefs } : {}),
         });
 
         // Clean up RTDB stream
