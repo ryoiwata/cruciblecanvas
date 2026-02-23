@@ -117,7 +117,7 @@ AI TODOs
 Current TODOs
 - [x] When selecting multiple items and referencing them in chat, there should be group icon of the group as well as each individual item in the chat reference. Make sure that it actually goes to chat when the message is sent, instead of disappearing.
 - [ ] Fix the directed connectors sio that that undirected ones work. Also if you pick an option from the connector dropdown of directed, or undirected, it should automatically go to "connector" mode.
-- [] Make AI chat referenceable for the shapes
+- [x] Make AI chat referenceable for the shapes
 - Fix the order and the tool names of the 
 - Include descriptions of the AI personalities
 

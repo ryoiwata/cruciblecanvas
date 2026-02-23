@@ -285,12 +285,20 @@ function ConnectorSplitButton({ isActive, isDirected, onActivate, onSetDirected 
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const chevronRef = useRef<HTMLButtonElement>(null);
+  // Portal dropdown is rendered to document.body (outside wrapperRef), so we track
+  // it with a separate ref. Without this, mousedown on a portal item triggers the
+  // outside-click handler, React 18 flushes setOpen(false) as a microtask, removes
+  // the dropdown from DOM, and the item's onClick never fires.
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click — must exclude the portal div from "outside"
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (!wrapperRef.current?.contains(e.target as Node)) {
+      if (
+        !wrapperRef.current?.contains(e.target as Node) &&
+        !dropdownRef.current?.contains(e.target as Node)
+      ) {
         setOpen(false);
       }
     };
@@ -345,6 +353,7 @@ function ConnectorSplitButton({ isActive, isDirected, onActivate, onSetDirected 
       {/* Portal dropdown */}
       {open && createPortal(
         <div
+          ref={dropdownRef}
           style={getDropdownStyle()}
           className="rounded-lg border border-white/20 bg-white/90 py-1 shadow-xl backdrop-blur-lg"
         >
