@@ -78,8 +78,10 @@ export default memo(function ConnectorObject({
     ? (object.thickness ?? CONNECTOR_DEFAULTS.strokeWidth) + 1
     : (object.thickness ?? CONNECTOR_DEFAULTS.strokeWidth);
 
-  // Arrow effect settings — defaults to a directed arrow at the end
-  const endEffect: LineEffect = object.endEffect ?? 'arrow';
+  // Arrow effect settings — defaults to 'none' (plain line) for backward compatibility
+  // with connectors created before the endEffect field was introduced.
+  // New directed connectors always have endEffect: 'arrow' explicitly stored.
+  const endEffect: LineEffect = object.endEffect ?? 'none';
   const startEffect: LineEffect = object.startEffect ?? 'none';
   const hasEndArrow   = endEffect   !== 'none';
   const hasStartArrow = startEffect !== 'none';
