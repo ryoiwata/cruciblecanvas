@@ -29,6 +29,7 @@ import type { ChatMessage, ObjectReference } from '@/lib/types';
 
 interface UseAICommandReturn {
   sendAICommand: (command: string, refs?: ObjectReference[]) => void;
+  cancelAICommand: () => void;
   isAILoading: boolean;
 }
 
@@ -301,7 +302,16 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         removeStream(aiCommandId);
       } catch (err) {
         if ((err as Error).name === 'AbortError') {
-          return; // User navigated away, silent exit
+          // User cancelled (or navigated away) — roll back any pending objects
+          await deleteObjectsByAiCommand(boardId, aiCommandId).catch(console.error);
+          updateMessage(responseMsgId, {
+            aiStatus: 'failed',
+            content: accumulatedContent,
+            aiError: 'Cancelled.',
+          });
+          await removeAIStream(boardId, aiCommandId).catch(console.error);
+          removeStream(aiCommandId);
+          return;
         }
 
         hasFailed = true;
@@ -368,5 +378,9 @@ export function useAICommand(boardId: string): UseAICommandReturn {
     ]
   );
 
-  return { sendAICommand, isAILoading };
+  const cancelAICommand = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
+  return { sendAICommand, cancelAICommand, isAILoading };
 }

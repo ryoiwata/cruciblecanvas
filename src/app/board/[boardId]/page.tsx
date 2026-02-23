@@ -98,7 +98,7 @@ export default function BoardPage() {
   useAIStream(user ? boardId : undefined);
 
   // AI command hook
-  const { sendAICommand, isAILoading } = useAICommand(boardId);
+  const { sendAICommand, cancelAICommand, isAILoading } = useAICommand(boardId);
 
   // Auth guard — pass redirect so guests return here after sign-in.
   // Bypassed in perf test mode (NEXT_PUBLIC_PERF_BYPASS=true) to allow
@@ -531,6 +531,7 @@ export default function BoardPage() {
         <ChatSidebar
           boardId={boardId}
           onSendAICommand={handleSendAICommand}
+          onCancelAICommand={cancelAICommand}
           isAILoading={isAILoading}
         />
       </div>

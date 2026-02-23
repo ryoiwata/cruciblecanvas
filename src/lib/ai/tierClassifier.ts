@@ -87,7 +87,11 @@ COMPLEX: 4+ objects, or any flowchart/diagram, or objects that need connectors/a
 For SIMPLE commands, populate "objects" (up to 3) and "summaryText".
 For COMPLEX commands, populate "estimatedCount" and optionally "layoutHint".
 Default colors: yellow=#FEFF9C, pink=#FF7EB9, green=#98FF98, cyan=#7AFCFF.
-Use "stickyNote" for notes/ideas, "rectangle" for generic boxes.`;
+
+Type selection rules:
+- Use "stickyNote" for notes, ideas, steps, or ANY item with text content longer than 3 words.
+- NEVER use "rectangle" or "circle" for items with body text — always use "stickyNote".
+- "rectangle" is ONLY for decorative or structural shapes with no meaningful text.`;
 
 /**
  * Classifies the user's command and, for simple commands, extracts the creation spec.
@@ -95,7 +99,8 @@ Use "stickyNote" for notes/ideas, "rectangle" for generic boxes.`;
  */
 export async function classifyAndExtract(message: string): Promise<ClassificationResult> {
   const { object } = await generateObject({
-    model: anthropic('claude-haiku-4-5-20251001'),
+    // model: anthropic('claude-haiku-4-5-20251001'),
+    model: anthropic('claude-sonnet-4-6'),
     system: CLASSIFIER_SYSTEM_PROMPT,
     prompt: message,
     schema: ClassificationSchema,

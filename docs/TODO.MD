@@ -121,6 +121,10 @@ Current TODOs
 - Fix the order and the tool names of the 
 - Include descriptions of the AI personalities
 
+- TODO
+  - hitting the enter button again or esc while the AI agent is loading will cancel the AI agent output and remove all items that it tried to produce
+  - Make sure that rectangles and circles are not used when an item that the AI agent is trying to create involves text with that specific item. Use sticky pad or text or frame instead.
+  - Whenever an AI agent creates items that are in a frame, make sure that the items are framed in the frame and not deframed.
 
 
 - [ ] Arrows as an option for shapes

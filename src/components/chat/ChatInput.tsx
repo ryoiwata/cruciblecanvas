@@ -32,6 +32,7 @@ import { OBJECT_TYPE_ICONS } from '@/components/chat/ObjectRefChip';
 interface ChatInputProps {
   boardId: string;
   onSendAICommand?: (command: string, refs: ObjectReference[]) => void;
+  onCancelAICommand?: () => void;
   isAILoading?: boolean;
 }
 
@@ -58,7 +59,7 @@ function mergeRefs(existing: ObjectReference[], incoming: ObjectReference[]): Ob
   return next;
 }
 
-export default function ChatInput({ boardId, onSendAICommand, isAILoading }: ChatInputProps) {
+export default function ChatInput({ boardId, onSendAICommand, onCancelAICommand, isAILoading }: ChatInputProps) {
   const [inputText, setInputText] = useState('');
   const [pendingRefs, setPendingRefs] = useState<ObjectReference[]>([]);
   const [rateLimitError, setRateLimitError] = useState<string | null>(null);
@@ -161,6 +162,19 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
       }
     }
   }, [chatMode]);
+
+  // ── Cancel AI on Enter/Esc while loading ─────────────────────────────────
+  // Global listener so it fires even when the input is disabled during loading.
+  useEffect(() => {
+    if (!isAILoading || !onCancelAICommand) return;
+    const handleCancelKey = (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === 'Escape') {
+        onCancelAICommand();
+      }
+    };
+    window.addEventListener('keydown', handleCancelKey);
+    return () => window.removeEventListener('keydown', handleCancelKey);
+  }, [isAILoading, onCancelAICommand]);
 
   // ── Remove a single chip ──────────────────────────────────────────────────
   const removeRef = useCallback((objectId: string) => {
@@ -387,16 +401,19 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
         />
 
         <button
-          onClick={handleSend}
-          disabled={!inputText.trim() || isAILoading}
+          onClick={isAILoading ? onCancelAICommand : handleSend}
+          disabled={isAILoading ? !onCancelAICommand : !inputText.trim()}
+          title={isAILoading ? 'Cancel AI (Esc)' : undefined}
           className={`flex-shrink-0 w-8 h-8 rounded-full text-white text-sm flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-            isAIMode
+            isAILoading
+              ? 'bg-red-500 hover:bg-red-600'
+              : isAIMode
               ? 'bg-indigo-500 hover:bg-indigo-600'
               : 'bg-emerald-500 hover:bg-emerald-600'
           }`}
         >
           {isAILoading ? (
-            <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+            '✕'
           ) : (
             '↑'
           )}

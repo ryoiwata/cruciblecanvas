@@ -19,13 +19,14 @@ import type { ObjectReference } from '@/lib/types';
 interface ChatSidebarProps {
   boardId: string;
   onSendAICommand?: (command: string, refs: ObjectReference[]) => void;
+  onCancelAICommand?: () => void;
   isAILoading?: boolean;
 }
 
 const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 600;
 
-export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: ChatSidebarProps) {
+export default function ChatSidebar({ boardId, onSendAICommand, onCancelAICommand, isAILoading }: ChatSidebarProps) {
   const sidebarOpen = useChatStore((s) => s.sidebarOpen);
   const sidebarWidth = useChatStore((s) => s.sidebarWidth);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
@@ -150,6 +151,7 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
           <ChatInput
             boardId={boardId}
             onSendAICommand={onSendAICommand}
+            onCancelAICommand={onCancelAICommand}
             isAILoading={isAILoading}
           />
         </>

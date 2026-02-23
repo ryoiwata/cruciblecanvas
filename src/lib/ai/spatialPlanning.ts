@@ -115,6 +115,28 @@ export function computeOccupiedZones(objects: Record<string, BoardObject>): Occu
   return zones;
 }
 
+/**
+ * Returns the id of the first frame whose bounds contain the center of the given object.
+ * Used to automatically set `parentFrame` on AI-created objects placed inside frames.
+ */
+export function findContainingFrame(
+  boardObjects: Record<string, BoardObject>,
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): string | undefined {
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+  for (const obj of Object.values(boardObjects)) {
+    if (obj.type !== 'frame') continue;
+    if (cx >= obj.x && cx <= obj.x + obj.width && cy >= obj.y && cy <= obj.y + obj.height) {
+      return obj.id;
+    }
+  }
+  return undefined;
+}
+
 const MAX_SCAN_RADIUS = 100_000; // effectively unlimited per requirements
 
 /**
@@ -167,6 +189,33 @@ export function findClearRect(
   return {
     x: Math.round(searchOrigin.x / SERVER_GRID_SNAP) * SERVER_GRID_SNAP,
     y: Math.round((searchOrigin.y + MAX_SCAN_RADIUS) / SERVER_GRID_SNAP) * SERVER_GRID_SNAP,
+  };
+}
+
+/**
+ * Clamps object coordinates so the object fits within a frame's inner bounds.
+ * Applies a 20px inner margin to prevent objects from touching the frame border.
+ * When the frame is too small for the object, returns the frame origin with margin.
+ * Result is snapped to the 20px board grid.
+ */
+export function clampToFrame(
+  frame: { x: number; y: number; width: number; height: number },
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): { x: number; y: number } {
+  const INNER_MARGIN = SERVER_GRID_SNAP; // 20px from all frame edges
+  const minX = frame.x + INNER_MARGIN;
+  const minY = frame.y + INNER_MARGIN;
+  const maxX = frame.x + frame.width - width - INNER_MARGIN;
+  const maxY = frame.y + frame.height - height - INNER_MARGIN;
+  // Ensure max >= min so object always has a valid placement even in small frames
+  const clampedX = Math.max(minX, Math.min(x, Math.max(minX, maxX)));
+  const clampedY = Math.max(minY, Math.min(y, Math.max(minY, maxY)));
+  return {
+    x: Math.round(clampedX / SERVER_GRID_SNAP) * SERVER_GRID_SNAP,
+    y: Math.round(clampedY / SERVER_GRID_SNAP) * SERVER_GRID_SNAP,
   };
 }
 

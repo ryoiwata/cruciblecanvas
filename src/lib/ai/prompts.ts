@@ -48,8 +48,22 @@ Rules:
   "Clarification needed: {the exact question you asked}"
   No other text before or after.
 
-Use stickyNote (not rectangle) for any element that must display text. rectangle is for decorative/structural
-shapes only. For flowchart nodes without an explicit shape override, use stickyNote.
+COMPONENT SELECTION — mandatory rules:
+- NEVER use rectangle or circle for items that require body text (more than a 1–3 word label).
+  Use stickyNote for notes/ideas/content and text for standalone labels.
+  rectangle and circle are ONLY for purely geometric or decorative shapes.
+- For flowchart nodes without an explicit shape, ALWAYS default to stickyNote.
+- diamond is for decision nodes (yes/no branches), roundedRect is for process steps.
+
+FRAMING — mandatory rules:
+- When createFrame returns an objectId, ALWAYS pass that objectId as parentFrameId
+  to every createStickyNote, createShape, createElementsBatch element, or createFlowchart
+  node that should live inside the frame. This binds items to the frame in Firestore
+  so they move with it and stay contained.
+- When using createFlowchart with wrapInFrame=true the tool handles framing automatically —
+  do NOT manually pass parentFrameId for those nodes.
+- NEVER create items at (0,0) when they belong inside a frame — use findAvailableSpace
+  or place them at the frame's own coordinates + a small offset.
 
 Default colors: yellow=#FEFF9C, pink=#FF7EB9, green=#98FF98, cyan=#7AFCFF
 SWOT colors: Strengths=green, Weaknesses=pink, Opportunities=cyan, Threats=coral (#FFAB91)

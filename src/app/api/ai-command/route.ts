@@ -38,6 +38,7 @@ import { classifyAndExtract } from '@/lib/ai/tierClassifier';
 import {
   computeOccupiedZones,
   findClearRect,
+  findContainingFrame,
 } from '@/lib/ai/spatialPlanning';
 import { restCreateObject } from '@/lib/firebase/firestoreRest';
 import type { AIBoardContext } from '@/lib/ai/context';
@@ -226,7 +227,14 @@ export async function POST(req: Request): Promise<Response> {
 
       await Promise.all(
         classification.objects.map(async (spec, idx) => {
-          const isSticky = spec.type === 'stickyNote';
+          // Convert rectangle/circle with text to stickyNote — shapes cannot display text
+          const rawType = spec.type;
+          const effectiveType: ObjectType =
+            (rawType === 'rectangle' || rawType === 'circle') && spec.text?.trim()
+              ? 'stickyNote'
+              : (rawType as ObjectType);
+
+          const isSticky = effectiveType === 'stickyNote';
           const objW = isSticky ? STICKY_NOTE_DEFAULT.width : 160;
           const objH = isSticky ? STICKY_NOTE_DEFAULT.height : 80;
 
@@ -237,41 +245,49 @@ export async function POST(req: Request): Promise<Response> {
           };
 
           const pos = findClearRect(placedZones, objW, objH, origin);
+          const snappedX = snapToGrid(pos.x);
+          const snappedY = snapToGrid(pos.y);
+          const snappedW = snapToGrid(objW);
+          const snappedH = snapToGrid(objH);
 
           // Add the placed object as an occupied zone so subsequent placements avoid it
           placedZones.push({
-            x: pos.x - 20,
-            y: pos.y - 20,
-            width: objW + 40,
-            height: objH + 40,
-            label: `tier1:${spec.type}`,
+            x: snappedX - 20,
+            y: snappedY - 20,
+            width: snappedW + 40,
+            height: snappedH + 40,
+            label: `tier1:${effectiveType}`,
           });
 
           const id = uuidv4();
           createdIds.push(id);
 
           const defaultColor =
-            spec.type === 'stickyNote'
+            effectiveType === 'stickyNote'
               ? '#FEFF9C'
-              : spec.type === 'circle'
+              : effectiveType === 'circle'
               ? '#7AFCFF'
-              : '#FFFFFF';
+              : '#F3F4F6';
+
+          // Auto-frame: if the object's center falls inside a frame, set parentFrame
+          const parentFrame = findContainingFrame(boardObjects, snappedX, snappedY, snappedW, snappedH);
 
           await restCreateObject(
             boardId,
             {
               id,
-              type: spec.type as ObjectType,
+              type: effectiveType,
               text: spec.text ?? '',
-              x: snapToGrid(pos.x),
-              y: snapToGrid(pos.y),
-              width: snapToGrid(objW),
-              height: snapToGrid(objH),
+              x: snappedX,
+              y: snappedY,
+              width: snappedW,
+              height: snappedH,
               color: spec.color ?? defaultColor,
               createdBy: userId,
               isAIGenerated: true,
               isAIPending: false, // Tier 1: confirmed immediately (no streaming rollback)
               aiCommandId,
+              ...(parentFrame ? { parentFrame } : {}),
             },
             idToken
           );

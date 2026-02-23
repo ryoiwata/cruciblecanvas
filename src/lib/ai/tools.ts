@@ -25,7 +25,7 @@ import {
   calculateVerticalLayout,
 } from './validation';
 import { serializeBoardState } from './context';
-import { computeOccupiedZones, findClearRect } from './spatialPlanning';
+import { computeOccupiedZones, findClearRect, findContainingFrame, clampToFrame } from './spatialPlanning';
 import { computeFlowchartLayout, computeGridLayout } from './layoutAlgorithms';
 import type { LayoutNode, LayoutEdge } from './layoutAlgorithms';
 import type { ObjectType, ConnectorStyle, BoardObject } from '@/lib/types';
@@ -44,6 +44,42 @@ interface ToolContext {
 }
 
 /**
+ * Text content longer than this threshold must use stickyNote/text instead of
+ * rectangle or circle. Shapes with short labels (≤20 chars) are still permitted
+ * as minimal decorative labels.
+ */
+const TEXT_BODY_THRESHOLD = 20;
+
+/**
+ * Resolves the parent frame for a newly-created object.
+ *
+ * If an explicit parentFrameId is provided the frame is looked up in boardObjects
+ * and the (x, y) coordinates are clamped inside its bounds so the object can never
+ * be placed outside the frame. Falls back to spatial detection via findContainingFrame
+ * when no explicit ID is given (auto-frame by position).
+ */
+function resolveParentFrameId(
+  boardObjects: Record<string, BoardObject>,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  explicitParentFrameId?: string
+): { parentFrame: string | undefined; x: number; y: number } {
+  if (explicitParentFrameId) {
+    const frame = boardObjects[explicitParentFrameId];
+    if (frame?.type === 'frame') {
+      const clamped = clampToFrame(frame, x, y, width, height);
+      return { parentFrame: explicitParentFrameId, x: clamped.x, y: clamped.y };
+    }
+    // Frame might have just been created in this same command — trust the ID as-is
+    return { parentFrame: explicitParentFrameId, x, y };
+  }
+  const parentFrame = findContainingFrame(boardObjects, x, y, width, height);
+  return { parentFrame, x, y };
+}
+
+/**
  * Creates the full set of AI tool definitions, each bound to a board context.
  * The context (boardId, userId, aiCommandId, userToken) is closed over by each execute() function.
  */
@@ -56,24 +92,39 @@ export function createAITools(ctx: ToolContext) {
     // -------------------------------------------------------------------------
 
     createStickyNote: tool({
-      description: 'Create a sticky note on the board with text, position, and color.',
+      description:
+        'Create a sticky note on the board with text, position, and color. ' +
+        'Use this (not rectangle/circle) for any content with body text. ' +
+        'If the note belongs inside a frame, pass the frame\'s objectId as parentFrameId ' +
+        '— coordinates will be auto-clamped to fit within that frame.',
       inputSchema: zodSchema(
         z.object({
           text: z.string().describe('Text content of the sticky note'),
           x: z.number().describe('X coordinate (will be snapped to 20px grid)'),
           y: z.number().describe('Y coordinate (will be snapped to 20px grid)'),
           color: z.string().describe('Background color as hex (e.g. #FEFF9C) or named color'),
+          parentFrameId: z.string().optional().describe(
+            'objectId of the frame this note belongs to. Coordinates are automatically clamped inside the frame.'
+          ),
         })
       ),
-      execute: async ({ text, x, y, color }: { text: string; x: number; y: number; color: string }) => {
-        const coords = validateCoordinates(snapToGrid(x), snapToGrid(y));
+      execute: async ({ text, x, y, color, parentFrameId }: { text: string; x: number; y: number; color: string; parentFrameId?: string }) => {
+        const rawCoords = validateCoordinates(snapToGrid(x), snapToGrid(y));
         const id = uuidv4();
+        const { parentFrame, x: finalX, y: finalY } = resolveParentFrameId(
+          ctx.boardObjects ?? {},
+          rawCoords.x,
+          rawCoords.y,
+          STICKY_NOTE_DEFAULT.width,
+          STICKY_NOTE_DEFAULT.height,
+          parentFrameId
+        );
         await restCreateObject(boardId, {
           id,
           type: 'stickyNote',
           text,
-          x: coords.x,
-          y: coords.y,
+          x: finalX,
+          y: finalY,
           width: STICKY_NOTE_DEFAULT.width,
           height: STICKY_NOTE_DEFAULT.height,
           color,
@@ -81,39 +132,60 @@ export function createAITools(ctx: ToolContext) {
           isAIGenerated: true,
           isAIPending: true,
           aiCommandId,
+          ...(parentFrame ? { parentFrame } : {}),
         }, userToken);
         return { success: true, objectId: id };
       },
     }),
 
     createShape: tool({
-      description: 'Create a shape on the board. Supports rectangle, circle, diamond (decision diamond for flowcharts), and roundedRect.',
+      description:
+        'Create a geometric shape on the board. rectangle and circle are purely structural/decorative — ' +
+        'do NOT use them for items with body text (use createStickyNote instead). ' +
+        'diamond is for flowchart decision nodes, roundedRect for process steps. ' +
+        'Pass parentFrameId to bind the shape to an existing frame.',
       inputSchema: zodSchema(
         z.object({
-          type: z.enum(['rectangle', 'circle', 'diamond', 'roundedRect']).describe('Shape type'),
+          type: z.enum(['rectangle', 'circle', 'diamond', 'roundedRect']).describe(
+            'Shape type. rectangle/circle: decorative only (no text body). diamond: decision node. roundedRect: process step.'
+          ),
           x: z.number().describe('X coordinate'),
           y: z.number().describe('Y coordinate'),
           width: z.number().optional().describe('Width in pixels (default 100)'),
           height: z.number().optional().describe('Height in pixels (default 100)'),
           color: z.string().describe('Fill color as hex'),
+          parentFrameId: z.string().optional().describe(
+            'objectId of the frame this shape belongs to. Coordinates are automatically clamped inside the frame.'
+          ),
         })
       ),
-      execute: async ({ type, x, y, width = 100, height = 100, color }: { type: 'rectangle' | 'circle' | 'diamond' | 'roundedRect'; x: number; y: number; width?: number; height?: number; color: string }) => {
-        const coords = validateCoordinates(snapToGrid(x), snapToGrid(y));
+      execute: async ({ type, x, y, width = 100, height = 100, color, parentFrameId }: { type: 'rectangle' | 'circle' | 'diamond' | 'roundedRect'; x: number; y: number; width?: number; height?: number; color: string; parentFrameId?: string }) => {
+        const rawCoords = validateCoordinates(snapToGrid(x), snapToGrid(y));
         const clamped = clampSize(type as ObjectType, width, height);
+        const snappedW = snapToGrid(clamped.width);
+        const snappedH = snapToGrid(clamped.height);
         const id = uuidv4();
+        const { parentFrame, x: finalX, y: finalY } = resolveParentFrameId(
+          ctx.boardObjects ?? {},
+          rawCoords.x,
+          rawCoords.y,
+          snappedW,
+          snappedH,
+          parentFrameId
+        );
         await restCreateObject(boardId, {
           id,
           type,
-          x: coords.x,
-          y: coords.y,
-          width: snapToGrid(clamped.width),
-          height: snapToGrid(clamped.height),
+          x: finalX,
+          y: finalY,
+          width: snappedW,
+          height: snappedH,
           color,
           createdBy: userId,
           isAIGenerated: true,
           isAIPending: true,
           aiCommandId,
+          ...(parentFrame ? { parentFrame } : {}),
         }, userToken);
         return { success: true, objectId: id };
       },
@@ -496,29 +568,42 @@ export function createAITools(ctx: ToolContext) {
         'Create multiple board objects in one operation. ' +
         'Use this for 4+ objects that are independent (no connectors needed). ' +
         'For flowcharts with connectors, use createFlowchart instead. ' +
-        'Use stickyNote (not rectangle) for any element that displays text content.',
+        'NEVER use rectangle or circle for items with text body — use stickyNote instead. ' +
+        'Pass parentFrameId on each element to bind it to a specific frame.',
       inputSchema: zodSchema(
         z.object({
           elements: z.array(
             z.object({
-              type: z.enum(['stickyNote', 'rectangle', 'circle', 'diamond', 'roundedRect', 'text', 'frame']).describe('Object type. Use stickyNote for labeled content, rectangle only for decorative/structural boxes with no text.'),
-              text: z.string().optional().describe('Text content'),
+              type: z.enum(['stickyNote', 'rectangle', 'circle', 'diamond', 'roundedRect', 'text', 'frame']).describe(
+                'Object type. stickyNote for any content with text. rectangle/circle: decorative only (no body text). diamond: decision. roundedRect: process step.'
+              ),
+              text: z.string().optional().describe('Text content. Any text longer than a 1–3 word label forces type to stickyNote automatically.'),
               x: z.number().describe('X coordinate'),
               y: z.number().describe('Y coordinate'),
               width: z.number().optional().describe('Width in pixels'),
               height: z.number().optional().describe('Height in pixels'),
               color: z.string().optional().describe('Fill color as hex'),
+              parentFrameId: z.string().optional().describe(
+                'objectId of the frame this element belongs to. Coordinates are automatically clamped inside the frame.'
+              ),
             })
           ).describe('List of objects to create'),
         })
       ),
-      execute: async ({ elements }: { elements: Array<{ type: string; text?: string; x: number; y: number; width?: number; height?: number; color?: string }> }) => {
+      execute: async ({ elements }: { elements: Array<{ type: string; text?: string; x: number; y: number; width?: number; height?: number; color?: string; parentFrameId?: string }> }) => {
         const createdIds: string[] = [];
 
         await Promise.all(
           elements.map(async (el) => {
             const id = uuidv4();
-            const type = el.type as ObjectType;
+            const rawType = el.type as ObjectType;
+            // Enforce text-body rule: rectangle/circle with text longer than the short-label
+            // threshold must become a stickyNote so the content is always visible.
+            const hasBodyText = (el.text?.trim().length ?? 0) > TEXT_BODY_THRESHOLD;
+            const type: ObjectType =
+              (rawType === 'rectangle' || rawType === 'circle') && hasBodyText
+                ? 'stickyNote'
+                : rawType;
             const defaults =
               type === 'stickyNote'
                 ? { width: STICKY_NOTE_DEFAULT.width, height: STICKY_NOTE_DEFAULT.height, color: '#FEFF9C' }
@@ -533,22 +618,36 @@ export function createAITools(ctx: ToolContext) {
                 // rectangle: visible light gray instead of invisible white
                 : { width: 160, height: 80, color: '#F3F4F6' };
 
-            const coords = { x: snapToGrid(el.x), y: snapToGrid(el.y) };
+            const rawX = snapToGrid(el.x);
+            const rawY = snapToGrid(el.y);
+            const snappedW = snapToGrid(el.width ?? defaults.width);
+            const snappedH = snapToGrid(el.height ?? defaults.height);
+
+            const { parentFrame, x: finalX, y: finalY } = resolveParentFrameId(
+              ctx.boardObjects ?? {},
+              rawX,
+              rawY,
+              snappedW,
+              snappedH,
+              el.parentFrameId
+            );
+
             await restCreateObject(
               boardId,
               {
                 id,
                 type,
                 text: el.text ?? '',
-                x: coords.x,
-                y: coords.y,
-                width: snapToGrid(el.width ?? defaults.width),
-                height: snapToGrid(el.height ?? defaults.height),
+                x: finalX,
+                y: finalY,
+                width: snappedW,
+                height: snappedH,
                 color: el.color ?? defaults.color,
                 createdBy: userId,
                 isAIGenerated: true,
                 isAIPending: true,
                 aiCommandId,
+                ...(parentFrame ? { parentFrame } : {}),
               },
               userToken
             );
@@ -627,6 +726,33 @@ export function createAITools(ctx: ToolContext) {
             ? computeGridLayout(layoutNodes, startX, startY)
             : computeFlowchartLayout(layoutNodes, layoutEdges, startX, startY);
 
+        // ── Optional frame FIRST — must exist before child nodes are written ──
+        // Creating the frame first lets findContainingFrame (and the explicit
+        // parentFrame assignment below) correctly bind nodes to it.
+        let frameId: string | undefined;
+        const framePad = 40;
+        if (wrapInFrame) {
+          frameId = uuidv4();
+          await restCreateObject(
+            boardId,
+            {
+              id: frameId,
+              type: 'frame',
+              text: title ?? 'Flowchart',
+              x: startX - framePad,
+              y: startY - framePad,
+              width: layout.totalWidth + framePad * 2,
+              height: layout.totalHeight + framePad * 2 + 20, // extra for title bar
+              color: FRAME_DEFAULTS.color,
+              createdBy: userId,
+              isAIGenerated: true,
+              isAIPending: true,
+              aiCommandId,
+            },
+            userToken
+          );
+        }
+
         // ── Create shapes (parallel) ────────────────────────────────────────
         // Maps caller's local node id → Firestore object id
         const nodeIdMap = new Map<string, string>();
@@ -652,19 +778,30 @@ export function createAITools(ctx: ToolContext) {
                 ? 'rectangle'
                 : 'stickyNote';
 
+            // Enforce text-body rule: rectangle/circle with labels exceeding the short-label
+            // threshold are converted to stickyNote so the text is always rendered.
+            const effectiveShapeType: ObjectType =
+              (shapeType === 'rectangle' || shapeType === 'circle') &&
+              (n.label?.trim().length ?? 0) > TEXT_BODY_THRESHOLD
+                ? 'stickyNote'
+                : shapeType;
+
             // Per-type sensible color defaults — white on a white board is invisible.
             const defaultColor =
-              shapeType === 'diamond' ? '#FEFF9C'     // yellow decision
-              : shapeType === 'roundedRect' ? '#DBEAFE' // light blue process step
-              : shapeType === 'circle' ? '#98FF98'     // green terminal
-              : shapeType === 'rectangle' ? '#F3F4F6'  // light gray
-              : '#FEFF9C';                             // stickyNote yellow
+              effectiveShapeType === 'diamond' ? '#FEFF9C'       // yellow decision
+              : effectiveShapeType === 'roundedRect' ? '#DBEAFE' // light blue process step
+              : effectiveShapeType === 'circle' ? '#98FF98'      // green terminal
+              : effectiveShapeType === 'rectangle' ? '#F3F4F6'   // light gray
+              : '#FEFF9C';                                         // stickyNote yellow
 
+            // Use the just-created frameId directly so nodes are always bound to the
+            // enclosing flowchart frame. Fall back to spatial detection when no frame.
+            const parentFrame = frameId ?? findContainingFrame(ctx.boardObjects ?? {}, pos.x, pos.y, pos.width, pos.height);
             await restCreateObject(
               boardId,
               {
                 id: firestoreId,
-                type: shapeType,
+                type: effectiveShapeType,
                 text: n.label,
                 x: pos.x,
                 y: pos.y,
@@ -675,6 +812,7 @@ export function createAITools(ctx: ToolContext) {
                 isAIGenerated: true,
                 isAIPending: true,
                 aiCommandId,
+                ...(parentFrame ? { parentFrame } : {}),
               },
               userToken
             );
@@ -715,31 +853,6 @@ export function createAITools(ctx: ToolContext) {
             );
           })
         );
-
-        // ── Optional frame ──────────────────────────────────────────────────
-        let frameId: string | undefined;
-        if (wrapInFrame) {
-          frameId = uuidv4();
-          const framePad = 40;
-          await restCreateObject(
-            boardId,
-            {
-              id: frameId,
-              type: 'frame',
-              text: title ?? 'Flowchart',
-              x: startX - framePad,
-              y: startY - framePad,
-              width: layout.totalWidth + framePad * 2,
-              height: layout.totalHeight + framePad * 2 + 20, // extra for title
-              color: FRAME_DEFAULTS.color,
-              createdBy: userId,
-              isAIGenerated: true,
-              isAIPending: true,
-              aiCommandId,
-            },
-            userToken
-          );
-        }
 
         const nodeIds = Array.from(nodeIdMap.values());
         return {
