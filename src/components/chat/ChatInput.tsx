@@ -21,7 +21,7 @@
 'use client';
 
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { useChatStore, usePersonaStore } from '@/lib/store/chatStore';
+import { useChatStore } from '@/lib/store/chatStore';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCanvasStore } from '@/lib/store/canvasStore';
 import { useObjectStore } from '@/lib/store/objectStore';
@@ -83,7 +83,6 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
   const setIsInsertingRef = useChatStore((s) => s.setIsInsertingRef);
   const chatMode          = useChatStore((s) => s.chatMode);
   const setChatMode       = useChatStore((s) => s.setChatMode);
-  const persona           = usePersonaStore((s) => s.persona);
 
   // Narrow subscription — triggers re-render only when the selection array changes.
   const selectedObjectIds = useCanvasStore((s) => s.selectedObjectIds);
@@ -219,11 +218,10 @@ export default function ChatInput({ boardId, onSendAICommand, isAILoading }: Cha
         type:           'group',
         content:        text,
         ...(refsToSend.length > 0 ? { objectReferences: refsToSend } : {}),
-        aiPersona:      persona,
       };
       sendChatMessage(boardId, messageData).catch(console.error);
     }
-  }, [inputText, user, displayName, isAnonymous, boardId, chatMode, pendingRefs, persona, onSendAICommand, setIsInsertingRef]);
+  }, [inputText, user, displayName, isAnonymous, boardId, chatMode, pendingRefs, onSendAICommand, setIsInsertingRef]);
 
   // ── Keyboard handling ─────────────────────────────────────────────────────
   const handleKeyDown = useCallback(

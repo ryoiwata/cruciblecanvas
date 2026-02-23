@@ -33,7 +33,6 @@ import { buildSystemPrompt } from '@/lib/ai/prompts';
 import { createAITools } from '@/lib/ai/tools';
 import type { AIBoardContext } from '@/lib/ai/context';
 import type { SuggestedPosition } from '@/lib/ai/spatialPlanning';
-import type { AiPersona } from '@/lib/types';
 
 // Firebase publishes its token-signing keys at this JWKS endpoint.
 // jose caches the key set and re-fetches when keys rotate.
@@ -84,7 +83,6 @@ interface AICommandRequestBody {
   boardId: string;
   boardState: AIBoardContext;
   selectedObjectIds: string[];
-  persona: AiPersona;
   aiCommandId: string;
   suggestedPositions?: SuggestedPosition[];
 }
@@ -129,7 +127,7 @@ export async function POST(req: Request): Promise<Response> {
     });
   }
 
-  const { message, messages: turnHistory, boardId, boardState, selectedObjectIds, persona, aiCommandId, suggestedPositions } = body;
+  const { message, messages: turnHistory, boardId, boardState, selectedObjectIds, aiCommandId, suggestedPositions } = body;
 
   if (!message || !boardId || !aiCommandId) {
     return new Response(
@@ -151,25 +149,22 @@ export async function POST(req: Request): Promise<Response> {
   const selectedObjects =
     boardState?.visibleObjects?.filter((o) => selectedObjectIds?.includes(o.id)) ?? [];
 
-  const systemPrompt = buildSystemPrompt(
-    {
-      objectCount: boardState?.totalObjects ?? 0,
-      visibleCount: boardState?.visibleObjects?.length ?? 0,
-      selectedCount: selectedObjectIds?.length ?? 0,
-      frameCount: boardState?.frames?.length ?? 0,
-      topics: [],
-      colorLegend: boardState?.colorLegend ?? [],
-      selectedObjects: selectedObjects.map((o) => ({
-        id: o.id,
-        type: o.type,
-        text: o.text,
-        x: o.x,
-        y: o.y,
-      })),
-      suggestedPositions: suggestedPositions ?? [],
-    },
-    persona ?? 'mason'
-  );
+  const systemPrompt = buildSystemPrompt({
+    objectCount: boardState?.totalObjects ?? 0,
+    visibleCount: boardState?.visibleObjects?.length ?? 0,
+    selectedCount: selectedObjectIds?.length ?? 0,
+    frameCount: boardState?.frames?.length ?? 0,
+    topics: [],
+    colorLegend: boardState?.colorLegend ?? [],
+    selectedObjects: selectedObjects.map((o) => ({
+      id: o.id,
+      type: o.type,
+      text: o.text,
+      x: o.x,
+      y: o.y,
+    })),
+    suggestedPositions: suggestedPositions ?? [],
+  });
 
   // ---------------------------------------------------------------------------
   // 4. Stream Claude response with tool calling
@@ -179,17 +174,11 @@ export async function POST(req: Request): Promise<Response> {
   // ---------------------------------------------------------------------------
   const allTools = createAITools({ boardId, userId, aiCommandId, userToken: idToken });
 
-  // Mason: strip analytical tools (they're operational-only).
-  // Non-Mason: strip askClarification (other personas express ambiguity in prose).
+  // Mason is the only persona — strip analytical tools (operational-only).
   const MASON_EXCLUDED_TOOLS = new Set(['redTeamThis', 'mapDecision', 'findGaps']);
-  const NON_MASON_EXCLUDED_TOOLS = new Set(['askClarification']);
-  const tools = (persona ?? 'mason') === 'mason'
-    ? (Object.fromEntries(
-        Object.entries(allTools).filter(([name]) => !MASON_EXCLUDED_TOOLS.has(name))
-      ) as typeof allTools)
-    : (Object.fromEntries(
-        Object.entries(allTools).filter(([name]) => !NON_MASON_EXCLUDED_TOOLS.has(name))
-      ) as typeof allTools);
+  const tools = Object.fromEntries(
+    Object.entries(allTools).filter(([name]) => !MASON_EXCLUDED_TOOLS.has(name))
+  ) as typeof allTools;
 
   // When the client supplies turn history (clarification reply), use the full
   // conversation so Mason can see its own question and the user's answer.

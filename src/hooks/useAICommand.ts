@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { useAuthStore } from '@/lib/store/authStore';
 import { useCanvasStore } from '@/lib/store/canvasStore';
 import { useObjectStore } from '@/lib/store/objectStore';
-import { useChatStore, usePersonaStore } from '@/lib/store/chatStore';
+import { useChatStore } from '@/lib/store/chatStore';
 import {
   sendChatMessage,
   confirmAIPendingObjects,
@@ -52,8 +52,6 @@ export function useAICommand(boardId: string): UseAICommandReturn {
   const removeStream = useChatStore((s) => s.removeStream);
   const setSidebarOpen = useChatStore((s) => s.setSidebarOpen);
   const setClarificationPending = useChatStore((s) => s.setClarificationPending);
-
-  const persona = usePersonaStore((s) => s.persona);
 
   const sendAICommand = useCallback(
     async (command: string, refs?: ObjectReference[]) => {
@@ -118,7 +116,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         type: 'ai_command',
         content: command,
         aiCommandId,
-        aiPersona: persona,
+        aiPersona: 'mason',
         aiStatus: 'streaming',
         createdAt: Date.now(),
         ...(refs && refs.length > 0 ? { objectReferences: refs } : {}),
@@ -137,7 +135,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         type: 'ai_response',
         content: '',
         aiCommandId,
-        aiPersona: persona,
+        aiPersona: 'mason',
         aiStatus: 'streaming',
         createdAt: Date.now(),
       };
@@ -171,7 +169,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
         type: 'ai_command',
         content: command,
         aiCommandId,
-        aiPersona: persona,
+        aiPersona: 'mason',
         aiStatus: 'completed',
         ...(refs && refs.length > 0 ? { objectReferences: refs } : {}),
       }).catch(console.error);
@@ -212,7 +210,6 @@ export function useAICommand(boardId: string): UseAICommandReturn {
             boardId,
             boardState,
             selectedObjectIds,
-            persona,
             aiCommandId,
             suggestedPositions,
           }),
@@ -285,7 +282,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
           type: 'ai_response',
           content: accumulatedContent,
           aiCommandId,
-          aiPersona: persona,
+          aiPersona: 'mason',
           aiStatus: 'completed',
           ...(aiCreatedRefs.length > 0 ? { objectReferences: aiCreatedRefs } : {}),
         }).catch(console.error);
@@ -331,7 +328,7 @@ export function useAICommand(boardId: string): UseAICommandReturn {
           type: 'ai_response',
           content: accumulatedContent,
           aiCommandId,
-          aiPersona: persona,
+          aiPersona: 'mason',
           aiStatus: 'failed',
           aiError: `Command failed. All changes rolled back. (${errorMessage})`,
         }).catch(console.error);
@@ -362,7 +359,6 @@ export function useAICommand(boardId: string): UseAICommandReturn {
       stageY,
       stageScale,
       selectedObjectIds,
-      persona,
       addMessage,
       updateMessage,
       setStream,

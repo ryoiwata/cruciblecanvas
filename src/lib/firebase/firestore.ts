@@ -231,7 +231,7 @@ export async function createBoardMetadata(
     createdAt: serverTimestamp(),
     isPublic: true,
     invitedEmails: [],
-    aiPersona: "neutral",
+    aiPersona: "mason",
     aiCommandsToday: 0,
     aiCommandsResetAt: serverTimestamp(),
     analysisHistory: [],

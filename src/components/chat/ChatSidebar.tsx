@@ -13,7 +13,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useChatStore } from '@/lib/store/chatStore';
 import ChatTimeline from './ChatTimeline';
 import ChatInput from './ChatInput';
-import PersonaSelector from './PersonaSelector';
+import MasonBadge from './MasonBadge';
 import type { ObjectReference } from '@/lib/types';
 
 interface ChatSidebarProps {
@@ -131,8 +131,8 @@ export default function ChatSidebar({ boardId, onSendAICommand, isAILoading }: C
               )}
             </div>
             <div className="flex items-center gap-3">
-              {/* Persona selector — shown when send target is AI */}
-              {chatMode === 'ai' && <PersonaSelector />}
+              {/* Active AI indicator — always Mason */}
+              {chatMode === 'ai' && <MasonBadge />}
               <button
                 onClick={() => setSidebarOpen(false)}
                 className="text-gray-400 hover:text-gray-700 transition-colors"
