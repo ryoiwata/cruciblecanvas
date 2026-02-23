@@ -5,6 +5,10 @@
  * objects / diagrams). For Tier 1, the extraction is done in the same call.
  *
  * Keeping this prompt short (≤300 tokens) ensures Haiku returns in <200ms.
+ *
+ * NOTE: Anthropic's structured-output API does not support `oneOf` (produced by
+ * Zod discriminatedUnion). We use a single flat object schema instead and narrow
+ * the tier programmatically after the call.
  */
 
 import { generateObject } from 'ai';
@@ -17,7 +21,7 @@ const anthropic = createAnthropic({
 });
 
 // ---------------------------------------------------------------------------
-// Schema
+// Schema — flat to avoid oneOf which Anthropic does not support
 // ---------------------------------------------------------------------------
 
 const SimpleObjectSpecSchema = z.object({
@@ -26,24 +30,52 @@ const SimpleObjectSpecSchema = z.object({
   color: z.string().optional().describe('Hex color, e.g. #FEFF9C'),
 });
 
-const ClassificationSchema = z.discriminatedUnion('tier', [
-  z.object({
-    tier: z.literal('simple'),
-    objects: z.array(SimpleObjectSpecSchema).max(3).describe('Up to 3 objects to create'),
-    summaryText: z.string().describe('One-line confirmation, e.g. "Created 1 yellow sticky note."'),
-  }),
-  z.object({
-    tier: z.literal('complex'),
-    estimatedCount: z.number().int().describe('Approximate number of objects needed'),
-    layoutHint: z
-      .enum(['flowchart', 'grid', 'list', 'freeform'])
-      .optional()
-      .describe('Best layout for the content'),
-  }),
-]);
+/**
+ * Flat schema — no discriminatedUnion/oneOf.
+ * Simple tier: tier="simple", objects populated, summaryText populated.
+ * Complex tier: tier="complex", estimatedCount populated, layoutHint optionally populated.
+ */
+const ClassificationSchema = z.object({
+  tier: z.enum(['simple', 'complex']).describe(
+    '"simple" for 1–3 individual objects with no connections. "complex" for 4+ objects, flowcharts, or anything needing connectors.'
+  ),
+  // --- simple tier fields ---
+  objects: z
+    .array(SimpleObjectSpecSchema)
+    .max(3)
+    .optional()
+    .describe('Objects to create. Populate only when tier="simple" (max 3).'),
+  summaryText: z
+    .string()
+    .optional()
+    .describe('One-line confirmation for tier="simple", e.g. "Created 1 yellow sticky note."'),
+  // --- complex tier fields ---
+  estimatedCount: z
+    .number()
+    .int()
+    .optional()
+    .describe('Approximate number of objects needed. Populate only when tier="complex".'),
+  layoutHint: z
+    .enum(['flowchart', 'grid', 'list', 'freeform'])
+    .optional()
+    .describe('Best layout type. Populate only when tier="complex".'),
+});
 
-export type ClassificationResult = z.infer<typeof ClassificationSchema>;
 export type SimpleObjectSpec = z.infer<typeof SimpleObjectSpecSchema>;
+
+export type SimpleResult = {
+  tier: 'simple';
+  objects: SimpleObjectSpec[];
+  summaryText: string;
+};
+
+export type ComplexResult = {
+  tier: 'complex';
+  estimatedCount?: number;
+  layoutHint?: 'flowchart' | 'grid' | 'list' | 'freeform';
+};
+
+export type ClassificationResult = SimpleResult | ComplexResult;
 
 // ---------------------------------------------------------------------------
 // Classifier
@@ -54,9 +86,10 @@ const CLASSIFIER_SYSTEM_PROMPT = `You classify whiteboard commands as "simple" o
 SIMPLE: 1–3 individual objects with no connections between them (single sticky note, a few shapes, one text label).
 COMPLEX: 4+ objects, or any flowchart/diagram, or objects that need connectors/arrows between them.
 
-For SIMPLE commands, also extract the object list with type, text, and color.
-Default colors: yellow=#FEFF9C, pink=#FF7EB9, green=#98FF98, cyan=#7AFCFF, white=#FFFFFF.
-Use "rectangle" for generic boxes/cards. Use "stickyNote" for notes/ideas.`;
+For SIMPLE commands, populate "objects" (up to 3) and "summaryText".
+For COMPLEX commands, populate "estimatedCount" and optionally "layoutHint".
+Default colors: yellow=#FEFF9C, pink=#FF7EB9, green=#98FF98, cyan=#7AFCFF.
+Use "stickyNote" for notes/ideas, "rectangle" for generic boxes.`;
 
 /**
  * Classifies the user's command and, for simple commands, extracts the creation spec.
@@ -71,5 +104,17 @@ export async function classifyAndExtract(message: string): Promise<Classificatio
     // No telemetry here — cheap classifier call; keep it lightweight.
   });
 
-  return object;
+  if (object.tier === 'simple') {
+    return {
+      tier: 'simple',
+      objects: object.objects ?? [],
+      summaryText: object.summaryText ?? `Created ${object.objects?.length ?? 0} object(s).`,
+    };
+  }
+
+  return {
+    tier: 'complex',
+    estimatedCount: object.estimatedCount,
+    layoutHint: object.layoutHint,
+  };
 }
