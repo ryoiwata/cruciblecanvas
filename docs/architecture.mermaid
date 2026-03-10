@@ -1,0 +1,77 @@
+flowchart TD
+    classDef client   fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef server   fill:#22c55e,stroke:#15803d,color:#fff
+    classDef ai       fill:#f97316,stroke:#c2410c,color:#fff
+    classDef firebase fill:#ef4444,stroke:#b91c1c,color:#fff
+    classDef obs      fill:#a855f7,stroke:#7e22ce,color:#fff
+
+    subgraph clientLayer["Client Layer"]
+        User["User"]
+        ChatInput["ChatInput.tsx - type command, attach object refs"]
+        useAICmd["useAICommand.ts - serialize board state, compute spatial hints, POST"]
+        ZStore["Zustand Stores - objectStore, canvasStore, chatStore"]
+        KonvaCanvas["Konva Canvas - renders objects, cursors, frames"]
+    end
+
+    subgraph apiLayer["API Layer"]
+        RouteTS["route.ts - verify JWT, rate limit check, tier routing, SSE response"]
+        ToolsTS["tools.ts - 20 AI tools - create, move, layout, spatial, context"]
+        PromptCtx["prompts.ts and context.ts - MASON_SYSTEM_PROMPT, board context injection"]
+        SpatialTS["spatialPlanning.ts - computeOccupiedZones, findClearRect, 20px grid snap"]
+    end
+
+    subgraph aiLayer["AI Layer - Anthropic Claude"]
+        ClaudeHaiku["Claude Haiku - Tier 1 - generateObject, direct placement, fast path"]
+        ClaudeSonnet["Claude Sonnet 4.6 - Tier 2 - streamText, stepCountIs 30"]
+        ToolLoop["AI Tool Loop - createStickyNote, createShape, createFlowchart, findAvailableSpace"]
+    end
+
+    subgraph dataLayer["Data Layer - Firebase"]
+        FirebaseAuth["Firebase Auth - Google OAuth, JWT verification via Admin SDK"]
+        Firestore["Firestore - boards, objects, messages - persistent storage"]
+        RTDB["Realtime Database - AI streams, cursors, presence, locks - ephemeral"]
+    end
+
+    subgraph obsLayer["Observability"]
+        OTel["OpenTelemetry SDK - instrumentation.ts, LangfuseSpanProcessor"]
+        Langfuse["Langfuse - traces, token counts, tool call latency"]
+    end
+
+    OtherClients["Other Clients - Konva Canvas and ChatTimeline"]
+
+    User --> ChatInput
+    ChatInput --> useAICmd
+    useAICmd -->|"POST plus Bearer JWT"| RouteTS
+    useAICmd -->|"optimistic ai command message"| ZStore
+    ZStore --> KonvaCanvas
+
+    RouteTS -->|"verifyIdToken"| FirebaseAuth
+    RouteTS --> PromptCtx
+    RouteTS --> SpatialTS
+    RouteTS --> ToolsTS
+    RouteTS -->|"Tier 1 - generateObject"| ClaudeHaiku
+    RouteTS -->|"Tier 2 - streamText plus SSE"| ClaudeSonnet
+
+    ClaudeHaiku -->|"direct write isAIPending false"| Firestore
+    ClaudeSonnet -->|"tool calls"| ToolLoop
+    ToolLoop -->|"write isAIPending true, 50 pct opacity"| Firestore
+    ToolLoop -->|"tool result"| ClaudeSonnet
+
+    ClaudeSonnet -->|"SSE text tokens"| RouteTS
+    RouteTS -->|"SSE chunks"| useAICmd
+    useAICmd -->|"relay chunks, 100ms debounce"| RTDB
+    useAICmd -->|"stream done - confirmAIPendingObjects - full opacity"| Firestore
+    useAICmd -.->|"error - deleteObjectsByAiCommand rollback"| Firestore
+
+    Firestore -->|"onSnapshot - objects update"| KonvaCanvas
+    Firestore -->|"onSnapshot - full opacity"| OtherClients
+    RTDB -->|"onChildChanged - stream relay"| OtherClients
+
+    RouteTS -->|"experimental telemetry spans"| OTel
+    OTel --> Langfuse
+
+    class User,ChatInput,useAICmd,ZStore,KonvaCanvas,OtherClients client
+    class RouteTS,ToolsTS,PromptCtx,SpatialTS server
+    class ClaudeHaiku,ClaudeSonnet,ToolLoop ai
+    class FirebaseAuth,Firestore,RTDB firebase
+    class OTel,Langfuse obs

@@ -1,0 +1,606 @@
+%% ====================================================================
+%% CrucibleCanvas Architecture Diagrams
+%% Generated: 2026-03-10
+%%
+%% Six standalone Mermaid diagrams separated by comment blocks.
+%% To render: paste each diagram section individually into https://mermaid.live
+%% (Mermaid Live Editor renders one diagram at a time.)
+%% ====================================================================
+
+
+%% ====================================================================
+%% Diagram 1: System Architecture
+%% High-level overview of all layers and their data-flow relationships.
+%% ====================================================================
+flowchart TD
+    classDef client   fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef server   fill:#22c55e,stroke:#15803d,color:#fff
+    classDef ai       fill:#f97316,stroke:#c2410c,color:#fff
+    classDef firebase fill:#ef4444,stroke:#b91c1c,color:#fff
+    classDef obs      fill:#a855f7,stroke:#7e22ce,color:#fff
+
+    subgraph BROWSER["Client — Next.js 14 + React 18 (Browser)"]
+        subgraph UI["UI Components"]
+            C1["Canvas.tsx\nKonva Stage + DotGrid"]
+            C2["BoardObjects.tsx\nShape / Sticky / Frame / Connector / Text"]
+            C3["ChatSidebar.tsx\nChatInput / ChatTimeline"]
+            C4["PropertiesSidebar.tsx\nStyle + preset controls"]
+            C5["SubHeaderToolbar.tsx\nTool buttons + menus"]
+        end
+        subgraph ZSTORES["Zustand v5 Stores"]
+            S1["authStore\nuser · preferredColor"]
+            S2["objectStore\nobjects: Record<id, BoardObject>"]
+            S3["canvasStore\nviewport · tools · selection"]
+            S4["chatStore\nmessages · streams · clarificationPending"]
+        end
+        subgraph RHOOKS["React Hooks (src/hooks/)"]
+            H1["useAICommand.ts\norchestrates AI requests + rollback"]
+            H2["useFirestoreSync.ts\nonSnapshot real-time listener"]
+            H3["useMultiplayer.ts\npresence · cursor RTDB sync"]
+            H4["useAIStream.ts\nRTDB stream relay to chatStore"]
+        end
+    end
+
+    subgraph APISERVER["API Layer — Node.js Runtime (src/app/api/)"]
+        A1["POST /api/ai-command\nroute.ts — JWT verify, tier routing,\ntool execution, SSE streaming"]
+        A2["POST /api/boards/new\nroute.ts — board creation"]
+        A3["Firebase Admin SDK\nadmin.ts — ID token verification"]
+    end
+
+    subgraph AILAYER["AI Layer — Anthropic Claude"]
+        AI1["Tier Classifier\ntierClassifier.ts\nclassifyAndExtract via Haiku"]
+        AI2["Prompt Builder\nprompts.ts + context.ts\nbuildTier2SystemPrompt"]
+        AI3["Spatial Planning\nspatialPlanning.ts\ncomputeOccupiedZones + findClearRect"]
+        AI4["Layout Algorithms\nlayoutAlgorithms.ts\nBFS flowchart, grid, tree, radial"]
+        AI5["AI Tools — 20 defined\ntools.ts — createAITools factory"]
+        AI6["Claude Sonnet 4.6\nTier 2 — streamText\nstepCountIs(30)"]
+        AI7["Claude Haiku\nTier 1 — generateObject\ndiscriminated union schema"]
+    end
+
+    subgraph FBDATA["Data Layer — Firebase"]
+        FB1["Firebase Auth\nGoogle OAuth + Anonymous sign-in"]
+        FB2["Firestore\nboards/{id}/objects\nboards/{id}/messages\nusers/{id}/profile"]
+        FB3["Realtime Database\ncursors · presence · locks\naiStreams/{commandId}"]
+    end
+
+    subgraph OBSV["Observability"]
+        O1["OpenTelemetry SDK\nsrc/instrumentation.ts\nregister() at server startup"]
+        O2["Langfuse\ntrace spans · AI metrics\nLangfuseSpanProcessor"]
+    end
+
+    %% Client to API
+    H1 -->|"POST + Bearer JWT (REST)"| A1
+    H2 -->|"onSnapshot (WebSocket)"| FB2
+    H3 -->|"onValue / set (WebSocket)"| FB3
+    H4 -->|"onChildChanged (WebSocket)"| FB3
+
+    %% UI to hooks and stores
+    C3 -->|"sendAICommand"| H1
+    C1 -->|"reads stageX/Y/scale"| S3
+    S2 -->|"objects prop"| C2
+
+    %% API internal flow
+    A1 --> AI1
+    A1 --> AI2
+    AI2 --> AI3
+    A1 --> AI5
+    AI5 --> AI4
+    A1 --> A3
+
+    %% API to AI models
+    AI1 -->|"Tier 1 — generateObject"| AI7
+    A1 -->|"Tier 2 — streamText + SSE"| AI6
+    AI6 -->|"tool call loop"| AI5
+
+    %% API to Firebase
+    A3 -->|"verifyIdToken"| FB1
+    AI5 -->|"batch write (isAIPending: true)"| FB2
+    A1 -->|"stream chunk relay"| FB3
+
+    %% Observability
+    A1 -->|"experimental_telemetry spans"| O1
+    O1 --> O2
+
+    %% Apply classes
+    class C1,C2,C3,C4,C5 client
+    class S1,S2,S3,S4 client
+    class H1,H2,H3,H4 client
+    class A1,A2,A3 server
+    class AI1,AI2,AI3,AI4,AI5,AI6,AI7 ai
+    class FB1,FB2,FB3 firebase
+    class O1,O2 obs
+
+
+%% ====================================================================
+%% Diagram 2: AI Command Flow (Sequence Diagram)
+%% Full lifecycle from user typing a command to objects appearing on all canvases.
+%% ====================================================================
+sequenceDiagram
+    participant User
+    participant ChatInput as "ChatInput.tsx"
+    participant useAICmd as "useAICommand"
+    participant ZStore as "Zustand Stores"
+    participant APIRoute as "POST /api/ai-command"
+    participant Claude as "Claude LLM"
+    participant Firestore as "Firestore DB"
+    participant RTDB as "Realtime Database"
+    participant Others as "Other Clients"
+
+    User->>ChatInput: types command, presses Enter
+    ChatInput->>useAICmd: sendAICommand(message, objectRefs)
+
+    useAICmd->>ZStore: read clarificationPending flag
+    Note over useAICmd: if pending, capture last 6 messages as turn history
+
+    useAICmd->>ZStore: read objectStore + canvasStore (board state)
+    Note over useAICmd: computeSuggestedPositions(objects, viewport)\nPass 1 viewport scan, Pass 2 reflow fallback
+
+    useAICmd->>ZStore: create optimistic ai_command message (chatStore)
+    useAICmd->>RTDB: write pending stream entry at aiStreams/{commandId}
+
+    useAICmd->>APIRoute: POST body={message, boardState, suggestedPositions,\naiCommandId, messages[], viewportBounds} + Bearer JWT
+
+    APIRoute->>Firestore: verifyIdToken via Firebase Admin JWKS
+
+    alt JWT invalid or missing
+        APIRoute-->>useAICmd: HTTP 401 Unauthorized
+        useAICmd->>ZStore: set message.aiStatus = error
+    else rate limit exceeded (aiCommandsToday)
+        APIRoute->>Firestore: read BoardMetadata.aiCommandsToday
+        APIRoute-->>useAICmd: HTTP 429 Too Many Requests
+        useAICmd->>ZStore: set message.aiStatus = rate-limited
+    else Tier 1 — direct command (1-3 objects)
+        APIRoute->>Claude: generateObject via Haiku (classifyAndExtract)\ndiscriminated union schema
+        Claude-->>APIRoute: structured result with positions
+        APIRoute->>APIRoute: computeOccupiedZones + findClearRect per object
+        APIRoute->>Firestore: batch write objects (isAIPending: false, full opacity)
+        Firestore-->>Others: onSnapshot fires, objects appear immediately
+        APIRoute-->>useAICmd: SSE stream — plain text summary
+        useAICmd->>ZStore: save ai_response with objectReferences
+        useAICmd->>Firestore: persist ai_response message
+    else Tier 2 — planned command (4+ objects, flowcharts)
+        APIRoute->>APIRoute: computeOccupiedZones(boardState)\nbuildTier2SystemPrompt with zones block + viewport
+        APIRoute->>Claude: streamText with Sonnet 4.6\nstopWhen: stepCountIs(30), experimental_telemetry ON
+
+        loop Tool calling (up to 30 steps)
+            Claude->>Claude: select next tool call
+            Claude->>APIRoute: tool request (createStickyNote / createShape / createFlowchart / etc.)
+            APIRoute->>Firestore: write BoardObject (isAIPending: true, 50% opacity)
+            Firestore-->>Others: onSnapshot fires
+            Others->>Others: render pending object at 50% opacity
+            APIRoute-->>Claude: tool result {success, objectId}
+            Note over APIRoute: onStepFinish logs step + toolName to RTDB progress
+        end
+
+        loop SSE token streaming
+            Claude-->>APIRoute: text token (summary line)
+            APIRoute-->>useAICmd: SSE chunk
+            useAICmd->>RTDB: relay chunk (100ms debounce via rtdbDebounceRef)
+            RTDB-->>Others: onChildChanged fires
+            Others->>Others: append to AIStreamMessage in ChatTimeline
+        end
+
+        APIRoute-->>useAICmd: stream ends (X-Tier: 2 header)
+        useAICmd->>Firestore: confirmAIPendingObjects — batch update isAIPending=false
+        Firestore-->>Others: onSnapshot fires (full opacity)
+        useAICmd->>ZStore: find objects by aiCommandId, build objectReferences
+        useAICmd->>ZStore: save ai_response message with objectReferences
+        useAICmd->>Firestore: persist ai_response message (with objectReferences)
+    end
+
+    alt askClarification tool called by Mason
+        Note over Claude,APIRoute: Mason outputs sentinel "Clarification needed: {question}"
+        APIRoute-->>useAICmd: SSE stream ends with sentinel text
+        useAICmd->>ZStore: set clarificationPending = true
+        useAICmd->>ZStore: save ai_response with sentinel content
+        Note over User: chat button shows pulsing amber dot
+        User->>ChatInput: types clarifying answer
+        Note over useAICmd: wasPendingClarification=true triggers\nturn history inclusion in next POST
+    end
+
+    alt Error during streaming or tool execution
+        useAICmd->>Firestore: deleteObjectsByAiCommand(aiCommandId) — rollback
+        useAICmd->>ZStore: set message.aiStatus = error, show error state
+        useAICmd->>RTDB: clear pending stream entry
+    end
+
+
+%% ====================================================================
+%% Diagram 3: AI Tool Taxonomy
+%% All 23 defined Mason tools organized by category; 3 are filtered at route level.
+%% ====================================================================
+flowchart LR
+    classDef creation    fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef manip       fill:#8b5cf6,stroke:#6d28d9,color:#fff
+    classDef layout      fill:#22c55e,stroke:#15803d,color:#fff
+    classDef spatial     fill:#f59e0b,stroke:#b45309,color:#000
+    classDef context     fill:#64748b,stroke:#334155,color:#fff
+    classDef batch       fill:#06b6d4,stroke:#0e7490,color:#fff
+    classDef clarify     fill:#ec4899,stroke:#be185d,color:#fff
+    classDef excluded    fill:#374151,stroke:#1f2937,color:#9ca3af
+
+    MASON(["Mason\nSole AI Persona\naiPersona: 'mason'"])
+
+    subgraph CREATION["Creation Tools"]
+        T1["createStickyNote\ntext, color, parentFrame?"]
+        T2["createShape\ntype: rect/circle/diamond/roundedRect\nx, y, w, h, color, parentFrame?"]
+        T3["createFrame\nlabel, x, y, w, h, color?"]
+        T4["createConnector\nfromObjectId, toObjectId\nlabel?, directed?, style?"]
+    end
+
+    subgraph MANIP["Manipulation Tools"]
+        T5["moveObject\nobjectId, x, y"]
+        T6["resizeObject\nobjectId, width, height"]
+        T7["updateText\nobjectId, text"]
+        T8["changeColor\nobjectId, color"]
+        T9["deleteObject\nobjectId"]
+    end
+
+    subgraph LAYOUT["Layout Tools"]
+        T10["arrangeInLayout\nobjectIds, layout: grid/h/v, spacing"]
+        T11["calculateLayout\nnodes[], edges[], type: flowchart/grid/tree"]
+        T12["createFlowchart\nnodes[], edges[]\noptional frame wrapper"]
+    end
+
+    subgraph SPATIAL["Spatial Tools"]
+        T13["findAvailableSpace\nwidth, height, preferredArea?\nreads boardState closure — no Firestore"]
+        T14["getElementsInRegion\nx, y, width, height"]
+        T15["getViewport\nreturns current viewport bounds"]
+    end
+
+    subgraph CONTEXT["Context Tools"]
+        T16["getBoardState\nreturns full AIBoardContext\nincl. boundingBox + viewport"]
+        T17["getObjectsByFrame\nframeId — returns child objects"]
+    end
+
+    subgraph BATCH["Batch + Group Tools"]
+        T18["createElementsBatch\nelements[]: mixed creation ops"]
+        T19["groupElements\nobjectIds[], label? — sets groupId"]
+    end
+
+    subgraph CLARIFY["Clarification"]
+        T20["askClarification\nquestion — outputs sentinel:\nClarification needed: {question}"]
+    end
+
+    subgraph EXCLUDED["Filtered by route.ts — MASON_EXCLUDED_TOOLS\nnever sent to Claude when persona = mason"]
+        TX1["redTeamThis\ncritique + counter-argument framework"]
+        TX2["mapDecision\ndecision option mapper"]
+        TX3["findGaps\ngap analysis suggester"]
+    end
+
+    MASON --> CREATION
+    MASON --> MANIP
+    MASON --> LAYOUT
+    MASON --> SPATIAL
+    MASON --> CONTEXT
+    MASON --> BATCH
+    MASON --> CLARIFY
+    MASON -. "stripped by route.ts" .-> EXCLUDED
+
+    class T1,T2,T3,T4 creation
+    class T5,T6,T7,T8,T9 manip
+    class T10,T11,T12 layout
+    class T13,T14,T15 spatial
+    class T16,T17 context
+    class T18,T19 batch
+    class T20 clarify
+    class TX1,TX2,TX3 excluded
+
+
+%% ====================================================================
+%% Diagram 4: Real-Time Sync Architecture
+%% The dual-write pattern: AI tool writes + SSE relay + Firestore confirmation/rollback.
+%% ====================================================================
+flowchart TD
+    classDef client   fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef server   fill:#22c55e,stroke:#15803d,color:#fff
+    classDef firebase fill:#ef4444,stroke:#b91c1c,color:#fff
+    classDef pending  fill:#f59e0b,stroke:#b45309,color:#000
+    classDef confirm  fill:#22c55e,stroke:#15803d,color:#fff
+    classDef rollback fill:#ef4444,stroke:#991b1b,color:#fff
+
+    subgraph ORIGIN["Originating Client — useAICommand.ts"]
+        UC1["sendAICommand\nbuild POST body + JWT"]
+        UC2["receive SSE chunks\n100ms debounced relay"]
+        UC3["stream end handler\nconfirmAIPendingObjects"]
+        UC4["error catch handler\ndeleteObjectsByAiCommand"]
+        UC5["collect objectReferences\nobjects matching aiCommandId"]
+    end
+
+    subgraph SRVR["Server — /api/ai-command"]
+        SR1["JWT verify + rate limit check"]
+        SR2["Claude streamText\n+ tool call loop"]
+        SR3["AI Tool execute()\nbatch Firestore write\nper created object"]
+        SR4["SSE token stream\nback to client"]
+    end
+
+    subgraph FBASE["Firebase"]
+        FS1["Firestore\nboards/{boardId}/objects/{id}\nboards/{boardId}/messages/{id}"]
+        RDB1["Realtime Database\naiStreams/{aiCommandId}/content\naiStreams/{aiCommandId}/progress"]
+    end
+
+    subgraph OSTATE["Object Lifecycle States"]
+        ST_PENDING["isAIPending: true\nopacity: 0.5\nvisible but unconfirmed"]
+        ST_CONFIRMED["isAIPending: false\nopacity: 1.0\nfully confirmed"]
+        ST_DELETED["DELETED\nrolled back via\ndeleteObjectsByAiCommand"]
+    end
+
+    subgraph OTHERS["Other Clients — Passive Sync"]
+        OC1["useFirestoreSync\nonSnapshot listener\nobjectStore.setObjects"]
+        OC2["useAIStream\nonChildChanged listener\nchatStore stream update"]
+        OC3["Canvas.tsx\nBoardObjects render\n50% or 100% opacity"]
+        OC4["ChatTimeline\nAIStreamMessage\nstreaming text display"]
+    end
+
+    subgraph CHIPS["Object Reference Chips"]
+        CH1["aiCommandId field\nwritten on every AI object"]
+        CH2["objectReferences[]\nin ChatMessage"]
+        CH3["AIRefPopover.tsx\nMasterGroupChip + individual chips\ncollapse if > 5 refs"]
+        CH4["ObjectRefChip click\nteleport + select + pulse ring"]
+    end
+
+    %% Happy path
+    UC1 -->|"POST + Bearer JWT"| SR1
+    SR1 --> SR2
+    SR2 -->|"tool call"| SR3
+    SR3 -->|"batch write isAIPending:true"| FS1
+    FS1 --> ST_PENDING
+    SR2 -->|"SSE text tokens"| SR4
+    SR4 -->|"SSE chunks"| UC2
+    UC2 -->|"relay chunks\n100ms debounce"| RDB1
+
+    %% Stream end — confirmation
+    UC3 -->|"batch update isAIPending=false"| FS1
+    ST_PENDING --> ST_CONFIRMED
+
+    %% Error rollback
+    UC4 -->|"batch delete by aiCommandId"| FS1
+    ST_PENDING --> ST_DELETED
+
+    %% Other clients sync
+    FS1 -->|"onSnapshot fires"| OC1
+    OC1 -->|"update objectStore"| OC3
+    ST_CONFIRMED -->|"onSnapshot — full opacity"| OC1
+    RDB1 -->|"onChildChanged fires"| OC2
+    OC2 -->|"append content"| OC4
+
+    %% Object references
+    SR3 --> CH1
+    UC5 -->|"query by aiCommandId"| CH2
+    CH2 --> CH3
+    CH3 --> CH4
+
+    class UC1,UC2,UC3,UC4,UC5 client
+    class SR1,SR2,SR3,SR4 server
+    class FS1,RDB1 firebase
+    class ST_PENDING pending
+    class ST_CONFIRMED confirm
+    class ST_DELETED rollback
+    class OC1,OC2,OC3,OC4 client
+    class CH1,CH2,CH3,CH4 client
+
+
+%% ====================================================================
+%% Diagram 5: Spatial Planning Pipeline
+%% How Mason decides WHERE to place objects: client pre-computation + server zones + tool fallback.
+%% ====================================================================
+flowchart TD
+    classDef client fill:#3b82f6,stroke:#1d4ed8,color:#fff
+    classDef server fill:#22c55e,stroke:#15803d,color:#fff
+    classDef ai     fill:#f97316,stroke:#c2410c,color:#fff
+    classDef algo   fill:#8b5cf6,stroke:#6d28d9,color:#fff
+
+    subgraph CLIENTCOMP["Client-Side — Pre-request (useAICommand.ts)"]
+        VP["Viewport Bounds\nfrom canvasStore\n{x, y, width, height} in canvas coords"]
+        OBJ["All Board Objects\nfrom objectStore"]
+        CSP["computeSuggestedPositions\nspatialPlanning.ts (client export)"]
+
+        subgraph PASS1["Pass 1 — Viewport Scan"]
+            P1A["Grid cluster scan inside viewport\nfind first empty anchor point\nstep by object dimensions"]
+            P1B["Emit up to 5 positions\nlabeled source: 'viewport'"]
+        end
+
+        subgraph PASS2["Pass 2 — Reflow Fallback"]
+            P2A["If viewport is full:\nlocate bottom of existing content\nplace in a vertical column below"]
+            P2B["Emit positions\nlabeled source: 'reflow'"]
+        end
+
+        SPOS["5 Suggested Positions\n{x, y, width, height, source}\nattached to POST body"]
+        COORD["Coordinate System\ncanvas space (unbounded, can be negative)\nscreenX = (canvasX - stageX) * stageScale\nAll final coords snap to 20px grid"]
+    end
+
+    subgraph SERVERCOMP["Server-Side — route.ts after JWT verify"]
+        BS["boardState from POST body\nobjects[] + viewportBounds"]
+        COZ["computeOccupiedZones\nspatialPlanning.ts (server export)"]
+
+        subgraph ZONEBUILD["Zone Construction"]
+            ZB1["Frames → exact AABB\n+ 20px padding on all sides"]
+            ZB2["Non-frame objects → proximity cluster\n100px merge threshold\n+ 20px padding"]
+            ZB3["Connectors → SKIPPED\nno spatial claim"]
+        end
+
+        ZONES["Occupied Zones Block\n≤ 20 compact zone rects\ninjected into Tier 2 system prompt"]
+
+        subgraph TIER1PATH["Tier 1 Direct Placement"]
+            FCR["findClearRect\nfor each object in Haiku result"]
+            ROWSCAN["Row-major raster scan\nstep = max(40, dimension/4)\nsnap result to 20px grid\nunbounded search — never fails"]
+        end
+    end
+
+    subgraph MASONTOOL["Mason Tool — At Inference Time"]
+        FAS["findAvailableSpace tool\nparams: width, height, preferredArea?"]
+        FASREAD["reads boardState closure\nno Firestore I/O — pure computation"]
+        FASRESULT["Returns {x, y, width, height}\nfor use in subsequent create calls"]
+    end
+
+    subgraph DECISION["Mason Placement Decision"]
+        DEC1["Simple command (1-3 objects)\nUse suggestedPositions from prompt\nor occupied zones to avoid collisions"]
+        DEC2["Complex layout (4+ objects)\nCall findAvailableSpace FIRST\nthen create in batch or flowchart"]
+        SNAP["All coordinates snapped\nto 20px grid before Firestore write"]
+    end
+
+    VP --> CSP
+    OBJ --> CSP
+    CSP --> PASS1
+    CSP --> PASS2
+    PASS1 --> P1A --> P1B --> SPOS
+    PASS2 --> P2A --> P2B --> SPOS
+    COORD -.->|"reference for conversion"| CSP
+
+    SPOS -->|"attached to POST body"| SERVERCOMP
+
+    BS --> COZ
+    COZ --> ZONEBUILD
+    ZB1 --> ZONES
+    ZB2 --> ZONES
+    ZB3 -.->|"skipped"| ZONES
+
+    ZONES -->|"injected into Tier 2\nsystem prompt header"| DEC1
+
+    BS --> TIER1PATH
+    FCR --> ROWSCAN --> DEC1
+
+    FAS --> FASREAD --> FASRESULT --> DEC2
+
+    DEC1 --> SNAP
+    DEC2 --> SNAP
+
+    class VP,OBJ,CSP,P1A,P1B,P2A,P2B,SPOS,COORD client
+    class BS,COZ,ZB1,ZB2,ZB3,ZONES,FCR,ROWSCAN server
+    class FAS,FASREAD,FASRESULT ai
+    class DEC1,DEC2,SNAP algo
+
+
+%% ====================================================================
+%% Diagram 6: Data Model (ER Diagram)
+%% Firestore + RTDB entities and their relationships.
+%% ====================================================================
+erDiagram
+    BOARD {
+        string id
+        string title
+        string ownerId
+        string creatorEmail
+        boolean isPublic
+        stringArray invitedEmails
+        int aiCommandsToday
+        timestamp aiCommandsResetAt
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    BOARD_OBJECT {
+        string id
+        string boardId
+        string type
+        float x
+        float y
+        float width
+        float height
+        float rotation
+        string color
+        string text
+        float opacity
+        int zIndex
+        string parentFrame
+        string connectedTo
+        string strokeColor
+        string textColor
+        string textAlign
+        string lineType
+        string startEffect
+        string endEffect
+        boolean isAIGenerated
+        string aiCommandId
+        boolean isAIPending
+        string groupId
+        string createdBy
+        timestamp createdAt
+        timestamp updatedAt
+    }
+
+    CHAT_MESSAGE {
+        string id
+        string boardId
+        string senderId
+        string senderName
+        string senderPhotoURL
+        string type
+        string content
+        string aiCommandId
+        string aiPersona
+        string aiStatus
+        string aiError
+        stringArray objectReferences
+        timestamp createdAt
+    }
+
+    USER {
+        string uid
+        string displayName
+        string email
+        string photoURL
+        boolean isAnonymous
+        string preferredColor
+        timestamp createdAt
+    }
+
+    OWNED_BOARD_REF {
+        string boardId
+        string title
+        timestamp createdAt
+    }
+
+    AI_STREAM {
+        string aiCommandId
+        string boardId
+        string requesterId
+        string content
+        string status
+        int step
+        string lastToolName
+        timestamp timestamp
+    }
+
+    PRESENCE {
+        string userId
+        string boardId
+        string displayName
+        string email
+        string color
+        boolean online
+        timestamp lastSeen
+    }
+
+    CURSOR {
+        string userId
+        string boardId
+        float x
+        float y
+        string color
+        string displayName
+    }
+
+    OBJECT_LOCK {
+        string objectId
+        string boardId
+        string userId
+        timestamp acquiredAt
+        timestamp expiresAt
+    }
+
+    BOARD ||--o{ BOARD_OBJECT : "contains objects"
+    BOARD ||--o{ CHAT_MESSAGE : "has messages"
+    BOARD ||--o{ AI_STREAM : "streams via"
+    BOARD ||--o{ PRESENCE : "tracks presence for"
+    BOARD ||--o{ CURSOR : "tracks cursors for"
+    BOARD ||--o{ OBJECT_LOCK : "manages locks for"
+    USER ||--o{ BOARD : "owns"
+    USER ||--o{ OWNED_BOARD_REF : "has board listing"
+    USER ||--o{ CHAT_MESSAGE : "authors"
+    USER ||--o{ PRESENCE : "has presence in"
+    USER ||--o{ CURSOR : "has cursor in"
+    BOARD_OBJECT }o--o| BOARD_OBJECT : "parentFrame nesting"
+    BOARD_OBJECT }o--o| BOARD_OBJECT : "connectedTo (connector)"
+    CHAT_MESSAGE }o--o| AI_STREAM : "linked by aiCommandId"
+    BOARD_OBJECT }o--o| CHAT_MESSAGE : "referenced in objectReferences"
