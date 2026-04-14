@@ -34,9 +34,6 @@ const BASE_URL = process.env.PERF_BASE_URL ?? 'http://localhost:3000';
 const BASELINE_BOARD_ID =
   process.env.PERF_BYPASS_BOARD_ID ?? 'perf-test-board-001';
 
-/** The display name written to Firestore for the anonymous perf-test user. */
-const PERF_DISPLAY_NAME = 'Perf Test Runner';
-
 /** Absolute path where the browser auth state is persisted between setup and tests. */
 export const AUTH_STATE_PATH = path.join(__dirname, '.auth', 'state.json');
 
@@ -85,11 +82,9 @@ export default async function globalSetup(): Promise<void> {
   if (!page.url().includes('/auth')) {
     console.log('[GlobalSetup] Already authenticated — skipping sign-in UI.');
   } else {
-    // Fill the required Display Name field (handleGuest returns early if empty).
-    await page.fill('#displayName', PERF_DISPLAY_NAME);
-
     // Click "Continue as Guest" — triggers signInAnonymously + Firestore profile
     // write + redirect to the board URL from the ?redirect param.
+    // Note: the auth UI no longer has a display name field (email auth removed).
     console.log('[GlobalSetup] Signing in as guest…');
     await page.click('button:has-text("Continue as Guest")');
 
