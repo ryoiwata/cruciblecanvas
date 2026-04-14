@@ -67,6 +67,15 @@ service cloud.firestore {
     }
 
     // -----------------------------------------------------------------------
+    // Owned boards index: users/{userId}/ownedBoards/{boardId}
+    // Users can only read/write their own board references.
+    // -----------------------------------------------------------------------
+    match /users/{userId}/ownedBoards/{boardId} {
+      allow read, write: if request.auth != null
+                         && request.auth.uid == userId;
+    }
+
+    // -----------------------------------------------------------------------
     // Mail queue: mail/{messageId}
     // Authenticated users may enqueue invitation emails via the Firebase
     // Trigger Email extension. The extension owns read/update/delete;

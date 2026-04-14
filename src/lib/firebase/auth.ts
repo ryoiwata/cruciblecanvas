@@ -1,6 +1,8 @@
 import {
   signInAnonymously,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
@@ -8,6 +10,7 @@ import {
   linkWithPopup,
   signOut,
   AuthProvider,
+  AuthError,
   UserCredential,
 } from "firebase/auth";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
@@ -35,11 +38,47 @@ export async function signInAsGuest(): Promise<UserCredential> {
   return credential;
 }
 
+/** Popup-blocked or unauthorized-domain errors that should trigger redirect fallback. */
+const REDIRECT_FALLBACK_CODES = new Set([
+  'auth/popup-blocked',
+  'auth/popup-closed-by-user',
+  'auth/unauthorized-domain',
+]);
+
+/**
+ * Signs in with Google, trying popup first and falling back to redirect
+ * when the popup is blocked or the domain isn't authorized for popups.
+ */
 export async function signInWithGoogle(): Promise<UserCredential> {
   const provider = new GoogleAuthProvider();
-  const credential = await signInWithPopup(auth, provider);
-  await writeUserProfile(credential);
-  return credential;
+  try {
+    const credential = await signInWithPopup(auth, provider);
+    await writeUserProfile(credential);
+    return credential;
+  } catch (err) {
+    const code = (err as AuthError)?.code;
+    if (code && REDIRECT_FALLBACK_CODES.has(code)) {
+      // Popup failed — fall back to full-page redirect flow
+      await signInWithRedirect(auth, provider);
+      // signInWithRedirect navigates away; this line is never reached.
+      // The result is picked up by handleGoogleRedirectResult on reload.
+      return undefined as unknown as UserCredential;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Checks for a pending Google redirect result on page load.
+ * Should be called once in the auth page component on mount.
+ * Returns the credential if a redirect sign-in just completed, or null otherwise.
+ */
+export async function handleGoogleRedirectResult(): Promise<UserCredential | null> {
+  const result = await getRedirectResult(auth);
+  if (result) {
+    await writeUserProfile(result);
+  }
+  return result;
 }
 
 export async function signInWithEmail(

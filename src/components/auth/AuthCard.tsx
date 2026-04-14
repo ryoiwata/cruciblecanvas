@@ -1,9 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { AuthError } from "firebase/auth";
 import { createBoardMetadata } from "@/lib/firebase/firestore";
-import { signInAsGuest, signInWithGoogle } from "@/lib/firebase/auth";
+import {
+  signInAsGuest,
+  signInWithGoogle,
+  handleGoogleRedirectResult,
+} from "@/lib/firebase/auth";
+
+/** Maps Firebase Auth error codes to user-friendly messages. */
+function getAuthErrorMessage(err: unknown): string {
+  const code = (err as AuthError)?.code;
+  switch (code) {
+    case 'auth/unauthorized-domain':
+      return 'This domain is not authorized for sign-in. Please contact the site administrator.';
+    case 'auth/popup-blocked':
+      return 'Popup was blocked. Redirecting to Google sign-in...';
+    case 'auth/popup-closed-by-user':
+      return 'Sign-in cancelled. Please try again.';
+    case 'auth/network-request-failed':
+      return 'Network error. Please check your connection and try again.';
+    case 'auth/internal-error':
+      return 'An internal error occurred. Please try again.';
+    default:
+      return `Sign-in failed (${code || 'unknown'}). Please try again.`;
+  }
+}
 
 interface AuthCardProps {
   redirectUrl?: string | null;
@@ -14,23 +38,37 @@ export default function AuthCard({ redirectUrl }: AuthCardProps) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // Handle redirect result on mount (fires after signInWithRedirect flow)
+  useEffect(() => {
+    let cancelled = false;
+    handleGoogleRedirectResult()
+      .then((credential) => {
+        if (cancelled || !credential) return;
+        router.push(redirectUrl || '/dashboard');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error('Google redirect result failed:', err);
+        setError(getAuthErrorMessage(err));
+      });
+    return () => { cancelled = true; };
+  }, [router, redirectUrl]);
+
   const handleGuest = async () => {
     setError(null);
     setLoading(true);
     try {
       const credential = await signInAsGuest();
       if (redirectUrl) {
-        // Guest is joining a shared board link — navigate there directly
         router.push(redirectUrl);
       } else {
-        // Auto-create a board and redirect guest directly to it
         const boardId = crypto.randomUUID();
         await createBoardMetadata(boardId, credential.user.uid, 'Untitled Board');
         router.push('/board/' + boardId);
       }
     } catch (err) {
       console.error('Guest sign-in failed:', err);
-      setError('Sign-in failed. Please try again.');
+      setError(getAuthErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -44,7 +82,7 @@ export default function AuthCard({ redirectUrl }: AuthCardProps) {
       router.push(redirectUrl || '/dashboard');
     } catch (err) {
       console.error('Google sign-in failed:', err);
-      setError('Sign-in failed. Please allow popups for this site.');
+      setError(getAuthErrorMessage(err));
     } finally {
       setLoading(false);
     }
