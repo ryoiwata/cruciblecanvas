@@ -4,6 +4,12 @@
 
 CrucibleCanvas combines an infinite canvas with real-time multiplayer collaboration and an embedded AI agent — **The Mason** — that builds structured diagrams, flowcharts, and content directly on the board from plain-language commands.
 
+**Live app:** [cruciblecanvas.vercel.app](https://cruciblecanvas.vercel.app)
+
+### Demo
+
+[![CrucibleCanvas Demo](https://img.youtube.com/vi/30iQ_kqWpqo/maxresdefault.jpg)](https://www.youtube.com/watch?v=30iQ_kqWpqo)
+
 ---
 
 ## Features
